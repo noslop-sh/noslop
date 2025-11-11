@@ -1,0 +1,31 @@
+# Rust formatting configuration for noslop
+# See https://rust-lang.github.io/rustfmt/
+# Using only stable features
+
+edition = "2024"
+
+# Formatting
+max_width = 100
+use_small_heuristics = "Default"
+fn_call_width = 80
+struct_lit_width = 18
+struct_variant_width = 35
+array_width = 80
+chain_width = 80
+
+# Indentation
+tab_spaces = 4
+hard_tabs = false
+
+# Whitespace
+use_field_init_shorthand = true
+use_try_shorthand = true
+force_explicit_abi = true
+
+# Misc
+remove_nested_parens = true
+
+# Style
+newline_style = "Unix"
+match_block_trailing_comma = true
+reorder_imports = true

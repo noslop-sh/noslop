@@ -1,0 +1,15 @@
+# Clippy configuration for noslop
+# See https://doc.rust-lang.org/clippy/
+
+# Cognitive complexity threshold
+cognitive-complexity-threshold = 30
+
+# Documentation
+missing-docs-in-crate-items = true
+
+# Performance
+too-many-arguments-threshold = 7
+too-many-lines-threshold = 200
+
+# Style
+single-char-binding-names-threshold = 4
