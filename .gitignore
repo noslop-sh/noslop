@@ -1,1 +1,29 @@
+# Build artifacts
 /target
+
+# Coverage reports
+/coverage
+*.profraw
+*.profdata
+cobertura.xml
+lcov.info
+tarpaulin-report.html
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Environment
+.env
+.env.local
+
+# Test artifacts
+*.test
+
+# Debug
+*.pdb
+.noslop/

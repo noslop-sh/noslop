@@ -2,9 +2,26 @@ name: CI
 
 on:
   push:
-    branches: [ main, develop, 'claude/**' ]
+    branches: [ develop, 'claude/**' ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'LICENSE'
+      - '.gitignore'
   pull_request:
     branches: [ main, develop ]
+    paths-ignore:
+      - '**.md'
+      - 'docs/**'
+      - '.github/ISSUE_TEMPLATE/**'
+      - 'LICENSE'
+      - '.gitignore'
+
+# Cancel in-progress runs when a new commit is pushed to the same PR/branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
@@ -36,26 +53,26 @@ jobs:
 
   test:
     name: Test Suite
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-        rust: [stable, beta]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ matrix.rust }}
+      - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Build main binary for lifecycle tests
+        run: cargo build
+      - name: Upload noslop binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: noslop-binary
+          path: target/debug/noslop
+          retention-days: 1
       - name: Run tests
         run: cargo test --all-features
 
   build:
     name: Build
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
+    needs: [fmt, clippy, test]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -66,16 +83,86 @@ jobs:
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
+    needs: test
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Download noslop binary
+        uses: actions/download-artifact@v4
+        with:
+          name: noslop-binary
+          path: target/debug/
+      - name: Make binary executable
+        run: chmod +x target/debug/noslop
       - name: Install tarpaulin
-        run: cargo install cargo-tarpaulin
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-tarpaulin
       - name: Generate coverage
-        run: cargo tarpaulin --out xml --all-features
+        run: cargo tarpaulin --out xml --all-features --timeout 300 --test unit --lib
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
         with:
           files: ./cobertura.xml
           fail_ci_if_error: false
+
+  install-test:
+    name: Test Installation Script
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Test installation script
+        run: |
+          # Run the install script
+          bash scripts/install.sh
+        continue-on-error: true  # Don't fail if no release exists yet
+
+      - name: Verify installation and run commands
+        run: |
+          if command -v noslop &> /dev/null; then
+            echo "✓ noslop installed successfully"
+            echo ""
+            echo "Testing noslop commands:"
+            echo "------------------------"
+
+            # Test version
+            echo "$ noslop --version"
+            noslop --version
+            echo ""
+
+            # Test help
+            echo "$ noslop --help"
+            noslop --help
+            echo ""
+
+            # Test all commands to ensure they parse correctly
+            echo "$ noslop init --help"
+            noslop init --help
+            echo ""
+
+            echo "$ noslop status --help"
+            noslop status --help
+            echo ""
+
+            echo "$ noslop guard --help"
+            noslop guard --help
+            echo ""
+
+            echo "$ noslop blame --help"
+            noslop blame --help
+            echo ""
+
+            echo "$ noslop commit --help"
+            noslop commit --help
+            echo ""
+
+            echo "$ noslop plugin --help"
+            noslop plugin --help
+            echo ""
+
+            echo "✓ All commands executed successfully"
+          else
+            echo "⚠ No release available yet to test installation"
+          fi

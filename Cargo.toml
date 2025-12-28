@@ -1,11 +1,11 @@
 [package]
 name = "noslop"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2024"
 authors = ["noslop.sh team"]
 description = "A CLI tool to maintain high code and documentation quality in AI-assisted development"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/saumilptl/noslop"
+repository = "https://github.com/noslop-sh/noslop"
 readme = "README.md"
 keywords = ["cli", "ai", "quality", "linting", "provenance"]
 categories = ["command-line-utilities", "development-tools"]
@@ -16,10 +16,11 @@ chrono = { version = "0.4.42", features = ["serde"] }
 clap = { version = "4.5.51", features = ["derive", "cargo"] }
 colored = "3.0.0"
 env_logger = "0.11.8"
-git2 = "0.20.2"
+git2 = { version = "0.20.2", features = ["vendored-openssl"] }
 glob = "0.3.3"
 log = "0.4.28"
-reqwest = { version = "0.12.24", features = ["json"], optional = true }
+regex = "1.12"
+reqwest = { version = "0.12.24", default-features = false, features = ["json", "rustls-tls"], optional = true }
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 thiserror = "2.0.17"

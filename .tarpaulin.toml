@@ -1,0 +1,23 @@
+# Tarpaulin configuration for code coverage
+# See https://github.com/xd009642/tarpaulin
+
+[report]
+# Output formats: Html, Lcov, Json
+out-type = ["Html", "Lcov", "Json"]
+output-dir = "coverage/"
+
+[run]
+# Timeout for tests
+timeout = "300s"
+
+# Don't follow symbolic links (faster)
+follow-exec = false
+
+# Count hits in coverage (more accurate)
+count = true
+
+# Generate coverage for all packages in workspace
+all-features = true
+
+# Avoid recompiling dependencies (only measure our code)
+avoid-cfg-tarpaulin = true
