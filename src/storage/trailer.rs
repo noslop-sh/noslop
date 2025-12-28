@@ -14,10 +14,13 @@ use crate::models::Attestation;
 const ATTEST_TRAILER: &str = "Noslop-Attest";
 
 /// Attestation store using commit trailers
+#[derive(Debug, Clone, Copy)]
 pub struct TrailerAttestationStore;
 
 impl TrailerAttestationStore {
-    pub fn new() -> Self {
+    /// Create a new trailer attestation store
+    #[must_use]
+    pub const fn new() -> Self {
         Self
     }
 }
@@ -73,7 +76,7 @@ impl AttestationStore for TrailerAttestationStore {
         let mut attestations = Vec::new();
 
         for line in trailers.lines() {
-            if let Some(value) = line.strip_prefix(&format!("{}: ", ATTEST_TRAILER))
+            if let Some(value) = line.strip_prefix(&format!("{ATTEST_TRAILER}: "))
                 && let Some(attestation) = parse_attestation_trailer(value)
             {
                 attestations.push(attestation);
@@ -91,7 +94,7 @@ fn parse_attestation_trailer(value: &str) -> Option<Attestation> {
         Some(Attestation::new(
             parts[0].trim().to_string(),
             parts[1].trim().to_string(),
-            parts.get(2).map(|s| s.trim()).unwrap_or("unknown").to_string(),
+            parts.get(2).map_or("unknown", |s| s.trim()).to_string(),
         ))
     } else {
         None
@@ -99,6 +102,7 @@ fn parse_attestation_trailer(value: &str) -> Option<Attestation> {
 }
 
 /// Helper to append trailers to a commit message
+#[must_use]
 pub fn append_trailers(message: &str, trailers: &str) -> String {
     if trailers.is_empty() {
         return message.to_string();
@@ -108,8 +112,8 @@ pub fn append_trailers(message: &str, trailers: &str) -> String {
 
     // Check if message already has trailers (ends with "Key: Value" lines)
     if message.lines().last().is_some_and(|l| l.contains(": ")) {
-        format!("{}\n{}", message, trailers)
+        format!("{message}\n{trailers}")
     } else {
-        format!("{}\n\n{}", message, trailers)
+        format!("{message}\n\n{trailers}")
     }
 }

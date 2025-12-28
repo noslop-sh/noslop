@@ -76,6 +76,7 @@ impl Assertion {
     }
 
     /// Check if this assertion applies to a given file path
+    #[must_use]
     #[allow(dead_code)] // Used in tests, will be wired up when Target integration is complete
     pub fn applies_to(&self, path: &str) -> bool {
         // Simple matching for now - exact or prefix

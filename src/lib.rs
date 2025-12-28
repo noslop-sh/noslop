@@ -28,7 +28,9 @@
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+pub mod models;
 pub mod output;
 pub mod parser;
 pub mod resolver;
+pub mod storage;
 pub mod target;
