@@ -8,18 +8,18 @@
 
 ## The Problem
 
-Your team has conventions that live in people's heads:
+Your team has knowledge that lives in people's heads:
 
 - "Migration files must be auto-generated, not hand-written"
 - "New models need to be imported in `__init__.py` for Alembic"
 - "Public API routes need rate limiting"
 - "Auth changes require security review"
 
-Agents don't know any of this. They'll write working code that violates every convention you have. You catch it in review, leave comments, wait for fixes, repeat. Slop.
+Agents don't know any of this. They'll write working code that misses every detail you care about. You catch it in review, leave comments, wait for fixes, repeat. Slop.
 
 ## The Solution
 
-noslop surfaces your conventions to agents at commit time. Before code hits review, agents see what they missed and fix it themselves.
+noslop surfaces what agents need to know, when they need to know it. They see what they missed and fix it themselves.
 
 ```toml
 # .noslop.toml
@@ -71,7 +71,7 @@ noslop init
 
 This creates `.noslop.toml` and installs git hooks.
 
-## Defining Conventions
+## Defining Assertions
 
 Add assertions for patterns that trip up agents repeatedly:
 
@@ -100,7 +100,7 @@ noslop assert add "auth/**/*.py" \
 
 1. Agent modifies code
 2. Agent runs `git commit`
-3. noslop shows relevant conventions
+3. noslop shows what they need to know
 4. Agent self-corrects
 5. Agent attests: `noslop attest DB-1 -m "Added to __init__.py"`
 6. Commit succeeds
@@ -184,7 +184,7 @@ noslop check                             # Check staged files
 
 ## Why "noslop"?
 
-Slop is code that works but misses the point. It compiles, passes tests, and violates every convention your team has. noslop is the fix.
+Slop is code that works but misses the point. It compiles, passes tests, and ignores everything your team knows. noslop is the fix.
 
 ## License
 
