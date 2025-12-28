@@ -1,28 +1,28 @@
 # noslop
 
-**Context-aware reminders for AI coding agents.** Stop AI from breaking conventions it doesn't know exist.
+**The missing context layer for coding agents.**
 
 [![CI](https://github.com/noslop-sh/noslop/workflows/CI/badge.svg)](https://github.com/noslop-sh/noslop/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/noslop-sh/noslop/blob/main/LICENSE)
 [![Crates.io](https://img.shields.io/crates/v/noslop.svg)](https://crates.io/crates/noslop)
 
-## What is noslop?
+## The Problem
 
-AI coding agents are powerful but context-blind. They don't know your undocumented conventions:
+Your team has conventions that live in people's heads:
 
-- Migration files must be generated with `alembic revision --autogenerate`, not hand-written
-- New models need to be imported in `models/__init__.py` for Alembic to detect them
-- Public API routers need rate limiting decorators
-- Auth directory changes require security review tickets
+- "Migration files must be auto-generated, not hand-written"
+- "New models need to be imported in `__init__.py` for Alembic"
+- "Public API routes need rate limiting"
+- "Auth changes require security review"
 
-**noslop makes AI agents aware of these requirements before they commit.** When an agent attempts to commit code, it sees relevant assertions and can self-correct, catching issues before review instead of during it.
+Agents don't know any of this. They'll write working code that violates every convention you have. You catch it in review, leave comments, wait for fixes, repeat. Slop.
 
-## How It Works
+## The Solution
 
-When an AI agent (or human) commits code, noslop's pre-commit hook shows assertions for matching files. The agent sees the requirement, adjusts its approach, attests to the fix, and commits successfully, all before pushing to review.
+noslop surfaces your conventions to agents at commit time. Before code hits review, agents see what they missed and fix it themselves.
 
 ```toml
-# .noslop.toml at repository root
+# .noslop.toml
 [[assert]]
 target = "migrations/versions/*.py"
 message = "Generated with alembic revision --autogenerate?"
@@ -30,223 +30,168 @@ severity = "block"
 
 [[assert]]
 target = "models/**/*.py"
-message = "New models imported in models/__init__.py for Alembic detection?"
-severity = "block"
-
-[[assert]]
-target = "api/public/*_router.py"
-message = "Added rate limiting decorator?"
+message = "Imported in models/__init__.py?"
 severity = "block"
 ```
 
-When committing, the agent sees:
+When an agent commits:
 
-```bash
-$ git commit -m "Add User model and migration"
+```
+$ git commit -m "Add User model"
 
 BLOCKED: 2 unattested assertions
 
   [DB-1] models/user.py
-          New models imported in models/__init__.py for Alembic detection?
+         Imported in models/__init__.py?
 
   [DB-2] migrations/versions/abc123_add_user.py
-          Generated with alembic revision --autogenerate?
+         Generated with alembic revision --autogenerate?
 
 To proceed: noslop attest <id> -m "verification"
 ```
 
-The agent can now:
-
-1. Check if it forgot to import the model
-2. Verify the migration was auto-generated
-3. Attest and commit with the fixes
+The agent sees the problem, fixes it, attests, and commits. No review round-trip.
 
 ## Installation
 
 ```bash
-# macOS/Linux
+# Quick install
 curl -fsSL https://raw.githubusercontent.com/noslop-sh/noslop/main/scripts/install.sh | bash
 
-# From crates.io
+# Or via cargo
 cargo install noslop
-
-# From source
-git clone https://github.com/noslop-sh/noslop.git
-cd noslop
-cargo install --path .
 ```
 
-## Usage
-
-### Initialize
+## Quick Start
 
 ```bash
 cd your-project
 noslop init
 ```
 
-Creates `.noslop.toml` and installs git hooks.
+This creates `.noslop.toml` and installs git hooks.
 
-### Define assertions
+## Defining Conventions
+
+Add assertions for patterns that trip up agents repeatedly:
 
 ```bash
+# Database conventions
 noslop assert add "migrations/versions/*.py" \
   -m "Generated with alembic revision --autogenerate?" \
   --severity block
 
 noslop assert add "models/**/*.py" \
-  -m "New models imported in models/__init__.py for Alembic detection?" \
+  -m "Imported in models/__init__.py?" \
   --severity block
 
+# API conventions
 noslop assert add "api/public/*_router.py" \
-  -m "Added rate limiting decorator?" \
+  -m "Rate limiting decorator added?" \
+  --severity block
+
+# Security requirements
+noslop assert add "auth/**/*.py" \
+  -m "Security review ticket?" \
   --severity block
 ```
 
-### Commit workflow (for agents)
+## How Agents Use It
 
-1. Agent modifies `models/user.py` and creates `migrations/versions/abc_add_user.py`
-2. Agent runs `git commit -m "Add User model"`
-3. Noslop shows 2 blocking assertions
-4. Agent sees it forgot to import User in `models/__init__.py`
-5. Agent adds import, attests: `noslop attest DB-1 -m "Added to models/__init__.py"`
-6. Agent verifies migration was auto-generated: `noslop attest DB-2 -m "Generated with alembic"`
-7. Agent commits successfully
+1. Agent modifies code
+2. Agent runs `git commit`
+3. noslop shows relevant conventions
+4. Agent self-corrects
+5. Agent attests: `noslop attest DB-1 -m "Added to __init__.py"`
+6. Commit succeeds
 
-Attestations are recorded in commit history as git trailers:
+Attestations are recorded as git trailers, visible in your commit history:
 
-```text
+```
 Add User model
 
-Noslop-Attest: DB-1 | Added to models/__init__.py | agent
-Noslop-Attest: DB-2 | Generated with alembic | agent
+Noslop-Attest: DB-1 | Added to __init__.py | claude-3-opus
+Noslop-Attest: DB-2 | Generated with alembic | claude-3-opus
 ```
 
-## Examples
+## Real Examples
 
-### Alembic Model Registration
+### Alembic + SQLAlchemy
 
 ```toml
-# Catch forgotten model imports
 [[assert]]
 target = "models/**/*.py"
-message = "New models imported in models/__init__.py for Alembic detection?"
+message = "Imported in models/__init__.py?"
 severity = "block"
-tags = ["database", "alembic"]
+tags = ["database"]
 
-# Verify migrations are auto-generated
 [[assert]]
 target = "migrations/versions/*.py"
 message = "Generated with alembic revision --autogenerate?"
 severity = "block"
-tags = ["database", "alembic"]
+tags = ["database"]
 ```
 
-Common issue: Agent creates a new SQLAlchemy model but forgets to import it in `models/__init__.py`, causing Alembic to not detect it during `alembic revision --autogenerate`. Noslop reminds the agent to check the import.
+Catches the classic mistake: agent creates a model, writes a migration by hand, but forgets the import that makes Alembic see the model.
 
-### Public API Rate Limiting
+### API Security
 
 ```toml
 [[assert]]
 target = "api/public/*_router.py"
-message = "Added rate limiting decorator?"
-severity = "block"
-tags = ["api", "security"]
-```
-
-Applies to router files in the public API directory. Agent sees this before committing and adds `@rate_limit(100)`.
-
-### Security Reviews
-
-```toml
-[[assert]]
-target = "auth/**/*.py"
-message = "Security review ticket number?"
+message = "Rate limiting decorator added?"
 severity = "block"
 tags = ["security"]
 ```
 
-Any Python file in the auth directory requires security team signoff. Agent can note the ticket in attestation.
-
-### Team Conventions
+### Team Patterns
 
 ```toml
 [[assert]]
 target = "components/**/*.tsx"
-message = "Uses useQuery hook instead of raw fetch?"
+message = "Using useQuery instead of raw fetch?"
 severity = "warn"
-tags = ["react", "patterns"]
+tags = ["react"]
 ```
 
-Warns agents about data-fetching patterns without blocking the commit.
+`warn` shows the convention but doesn't block. Good for best practices vs hard requirements.
 
 ## Target Patterns
 
 ```toml
-# Directory patterns
-target = "migrations/versions/*.py"     # All files in directory
-target = "auth/**/*.py"                 # Recursive match
-target = "models/**/*.py"               # All model files
-
-# File naming conventions
-target = "*_router.py"                  # All router files
-target = "*_handler.py"                 # All handler files
-target = "test_*.py"                    # All test files
-
-# Specific files
-target = "config/prod.yaml"             # Production config only
-target = "models/__init__.py"           # Model registry
-
-# Multiple extensions
-target = "*.{env,env.*}"                # Environment files
+target = "migrations/versions/*.py"     # Files in directory
+target = "auth/**/*.py"                 # Recursive
+target = "*_router.py"                  # Suffix match
+target = "config/prod.yaml"             # Specific file
 ```
-
-**Best practice**: Target patterns that represent repeat considerations (all routers, all migrations), not one-time tasks.
 
 ## Severity Levels
 
-- **`block`**: Commit blocked until attested (critical requirements)
-- **`warn`**: Warning shown but commit proceeds (best practices)
-- **`info`**: Informational only (helpful reminders)
+- **block** - Commit blocked until attested
+- **warn** - Warning shown, commit proceeds
+- **info** - Informational only
 
 ## Commands
 
 ```bash
-noslop init                              # Initialize in repository
-noslop assert add <target> -m <message>  # Add assertion
-noslop assert list                       # List all assertions
-noslop assert remove <id>                # Remove assertion
-noslop attest <id> -m <message>          # Attest to assertion
-noslop check                             # Check staged files (runs in pre-commit)
+noslop init                              # Set up in repo
+noslop assert add <target> -m <message>  # Add convention
+noslop assert list                       # List all
+noslop assert remove <id>                # Remove
+noslop attest <id> -m <message>          # Attest
+noslop check                             # Check staged files
 ```
-
-## For AI Agents
-
-Noslop integrates with AI coding workflows:
-
-1. **Agent makes changes** - Adds files, modifies code
-2. **Agent commits** - Runs `git commit`
-3. **Noslop shows assertions** - Agent sees requirements it may have missed
-4. **Agent self-corrects** - Fixes issues, adds missing imports, verifies conventions
-5. **Agent attests** - Documents what it checked
-6. **Commit succeeds** - With full context in git history
-
-This catches common mistakes like forgotten imports, missing decorators, and wrong patterns **before code review**, reducing iteration cycles.
-
-## Advanced: Multiple Config Files
-
-You can place `.noslop.toml` files in subdirectories for scoped assertions. Files inherit from parent configs.
 
 ## Why "noslop"?
 
-Slop is well-intentioned but low-quality output. Code that compiles but violates conventions. noslop helps AI (and humans) maintain quality by surfacing context at the right time.
+Slop is code that works but misses the point. It compiles, passes tests, and violates every convention your team has. noslop is the fix.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
+MIT. See [LICENSE](LICENSE).
 
 ## Links
 
-- [Documentation](https://github.com/noslop-sh/noslop/tree/main/docs)
-- [Issue Tracker](https://github.com/noslop-sh/noslop/issues)
-- [Changelog](https://github.com/noslop-sh/noslop/releases)
+- [Website](https://noslop.sh)
+- [Issues](https://github.com/noslop-sh/noslop/issues)
+- [Releases](https://github.com/noslop-sh/noslop/releases)
