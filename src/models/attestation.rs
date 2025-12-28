@@ -23,6 +23,7 @@ pub struct Attestation {
 
 impl Attestation {
     /// Create a new attestation
+    #[must_use]
     pub fn new(assertion_id: String, message: String, attested_by: String) -> Self {
         Self {
             assertion_id,
@@ -33,11 +34,13 @@ impl Attestation {
     }
 
     /// Create an attestation by a human
+    #[must_use]
     pub fn by_human(assertion_id: String, message: String) -> Self {
         Self::new(assertion_id, message, "human".to_string())
     }
 
     /// Create an attestation by an LLM
+    #[must_use]
     #[allow(dead_code)]
     pub fn by_llm(assertion_id: String, message: String, model: &str) -> Self {
         Self::new(assertion_id, message, model.to_string())

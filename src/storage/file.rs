@@ -10,6 +10,7 @@ use crate::models::Attestation;
 const STAGED_ATTESTATIONS_PATH: &str = ".noslop/staged-attestations.json";
 
 /// File-based storage (used for staging)
+#[derive(Debug, Clone, Copy)]
 pub struct FileStore;
 
 impl FileStore {

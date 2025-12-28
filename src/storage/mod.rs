@@ -7,8 +7,10 @@
 
 #![allow(dead_code)]
 
-mod file;
-mod trailer;
+/// File-based storage for staging attestations
+pub mod file;
+/// Commit trailer storage for attestations
+pub mod trailer;
 
 use crate::models::Attestation;
 
@@ -47,20 +49,18 @@ impl std::str::FromStr for Backend {
         match s.to_lowercase().as_str() {
             "trailer" | "trailers" => Ok(Self::Trailer),
             "file" | "files" => Ok(Self::File),
-            _ => Err(format!("Unknown backend: {}. Use 'trailer' or 'file'", s)),
+            _ => Err(format!("Unknown backend: {s}. Use 'trailer' or 'file'")),
         }
     }
 }
 
 /// Get the configured attestation store
+#[must_use]
 pub fn attestation_store() -> Box<dyn AttestationStore> {
     // For now, always use file for staging + trailer for finalized
     // Config-based selection can come later
-    Box::new(trailer::TrailerAttestationStore::new())
+    Box::new(TrailerAttestationStore::new())
 }
 
 // Re-export implementations for direct use
-#[allow(unused_imports)]
-pub(crate) use file::FileStore;
-#[allow(unused_imports)]
-pub(crate) use trailer::TrailerAttestationStore;
+pub use trailer::TrailerAttestationStore;
