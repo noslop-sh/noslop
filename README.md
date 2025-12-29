@@ -3,7 +3,6 @@
 **The missing context layer for coding agents.**
 
 [![CI](https://github.com/noslop-sh/noslop/workflows/CI/badge.svg)](https://github.com/noslop-sh/noslop/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://github.com/noslop-sh/noslop/blob/main/LICENSE)
 [![Crates.io](https://img.shields.io/crates/v/noslop.svg)](https://crates.io/crates/noslop)
 
 ## The Problem
@@ -188,7 +187,7 @@ Slop is code that works but misses the point. It compiles, passes tests, and ign
 
 ## License
 
-MIT. See [LICENSE](LICENSE).
+See [LICENSE](LICENSE).
 
 ## Links
 
