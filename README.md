@@ -143,18 +143,6 @@ severity = "block"
 tags = ["security"]
 ```
 
-### Team Patterns
-
-```toml
-[[assert]]
-target = "components/**/*.tsx"
-message = "Using useQuery instead of raw fetch?"
-severity = "warn"
-tags = ["react"]
-```
-
-`warn` shows the convention but doesn't block. Good for best practices vs hard requirements.
-
 ## Target Patterns
 
 ```toml
