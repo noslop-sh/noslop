@@ -122,7 +122,7 @@ jobs:
       - name: Install binary
         run: |
           sudo cp target/release/noslop /usr/local/bin/
-          chmod +x /usr/local/bin/noslop
+          sudo chmod +x /usr/local/bin/noslop
 
       - name: Test CLI commands
         run: |
