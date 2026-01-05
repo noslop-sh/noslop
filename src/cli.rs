@@ -77,6 +77,9 @@ pub enum Command {
         action: TaskAction,
     },
 
+    /// Show current status (branch, tasks, assertions)
+    Status,
+
     /// Show version
     Version,
 }
@@ -221,6 +224,7 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),
         Some(Command::Task { action }) => commands::task_cmd(action, output_mode),
+        Some(Command::Status) => commands::status(output_mode),
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {
                 println!(

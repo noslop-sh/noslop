@@ -6,6 +6,7 @@ mod attest;
 mod check;
 mod clear_staged;
 mod init;
+mod status;
 mod task;
 
 pub use add_trailers::add_trailers;
@@ -14,4 +15,5 @@ pub use attest::attest;
 pub use check::check;
 pub use clear_staged::clear_staged;
 pub use init::init;
+pub use status::status;
 pub use task::task_cmd;
