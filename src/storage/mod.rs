@@ -1,4 +1,4 @@
-//! Storage abstraction for attestations
+//! Storage abstraction for attestations and tasks
 //!
 //! Provides pluggable backends:
 //! - `trailer`: Commit message trailers (default, most portable)
@@ -9,6 +9,8 @@
 
 /// File-based storage for staging attestations
 pub mod file;
+/// Task storage
+pub mod task;
 /// Commit trailer storage for attestations
 pub mod trailer;
 
@@ -63,4 +65,6 @@ pub fn attestation_store() -> Box<dyn AttestationStore> {
 }
 
 // Re-export implementations for direct use
+#[allow(unused_imports)]
+pub use task::TaskStore;
 pub use trailer::TrailerAttestationStore;
