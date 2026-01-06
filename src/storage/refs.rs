@@ -30,6 +30,9 @@ pub struct TaskRef {
     /// Optional notes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
+    /// IDs of tasks that block this one
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub blocked_by: Vec<String>,
     /// Pending trailer action (set by pre-commit, cleared by post-commit)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_trailer: Option<String>,
@@ -49,8 +52,26 @@ impl TaskRef {
             priority: default_priority(),
             created_at: chrono::Utc::now().to_rfc3339(),
             notes: None,
+            blocked_by: Vec::new(),
             pending_trailer: None,
         }
+    }
+
+    /// Check if this task is blocked by unfinished tasks
+    #[must_use]
+    pub fn is_blocked(&self, all_tasks: &[(String, Self)]) -> bool {
+        self.blocked_by.iter().any(|blocker_id| {
+            all_tasks
+                .iter()
+                .find(|(id, _)| id == blocker_id)
+                .is_some_and(|(_, task)| task.status != "done")
+        })
+    }
+
+    /// Check if this task is ready to work on (pending and unblocked)
+    #[must_use]
+    pub fn is_ready(&self, all_tasks: &[(String, Self)]) -> bool {
+        self.status == "pending" && !self.is_blocked(all_tasks)
     }
 }
 
@@ -245,6 +266,56 @@ impl TaskRefs {
             Self::clear_pending_trailer(&id)?;
         }
         Ok(())
+    }
+
+    /// Get next ready task (pending, unblocked, sorted by priority then id)
+    pub fn next_ready() -> anyhow::Result<Option<(String, TaskRef)>> {
+        let tasks = Self::list()?;
+
+        // Find ready tasks (pending and not blocked)
+        let mut ready: Vec<_> =
+            tasks.iter().filter(|(_, task)| task.is_ready(&tasks)).cloned().collect();
+
+        if ready.is_empty() {
+            return Ok(None);
+        }
+
+        // Sort by priority (p0 first), then by id
+        ready.sort_by(|(id_a, a), (id_b, b)| {
+            a.priority.cmp(&b.priority).then_with(|| id_a.cmp(id_b))
+        });
+
+        Ok(ready.into_iter().next())
+    }
+
+    /// List all ready tasks (pending, unblocked)
+    pub fn list_ready() -> anyhow::Result<Vec<(String, TaskRef)>> {
+        let tasks = Self::list()?;
+        Ok(tasks.iter().filter(|(_, task)| task.is_ready(&tasks)).cloned().collect())
+    }
+
+    /// Add a blocker to a task
+    pub fn add_blocker(id: &str, blocker_id: &str) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            if !task.blocked_by.contains(&blocker_id.to_string()) {
+                task.blocked_by.push(blocker_id.to_string());
+                Self::write_task(id, &task)?;
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Remove a blocker from a task
+    pub fn remove_blocker(id: &str, blocker_id: &str) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            task.blocked_by.retain(|b| b != blocker_id);
+            Self::write_task(id, &task)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
     }
 
     /// Generate next task ID

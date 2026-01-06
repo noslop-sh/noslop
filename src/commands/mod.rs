@@ -8,6 +8,8 @@ mod init;
 mod status;
 mod task;
 mod task_prompt;
+#[cfg(feature = "ui")]
+mod ui;
 mod verify;
 
 pub use add_trailers::add_trailers;
@@ -18,4 +20,6 @@ pub use init::init;
 pub use status::status;
 pub use task::task_cmd;
 pub use task_prompt::task_prompt;
+#[cfg(feature = "ui")]
+pub use ui::ui;
 pub use verify::verify;

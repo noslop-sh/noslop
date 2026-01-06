@@ -8,18 +8,37 @@ use crate::cli::TaskAction;
 /// Handle task subcommands
 pub fn task_cmd(action: TaskAction, mode: OutputMode) -> anyhow::Result<()> {
     match action {
-        TaskAction::Add { title, priority } => add(&title, priority.as_deref(), mode),
-        TaskAction::List { status } => list(status.as_deref(), mode),
+        TaskAction::Add {
+            title,
+            priority,
+            blocked_by,
+        } => add(&title, priority.as_deref(), blocked_by, mode),
+        TaskAction::List { status, ready } => list(status.as_deref(), ready, mode),
         TaskAction::Show { id } => show(&id, mode),
         TaskAction::Current => current(mode),
-        TaskAction::Start { id } => start(&id, mode),
+        TaskAction::Next { start } => next(start, mode),
+        TaskAction::Start { id } => start_task(&id, mode),
         TaskAction::Done => done(mode),
+        TaskAction::Block { id, by } => block(&id, &by, mode),
+        TaskAction::Unblock { id, by } => unblock(&id, &by, mode),
         TaskAction::Remove { id } => remove(&id, mode),
     }
 }
 
-fn add(title: &str, priority: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
+fn add(
+    title: &str,
+    priority: Option<&str>,
+    blocked_by: Option<Vec<String>>,
+    mode: OutputMode,
+) -> anyhow::Result<()> {
     let id = TaskRefs::create(title, priority)?;
+
+    // Add blockers if specified
+    if let Some(blockers) = &blocked_by {
+        for blocker in blockers {
+            TaskRefs::add_blocker(&id, blocker)?;
+        }
+    }
 
     if mode == OutputMode::Json {
         println!(
@@ -28,24 +47,34 @@ fn add(title: &str, priority: Option<&str>, mode: OutputMode) -> anyhow::Result<
                 "success": true,
                 "id": id,
                 "title": title,
+                "blocked_by": blocked_by.unwrap_or_default(),
             })
         );
     } else {
         println!("Created: {}", id);
         println!("  {}", title);
+        if let Some(blockers) = blocked_by
+            && !blockers.is_empty()
+        {
+            println!("  Blocked by: {}", blockers.join(", "));
+        }
     }
 
     Ok(())
 }
 
-fn list(status_filter: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
+fn list(status_filter: Option<&str>, ready_only: bool, mode: OutputMode) -> anyhow::Result<()> {
     let tasks = TaskRefs::list()?;
     let current = TaskRefs::current()?;
 
-    let filtered: Vec<_> = tasks
-        .iter()
-        .filter(|(_, t)| status_filter.is_none() || t.status == status_filter.unwrap())
-        .collect();
+    let filtered: Vec<_> = if ready_only {
+        tasks.iter().filter(|(_, t)| t.is_ready(&tasks)).collect()
+    } else {
+        tasks
+            .iter()
+            .filter(|(_, t)| status_filter.is_none() || t.status == status_filter.unwrap())
+            .collect()
+    };
 
     if mode == OutputMode::Json {
         let json_tasks: Vec<_> = filtered
@@ -56,14 +85,20 @@ fn list(status_filter: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
                     "title": t.title,
                     "status": t.status,
                     "priority": t.priority,
+                    "blocked_by": t.blocked_by,
                     "current": current.as_ref() == Some(id),
+                    "ready": t.is_ready(&tasks),
                 })
             })
             .collect();
         println!("{}", serde_json::json!({ "tasks": json_tasks }));
     } else {
         if filtered.is_empty() {
-            println!("No tasks");
+            if ready_only {
+                println!("No ready tasks");
+            } else {
+                println!("No tasks");
+            }
             return Ok(());
         }
 
@@ -76,9 +111,15 @@ fn list(status_filter: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
             let status_icon = match task.status.as_str() {
                 "done" => "✓",
                 "in_progress" => "●",
+                _ if task.is_blocked(&tasks) => "⊘",
                 _ => "○",
             };
-            println!("{} [{}] {} {}", marker, id, status_icon, task.title);
+            let blocked_str = if !task.blocked_by.is_empty() {
+                format!(" (blocked by: {})", task.blocked_by.join(", "))
+            } else {
+                String::new()
+            };
+            println!("{} [{}] {} {}{}", marker, id, status_icon, task.title, blocked_str);
         }
     }
 
@@ -86,6 +127,7 @@ fn list(status_filter: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
 }
 
 fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
+    let tasks = TaskRefs::list()?;
     let task = TaskRefs::get(id)?;
     let current = TaskRefs::current()?;
 
@@ -99,6 +141,8 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
                     "title": t.title,
                     "status": t.status,
                     "priority": t.priority,
+                    "blocked_by": t.blocked_by,
+                    "ready": t.is_ready(&tasks),
                     "current": current.as_deref() == Some(id),
                     "created_at": t.created_at,
                     "notes": t.notes,
@@ -113,6 +157,10 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
         println!("  Title:    {}", t.title);
         println!("  Status:   {}", t.status);
         println!("  Priority: {}", t.priority);
+        if !t.blocked_by.is_empty() {
+            println!("  Blocked:  {}", t.blocked_by.join(", "));
+        }
+        println!("  Ready:    {}", if t.is_ready(&tasks) { "yes" } else { "no" });
         println!("  Created:  {}", t.created_at);
         if let Some(notes) = &t.notes {
             println!("  Notes:    {}", notes);
@@ -154,7 +202,52 @@ fn current(mode: OutputMode) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn start(id: &str, mode: OutputMode) -> anyhow::Result<()> {
+fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
+    let result = TaskRefs::next_ready()?;
+
+    match result {
+        Some((id, task)) => {
+            if start {
+                // Also start the task
+                TaskRefs::set_status(&id, "in_progress")?;
+                TaskRefs::set_current(&id)?;
+            }
+
+            if mode == OutputMode::Json {
+                println!(
+                    "{}",
+                    serde_json::json!({
+                        "found": true,
+                        "id": id,
+                        "title": task.title,
+                        "priority": task.priority,
+                        "notes": task.notes,
+                        "started": start,
+                    })
+                );
+            } else if start {
+                println!("Started: {}", id);
+                println!("  {}", task.title);
+            } else {
+                println!("Next: {} - {}", id, task.title);
+                if let Some(notes) = &task.notes {
+                    println!("  {}", notes);
+                }
+            }
+        },
+        None => {
+            if mode == OutputMode::Json {
+                println!("{}", serde_json::json!({ "found": false }));
+            } else {
+                println!("No ready tasks");
+            }
+        },
+    }
+
+    Ok(())
+}
+
+fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
     // Check task exists
     let task = TaskRefs::get(id)?;
     if task.is_none() {
@@ -238,6 +331,61 @@ fn remove(id: &str, mode: OutputMode) -> anyhow::Result<()> {
         );
     } else if found {
         println!("Removed: {}", id);
+    } else {
+        println!("Task not found: {}", id);
+    }
+
+    Ok(())
+}
+
+fn block(id: &str, blocker_id: &str, mode: OutputMode) -> anyhow::Result<()> {
+    // Verify blocker exists
+    if TaskRefs::get(blocker_id)?.is_none() {
+        if mode == OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::json!({ "success": false, "error": "Blocker task not found" })
+            );
+        } else {
+            println!("Blocker task not found: {}", blocker_id);
+        }
+        return Ok(());
+    }
+
+    let found = TaskRefs::add_blocker(id, blocker_id)?;
+
+    if mode == OutputMode::Json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "success": found,
+                "id": id,
+                "blocked_by": blocker_id,
+            })
+        );
+    } else if found {
+        println!("{} now blocked by {}", id, blocker_id);
+    } else {
+        println!("Task not found: {}", id);
+    }
+
+    Ok(())
+}
+
+fn unblock(id: &str, blocker_id: &str, mode: OutputMode) -> anyhow::Result<()> {
+    let found = TaskRefs::remove_blocker(id, blocker_id)?;
+
+    if mode == OutputMode::Json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "success": found,
+                "id": id,
+                "unblocked": blocker_id,
+            })
+        );
+    } else if found {
+        println!("{} no longer blocked by {}", id, blocker_id);
     } else {
         println!("Task not found: {}", id);
     }

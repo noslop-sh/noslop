@@ -117,7 +117,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Build noslop
-        run: cargo build --release
+        run: cargo build --release --all-features
 
       - name: Install binary
         run: |
@@ -153,8 +153,16 @@ jobs:
           noslop task --help
           echo ""
 
+          echo "$ noslop task next --help"
+          noslop task next --help
+          echo ""
+
           echo "$ noslop status --help"
           noslop status --help
+          echo ""
+
+          echo "$ noslop ui --help"
+          noslop ui --help
           echo ""
 
           echo "✓ All commands executed successfully"

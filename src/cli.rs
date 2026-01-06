@@ -77,6 +77,18 @@ pub enum Command {
     /// Show current status (branch, tasks, checks)
     Status,
 
+    /// Start local web UI for task and check management
+    #[cfg(feature = "ui")]
+    Ui {
+        /// Port to listen on
+        #[arg(short, long, default_value = "9999")]
+        port: u16,
+
+        /// Open browser automatically
+        #[arg(long)]
+        open: bool,
+    },
+
     /// Show version
     Version,
 }
@@ -128,6 +140,10 @@ pub enum TaskAction {
         /// Priority: p0 (critical), p1 (high), p2 (medium), p3 (low)
         #[arg(short, long)]
         priority: Option<String>,
+
+        /// Block this task by another task ID
+        #[arg(short, long)]
+        blocked_by: Option<Vec<String>>,
     },
 
     /// List all tasks
@@ -135,6 +151,10 @@ pub enum TaskAction {
         /// Filter by status: pending, in_progress, done
         #[arg(short, long)]
         status: Option<String>,
+
+        /// Show only ready tasks (pending and unblocked)
+        #[arg(long)]
+        ready: bool,
     },
 
     /// Show task details
@@ -146,6 +166,13 @@ pub enum TaskAction {
     /// Show current active task (HEAD)
     Current,
 
+    /// Get the next ready task (pending, unblocked)
+    Next {
+        /// Also start the task (set as current)
+        #[arg(long)]
+        start: bool,
+    },
+
     /// Start working on a task (sets HEAD)
     Start {
         /// Task ID
@@ -154,6 +181,26 @@ pub enum TaskAction {
 
     /// Mark current task as done
     Done,
+
+    /// Block a task by another task
+    Block {
+        /// Task ID to block
+        id: String,
+
+        /// ID of blocking task
+        #[arg(short, long)]
+        by: String,
+    },
+
+    /// Unblock a task
+    Unblock {
+        /// Task ID to unblock
+        id: String,
+
+        /// ID of blocker to remove
+        #[arg(short, long)]
+        by: String,
+    },
 
     /// Remove a task
     Remove {
@@ -172,7 +219,9 @@ pub fn run() -> anyhow::Result<()> {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     }
 
-    let output_mode = if cli.json {
+    // Support NOSLOP_JSON env var for JSON output (agent-friendly)
+    let json_from_env = std::env::var("NOSLOP_JSON").is_ok_and(|v| v == "1" || v == "true");
+    let output_mode = if cli.json || json_from_env {
         OutputMode::Json
     } else {
         OutputMode::Human
@@ -193,6 +242,8 @@ pub fn run() -> anyhow::Result<()> {
         },
         Some(Command::Task { action }) => commands::task_cmd(action, output_mode),
         Some(Command::Status) => commands::status(output_mode),
+        #[cfg(feature = "ui")]
+        Some(Command::Ui { port, open }) => commands::ui(port, open),
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {
                 println!(
