@@ -116,6 +116,13 @@ pub enum CheckAction {
 
 #[derive(Subcommand, Debug)]
 pub enum TaskAction {
+    /// Initialize task file for current branch
+    Init {
+        /// Optional notes about this branch's work
+        #[arg(short, long)]
+        note: Option<String>,
+    },
+
     /// Add a new task
     Add {
         /// Task title (what needs to be done)

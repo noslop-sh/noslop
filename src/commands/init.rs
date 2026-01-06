@@ -45,10 +45,14 @@ prefix = "{prefix}"
     fs::write(noslop_path, noslop_toml)?;
     println!("  Created .noslop.toml");
 
-    // Create .noslop/ for verifications (pending until committed)
+    // Create .noslop/ for verifications and tasks
     fs::create_dir_all(".noslop")?;
-    fs::write(".noslop/.gitkeep", "")?;
+    fs::create_dir_all(".noslop/tasks")?;
+
+    // Create .gitignore to exclude task files (they're local scratch)
+    fs::write(".noslop/.gitignore", "tasks/\n")?;
     println!("  Created .noslop/");
+    println!("  Created .noslop/tasks/ (gitignored)");
 
     // Install git hooks
     git::hooks::install_pre_commit()?;

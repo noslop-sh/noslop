@@ -211,6 +211,9 @@ impl OperationResult {
 /// Result of a task list operation
 #[derive(Debug, Serialize)]
 pub struct TaskListResult {
+    /// Current branch name
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
     /// List of tasks
     pub tasks: Vec<TaskInfo>,
     /// Total count
@@ -259,6 +262,11 @@ impl TaskListResult {
     }
 
     fn render_human(&self) {
+        // Show branch header if available
+        if let Some(branch) = &self.branch {
+            println!("Branch: {}\n", branch);
+        }
+
         if self.tasks.is_empty() {
             println!("No tasks found.");
             println!("Create one with: noslop task add \"task title\"");

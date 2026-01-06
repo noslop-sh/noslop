@@ -6,9 +6,52 @@ use noslop::storage::TaskStore;
 
 use crate::cli::TaskAction;
 
+/// Initialize task file for current branch
+fn init_task_file(notes: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
+    let branch = TaskStore::current_branch()?;
+
+    if TaskStore::has_task_file() {
+        if mode == OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "success": false,
+                    "error": "Task file already exists",
+                    "branch": branch,
+                })
+            );
+        } else {
+            println!("Task file already exists for branch: {}", branch);
+        }
+        return Ok(());
+    }
+
+    let path = TaskStore::init_branch(notes)?;
+
+    if mode == OutputMode::Json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "success": true,
+                "branch": branch,
+                "path": path.display().to_string(),
+            })
+        );
+    } else {
+        println!("Created: {}", path.display());
+        println!("Branch:  {}", branch);
+        if let Some(n) = notes {
+            println!("Notes:   {}", n);
+        }
+    }
+
+    Ok(())
+}
+
 /// Handle task subcommands
 pub fn task_cmd(action: TaskAction, mode: OutputMode) -> anyhow::Result<()> {
     match action {
+        TaskAction::Init { note } => init_task_file(note.as_deref(), mode),
         TaskAction::Add {
             title,
             priority,
@@ -94,7 +137,10 @@ fn list(status: Option<&str>, ready: bool, mode: OutputMode) -> anyhow::Result<(
         })
         .collect();
 
+    let branch = TaskStore::current_branch().ok();
+
     let result = TaskListResult {
+        branch,
         total: task_infos.len(),
         tasks: task_infos,
     };

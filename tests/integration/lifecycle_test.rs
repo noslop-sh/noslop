@@ -7,8 +7,10 @@
 //! 4. Cross-branch contamination is prevented
 
 use assert_cmd::Command;
+use noslop::git;
 use std::fs;
 use std::path::Path;
+use std::process::Command as ProcessCommand;
 use tempfile::TempDir;
 
 /// Helper to initialize a git repo with noslop
@@ -16,31 +18,12 @@ fn setup_repo() -> TempDir {
     let temp_dir = TempDir::new().unwrap();
     let repo_path = temp_dir.path();
 
-    // Initialize git
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(repo_path)
-        .output()
-        .unwrap();
-
-    std::process::Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(repo_path)
-        .output()
-        .unwrap();
-
-    // Disable commit signing for test repos (avoids environment-specific failures)
-    std::process::Command::new("git")
-        .args(["config", "commit.gpgsign", "false"])
-        .current_dir(repo_path)
-        .output()
-        .unwrap();
+    // Initialize git (configure_user also disables commit signing)
+    assert!(git::init_repo(repo_path), "Failed to init git repo");
+    assert!(
+        git::configure_user(repo_path, "test@example.com", "Test User"),
+        "Failed to configure git user"
+    );
 
     // Get the path to the noslop binary
     // Test binaries are in target/debug/deps/, main binary is in target/debug/
@@ -112,8 +95,8 @@ fn noslop_in(dir: &Path) -> Command {
 }
 
 /// Helper to create git command in a directory
-fn git_in(dir: &Path, args: &[&str]) -> std::process::Command {
-    let mut cmd = std::process::Command::new("git");
+fn git_in(dir: &Path, args: &[&str]) -> ProcessCommand {
+    let mut cmd = ProcessCommand::new("git");
     cmd.args(args).current_dir(dir);
     cmd
 }

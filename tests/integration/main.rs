@@ -7,9 +7,9 @@
 mod lifecycle_test;
 
 use assert_cmd::cargo;
+use noslop::git;
 use predicates::prelude::*;
 use std::fs;
-use std::process::Command;
 use tempfile::TempDir;
 
 /// Helper function to create a noslop command
@@ -18,43 +18,29 @@ fn noslop() -> assert_cmd::Command {
 }
 
 /// Helper to initialize a git repo with basic config
+/// Also disables hooks to avoid PATH issues in tests
 fn init_git_repo(path: &std::path::Path) {
-    Command::new("git")
-        .args(["init"])
-        .current_dir(path)
-        .output()
-        .expect("Failed to init git repo");
-
-    // Configure git user for commits
-    Command::new("git")
-        .args(["config", "user.email", "test@example.com"])
-        .current_dir(path)
-        .output()
-        .expect("Failed to configure git email");
-
-    Command::new("git")
-        .args(["config", "user.name", "Test User"])
-        .current_dir(path)
-        .output()
-        .expect("Failed to configure git name");
+    assert!(git::init_repo(path), "Failed to init git repo");
+    assert!(
+        git::configure_user(path, "test@example.com", "Test User"),
+        "Failed to configure git user"
+    );
+    // Disable hooks to avoid PATH issues when hooks call noslop
+    git::disable_hooks(path);
 }
 
 /// Helper to stage files in git
 fn git_add(path: &std::path::Path, file: &str) {
-    Command::new("git")
-        .args(["add", file])
-        .current_dir(path)
-        .output()
-        .expect("Failed to stage file");
+    assert!(git::add_file(path, file), "Failed to stage file: {}", file);
 }
 
 /// Helper to create a git commit
 fn git_commit(path: &std::path::Path, message: &str) {
-    Command::new("git")
-        .args(["commit", "-m", message])
-        .current_dir(path)
-        .output()
-        .expect("Failed to create commit");
+    assert!(
+        git::commit(path, message),
+        "Failed to create commit: {}",
+        message
+    );
 }
 
 // =============================================================================
@@ -815,4 +801,329 @@ severity = "block"
         .assert()
         .success()
         .stdout(predicate::str::contains("No checks apply"));
+}
+
+// =============================================================================
+// BRANCH-SCOPED TASK TESTS
+// =============================================================================
+
+/// Test that task init creates branch-specific task file
+#[test]
+fn test_task_init_creates_branch_file() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+    init_git_repo(repo_path);
+
+    // Create initial commit so we have a branch
+    fs::write(repo_path.join("README.md"), "# Test").unwrap();
+    git_add(repo_path, "README.md");
+    git_commit(repo_path, "Initial commit");
+
+    // Initialize noslop
+    noslop().arg("init").current_dir(repo_path).assert().success();
+
+    // Check that we're on a branch (should be main or master)
+    let branch = git::get_branch_in(repo_path).expect("Should be on a branch");
+
+    // Init task file for current branch
+    noslop()
+        .args(["task", "init"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Created:"))
+        .stdout(predicate::str::contains(&branch));
+
+    // Check that task file was created
+    let task_file = repo_path
+        .join(".noslop/tasks")
+        .join(format!("{}.toml", branch.replace('/', "-")));
+    assert!(task_file.exists(), "Task file should exist: {:?}", task_file);
+
+    // Verify it's gitignored (tasks/ should be in .gitignore)
+    let gitignore_content = fs::read_to_string(repo_path.join(".noslop/.gitignore")).unwrap();
+    assert!(
+        gitignore_content.contains("tasks/"),
+        "tasks/ should be gitignored"
+    );
+}
+
+/// Test that tasks are added to branch-specific file
+#[test]
+fn test_task_add_uses_branch_file() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+    init_git_repo(repo_path);
+
+    // Create initial commit so we have a branch
+    fs::write(repo_path.join("README.md"), "# Test").unwrap();
+    git_add(repo_path, "README.md");
+    git_commit(repo_path, "Initial commit");
+
+    noslop().arg("init").current_dir(repo_path).assert().success();
+
+    // Add a task
+    noslop()
+        .args(["task", "add", "Test task for branch"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Created task:"));
+
+    // List tasks - should show the branch name
+    let output = noslop()
+        .args(["task", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(
+        stdout.contains("Branch:"),
+        "Task list should show branch name"
+    );
+    assert!(
+        stdout.contains("Test task for branch"),
+        "Task list should show added task"
+    );
+}
+
+/// Test that tasks are isolated per branch
+#[test]
+fn test_tasks_isolated_per_branch() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+    init_git_repo(repo_path);
+
+    // Create initial commit so we can create branches
+    fs::write(repo_path.join("README.md"), "# Test").unwrap();
+    git_add(repo_path, "README.md");
+    git_commit(repo_path, "Initial commit");
+
+    noslop().arg("init").current_dir(repo_path).assert().success();
+
+    // Add task on main branch
+    noslop()
+        .args(["task", "add", "Main branch task"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Verify main branch has the task
+    noslop()
+        .args(["task", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Main branch task"));
+
+    // Create and switch to feature branch
+    assert!(
+        git::checkout(repo_path, "feature/test", true),
+        "Failed to create feature branch"
+    );
+
+    // Feature branch should have no tasks
+    noslop()
+        .args(["task", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No tasks found"));
+
+    // Add task on feature branch
+    noslop()
+        .args(["task", "add", "Feature branch task"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Verify feature branch has its task
+    noslop()
+        .args(["task", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Feature branch task"));
+
+    // Switch back to main (try master first, then main)
+    let _ = git::checkout(repo_path, "master", false);
+    let _ = git::checkout(repo_path, "main", false);
+
+    // Main should only show main branch task
+    let output = noslop()
+        .args(["task", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    assert!(
+        stdout.contains("Main branch task"),
+        "Main branch should show its task"
+    );
+    assert!(
+        !stdout.contains("Feature branch task"),
+        "Main branch should NOT show feature branch task"
+    );
+}
+
+/// Test task operations (start, done, remove) work on branch-scoped tasks
+#[test]
+fn test_task_operations_branch_scoped() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+    init_git_repo(repo_path);
+
+    // Create initial commit so we have a branch
+    fs::write(repo_path.join("README.md"), "# Test").unwrap();
+    git_add(repo_path, "README.md");
+    git_commit(repo_path, "Initial commit");
+
+    noslop().arg("init").current_dir(repo_path).assert().success();
+
+    // Add a task
+    noslop()
+        .args(["task", "add", "Task to complete"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Start the task (get the ID from the output)
+    let output = noslop()
+        .args(["task", "list", "--json"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
+    // Parse task ID from JSON (simple extraction)
+    let task_id = if stdout.contains("TSK-1") {
+        "TSK-1"
+    } else {
+        "NOS-1" // In case project prefix is different
+    };
+
+    // Start the task
+    noslop()
+        .args(["task", "start", task_id])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Started:"));
+
+    // Verify it's in progress
+    noslop()
+        .args(["task", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("◐")); // in_progress icon
+
+    // Complete the task
+    noslop()
+        .args(["task", "done", task_id])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Completed:"));
+
+    // Remove the task
+    noslop()
+        .args(["task", "remove", task_id])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Removed:"));
+
+    // Verify task is gone
+    noslop()
+        .args(["task", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No tasks found"));
+}
+
+/// Test that task init fails if task file already exists
+#[test]
+fn test_task_init_fails_if_exists() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+    init_git_repo(repo_path);
+
+    // Create initial commit so we have a branch
+    fs::write(repo_path.join("README.md"), "# Test").unwrap();
+    git_add(repo_path, "README.md");
+    git_commit(repo_path, "Initial commit");
+
+    noslop().arg("init").current_dir(repo_path).assert().success();
+
+    // Init task file first time
+    noslop()
+        .args(["task", "init"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Second init should report already exists
+    noslop()
+        .args(["task", "init"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("already exists"));
+}
+
+/// Test task blocked_by functionality with branch-scoped storage
+#[test]
+fn test_task_blocked_by_branch_scoped() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+    init_git_repo(repo_path);
+
+    // Create initial commit so we have a branch
+    fs::write(repo_path.join("README.md"), "# Test").unwrap();
+    git_add(repo_path, "README.md");
+    git_commit(repo_path, "Initial commit");
+
+    noslop().arg("init").current_dir(repo_path).assert().success();
+
+    // Add first task
+    noslop()
+        .args(["task", "add", "First task"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Add second task blocked by first (use --blocked-by with ID format)
+    noslop()
+        .args(["task", "add", "Second task", "--blocked-by", "TSK-1"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // List ready tasks - only first should be ready
+    noslop()
+        .args(["task", "list", "--ready"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("First task"))
+        .stdout(predicate::str::contains("Second task").not());
+
+    // Complete first task
+    noslop()
+        .args(["task", "done", "TSK-1"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Now second task should be ready
+    noslop()
+        .args(["task", "list", "--ready"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Second task"));
 }

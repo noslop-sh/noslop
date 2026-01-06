@@ -1,5 +1,7 @@
 # Story 02: Branch-Scoped Tasks
 
+**Status: COMPLETE**
+
 ## Summary
 
 Tasks are scoped to git branches. Each branch has its own task file stored in `.noslop/tasks/{branch}.toml`. Task files are gitignored (local scratch), while task completions are recorded in commit trailers (permanent record).
@@ -30,8 +32,6 @@ $ noslop task init
 Created: .noslop/tasks/feature-oauth.toml
 ```
 
-Or automatically via post-checkout hook.
-
 ### US-02.2: Add tasks to current branch
 **As a** developer
 **I want to** add tasks to my current branch
@@ -39,10 +39,10 @@ Or automatically via post-checkout hook.
 
 ```bash
 $ noslop task add "Implement OAuth routes"
-Added: [1] Implement OAuth routes
+Created task: TSK-1
 
-$ noslop task add "Add integration tests" --blocked-by 1
-Added: [2] Add integration tests (blocked by: 1)
+$ noslop task add "Add integration tests" --blocked-by TSK-1
+Created task: TSK-2
 ```
 
 ### US-02.3: View tasks for current branch
@@ -54,11 +54,18 @@ Added: [2] Add integration tests (blocked by: 1)
 $ noslop task list
 Branch: feature/oauth
 
-[1] ○ Implement OAuth routes
-[2] ⊘ Add integration tests (blocked by: 1)
+Tasks (2):
+
+  ○ [TSK-1] Implement OAuth routes (p1) [ready]
+  ○ [TSK-2] Add integration tests (p1)
+      blocked by: TSK-1
 
 $ noslop task list --ready
-[1] ○ Implement OAuth routes
+Branch: feature/oauth
+
+Tasks (1):
+
+  ○ [TSK-1] Implement OAuth routes (p1) [ready]
 ```
 
 ### US-02.4: Switch branches, switch task context
@@ -70,12 +77,12 @@ $ noslop task list --ready
 $ git checkout feature/oauth
 $ noslop task list
 Branch: feature/oauth
-[1] ○ Implement OAuth routes
+...
 
 $ git checkout feature/rate-limit
 $ noslop task list
 Branch: feature/rate-limit
-[1] ○ Add rate limiting middleware
+...
 ```
 
 ### US-02.5: Tasks persist locally across sessions
@@ -87,13 +94,17 @@ Branch: feature/rate-limit
 # Monday
 $ git checkout feature/oauth
 $ noslop task add "Implement OAuth routes"
-$ noslop task start 1
+$ noslop task start TSK-1
 # Go home
 
 # Tuesday
 $ git checkout feature/oauth
 $ noslop task list
-[1] ◐ Implement OAuth routes (in progress)
+Branch: feature/oauth
+
+Tasks (1):
+
+  ◐ [TSK-1] Implement OAuth routes (p1)
 ```
 
 ### US-02.6: Gitignored task files
@@ -122,29 +133,23 @@ tasks/
 ```toml
 # .noslop/tasks/feature-oauth.toml
 
-# Branch metadata
 [branch]
 name = "feature/oauth"
 created_at = "2025-01-06T10:00:00Z"
 parent = "main"
 
-# Notes for this branch's work
-notes = """
-Implementing OAuth login flow.
-See RFC: docs/rfcs/oauth.md
-"""
-
-# Tasks
 [[task]]
 id = 1
 title = "Implement OAuth routes"
 status = "in_progress"
+priority = "p1"
 created_at = "2025-01-06T10:00:00Z"
 
 [[task]]
 id = 2
 title = "Add integration tests"
 status = "pending"
+priority = "p1"
 blocked_by = [1]
 created_at = "2025-01-06T10:05:00Z"
 ```
@@ -157,20 +162,8 @@ feature/oauth/routes → feature-oauth-routes.toml
 ```
 
 Rules:
-- Replace `/` with `-`
-- Replace other special chars with `-`
+- Replace `/` and other special chars with `-`
 - Lowercase
-
-### Git Hooks
-
-**post-checkout hook:**
-```bash
-#!/bin/bash
-NEW_BRANCH=$(git rev-parse --abbrev-ref HEAD)
-noslop branch switch "$NEW_BRANCH"
-```
-
-This ensures task file exists and shows summary.
 
 ### CLI Commands
 
@@ -182,32 +175,24 @@ noslop task list [--ready]    # List tasks
 noslop task start <id>        # Mark in progress
 noslop task done <id>         # Mark complete
 noslop task remove <id>       # Remove task
-
-# Branch info
-noslop branch status          # Show current branch's task summary
-noslop branch switch <name>   # Called by post-checkout hook
 ```
 
 ## Acceptance Criteria
 
-- [ ] `.noslop/tasks/` directory created on `noslop init`
-- [ ] `.noslop/.gitignore` contains `tasks/`
-- [ ] `noslop task add` creates task in branch-specific file
-- [ ] `noslop task list` shows only current branch's tasks
-- [ ] Branch switch shows different tasks
-- [ ] `--ready` flag filters to unblocked tasks
-- [ ] `blocked_by` relationships work
-- [ ] Task files persist across sessions
-- [ ] Task files don't appear in `git status`
+- [x] `.noslop/tasks/` directory created on `noslop init`
+- [x] `.noslop/.gitignore` contains `tasks/`
+- [x] `noslop task add` creates task in branch-specific file
+- [x] `noslop task list` shows branch name and current branch's tasks
+- [x] Branch switch shows different tasks
+- [x] `--ready` flag filters to unblocked tasks
+- [x] `blocked_by` relationships work
+- [x] Task files persist across sessions
+- [x] Task files don't appear in `git status`
+- [x] Integration tests for all functionality
 
-## Migration Path
+## What's NOT Implemented (Future Work)
 
-Current tasks in `.noslop.toml`:
-1. `noslop migrate` moves `[[task]]` entries to `.noslop/tasks/main.toml`
-2. Or leave them (global tasks still work, branch tasks are additive)
-
-## Open Questions
-
-1. Should `noslop task init` be automatic on branch creation?
-2. What happens to task file when branch is deleted?
-3. Should we support `noslop task move <id> <branch>` for moving tasks between branches?
+- `noslop branch status` command
+- `noslop branch switch` command (for post-checkout hook)
+- Automatic task file creation on branch creation
+- `noslop migrate` for existing tasks in `.noslop.toml`
