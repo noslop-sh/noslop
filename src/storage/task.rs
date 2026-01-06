@@ -204,8 +204,8 @@ impl TaskStore {
         if noslop_path.exists() {
             let content = fs::read_to_string(noslop_path)?;
             let config: NoslopConfig = toml::from_str(&content)?;
-            // Use project prefix if it's not the default assertion prefix
-            if config.project.prefix != "AST" {
+            // Use project prefix if it's not the default
+            if config.project.prefix != "NOS" {
                 return Ok(config.project.prefix);
             }
         }

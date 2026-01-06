@@ -4,7 +4,7 @@
 //! - Hooks installation
 //! - Staged file detection
 //! - Repository information
-//! - Notes for attestations/intents (coming soon)
+//! - Notes for verifications/intents (coming soon)
 
 pub mod hooks;
 pub mod staged;

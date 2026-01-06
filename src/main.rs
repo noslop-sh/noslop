@@ -1,4 +1,4 @@
-//! noslop - Pre-commit assertions with attestation tracking
+//! noslop - Pre-commit checks with verification tracking
 
 mod cli;
 mod commands;
