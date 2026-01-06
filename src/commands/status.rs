@@ -18,8 +18,8 @@ pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {
     let done = tasks.iter().filter(|t| t.status == TaskStatus::Done).count();
     let ready = tasks.iter().filter(|t| t.is_ready(&tasks)).count();
 
-    // Load assertions
-    let assertions = load_assertion_count();
+    // Load checks
+    let checks = load_check_count();
 
     if output_mode == OutputMode::Json {
         let json = serde_json::json!({
@@ -31,7 +31,7 @@ pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {
                 "done": done,
                 "ready": ready
             },
-            "assertions": assertions
+            "checks": checks
         });
         println!("{}", serde_json::to_string_pretty(&json)?);
     } else {
@@ -57,7 +57,7 @@ pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {
         }
 
         println!();
-        println!("Assertions: {}", assertions);
+        println!("Checks: {}", checks);
     }
 
     Ok(())
@@ -69,11 +69,11 @@ fn get_current_branch() -> Option<String> {
     head.shorthand().map(String::from)
 }
 
-fn load_assertion_count() -> usize {
+fn load_check_count() -> usize {
     let path = std::path::Path::new(".noslop.toml");
     if !path.exists() {
         return 0;
     }
 
-    noslop_file::load_file(path).map(|f| f.assertions.len()).unwrap_or(0)
+    noslop_file::load_file(path).map(|f| f.checks.len()).unwrap_or(0)
 }

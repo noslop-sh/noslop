@@ -1,16 +1,16 @@
 //! Data models for noslop
 //!
 //! Core abstractions:
-//! - Assertion: "When X changes, verify Y" (attached to paths)
-//! - Attestation: "I verified Y because Z" (attached to commits)
+//! - Check: "When X changes, verify Y" (attached to paths)
+//! - Verification: "I verified Y because Z" (attached to commits)
 //! - Task: "What needs to be done" (with dependencies and status)
 
-pub mod assertion;
-mod attestation;
+pub mod check;
+mod verification;
 pub mod task;
 
-pub use assertion::{Assertion, Severity};
-pub use attestation::Attestation;
+pub use check::{Check, Severity};
+pub use verification::Verification;
 // These are library exports used by binary and external consumers
 #[allow(unused_imports)]
 pub use task::{Priority, Task, TaskStatus};

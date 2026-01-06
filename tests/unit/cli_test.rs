@@ -23,7 +23,7 @@ fn test_help() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Assertions declare what must be reviewed"));
+        .stdout(predicate::str::contains("Checks declare what must be verified"));
 }
 
 #[test]
@@ -53,7 +53,7 @@ fn test_init_creates_noslop_toml() {
 }
 
 #[test]
-fn test_assert_add_creates_assertion() {
+fn test_check_add_creates_check() {
     let temp = TempDir::new().unwrap();
 
     // Initialize git repo
@@ -66,21 +66,21 @@ fn test_assert_add_creates_assertion() {
     // Initialize noslop
     noslop().arg("init").current_dir(temp.path()).assert().success();
 
-    // Add assertion
+    // Add check
     noslop()
-        .args(["assert", "add", "*.rs", "-m", "Test assertion"])
+        .args(["check", "add", "*.rs", "-m", "Test check"])
         .current_dir(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Added assertion"));
+        .stdout(predicate::str::contains("Added check"));
 
-    // Verify .noslop.toml contains the assertion
+    // Verify .noslop.toml contains the check
     let content = std::fs::read_to_string(temp.path().join(".noslop.toml")).unwrap();
-    assert!(content.contains("Test assertion"));
+    assert!(content.contains("Test check"));
 }
 
 #[test]
-fn test_assert_list_shows_assertions() {
+fn test_check_list_shows_checks() {
     let temp = TempDir::new().unwrap();
 
     // Initialize git repo
@@ -90,11 +90,11 @@ fn test_assert_list_shows_assertions() {
         .output()
         .unwrap();
 
-    // Create .noslop.toml with an assertion
+    // Create .noslop.toml with a check
     std::fs::write(
         temp.path().join(".noslop.toml"),
         r#"
-[[assert]]
+[[check]]
 target = "*.rs"
 message = "Check this thing"
 severity = "block"
@@ -103,7 +103,7 @@ severity = "block"
     .unwrap();
 
     noslop()
-        .args(["assert", "list"])
+        .args(["check", "list"])
         .current_dir(temp.path())
         .assert()
         .success()
@@ -111,7 +111,7 @@ severity = "block"
 }
 
 #[test]
-fn test_check_with_no_staged_files() {
+fn test_check_run_with_no_staged_files() {
     let temp = TempDir::new().unwrap();
 
     // Initialize git repo
@@ -125,7 +125,7 @@ fn test_check_with_no_staged_files() {
     std::fs::write(temp.path().join(".noslop.toml"), "").unwrap();
 
     noslop()
-        .arg("check")
+        .args(["check", "run"])
         .current_dir(temp.path())
         .assert()
         .success()
@@ -133,7 +133,7 @@ fn test_check_with_no_staged_files() {
 }
 
 #[test]
-fn test_attest_stages_attestation() {
+fn test_verify_stages_verification() {
     let temp = TempDir::new().unwrap();
 
     // Initialize git repo
@@ -147,18 +147,18 @@ fn test_attest_stages_attestation() {
     std::fs::create_dir_all(temp.path().join(".noslop")).unwrap();
 
     noslop()
-        .args(["attest", "test-assertion", "-m", "I checked it"])
+        .args(["verify", "test-check", "-m", "I checked it"])
         .current_dir(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Staged attestation"));
+        .stdout(predicate::str::contains("Staged verification"));
 
-    // Verify staged attestations file exists
-    assert!(temp.path().join(".noslop/staged-attestations.json").exists());
+    // Verify staged verifications file exists
+    assert!(temp.path().join(".noslop/staged-verifications.json").exists());
 }
 
 #[test]
-fn test_assert_list_with_no_assertions() {
+fn test_check_list_with_no_checks() {
     let temp = TempDir::new().unwrap();
 
     // Initialize git repo
@@ -172,19 +172,19 @@ fn test_assert_list_with_no_assertions() {
     std::fs::write(temp.path().join(".noslop.toml"), "[project]\nprefix = \"TST\"\n").unwrap();
 
     noslop()
-        .args(["assert", "list"])
+        .args(["check", "list"])
         .current_dir(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("No assertions defined"));
+        .stdout(predicate::str::contains("No checks defined"));
 }
 
 #[test]
-fn test_assert_list_with_no_noslop_files() {
+fn test_check_list_with_no_noslop_files() {
     let temp = TempDir::new().unwrap();
 
     noslop()
-        .args(["assert", "list"])
+        .args(["check", "list"])
         .current_dir(temp.path())
         .assert()
         .success()
@@ -192,7 +192,7 @@ fn test_assert_list_with_no_noslop_files() {
 }
 
 #[test]
-fn test_assert_remove() {
+fn test_check_remove() {
     let temp = TempDir::new().unwrap();
 
     // Initialize git repo
@@ -205,42 +205,49 @@ fn test_assert_remove() {
     // Initialize noslop
     noslop().arg("init").current_dir(temp.path()).assert().success();
 
-    // Add two assertions
+    // Add two checks
     noslop()
-        .args(["assert", "add", "*.rs", "-m", "First assertion"])
+        .args(["check", "add", "*.rs", "-m", "First check"])
         .current_dir(temp.path())
         .assert()
         .success();
 
     noslop()
-        .args(["assert", "add", "*.ts", "-m", "Second assertion"])
+        .args(["check", "add", "*.ts", "-m", "Second check"])
         .current_dir(temp.path())
         .assert()
         .success();
 
     // List should show both
     noslop()
-        .args(["assert", "list"])
+        .args(["check", "list"])
         .current_dir(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("2 assertion(s) found"));
+        .stdout(predicate::str::contains("2 check(s) found"));
 
-    // Remove the first assertion - need to use the correct ID format
+    // Verify both checks are present
     let content = std::fs::read_to_string(temp.path().join(".noslop.toml")).unwrap();
-    assert!(content.contains("First assertion"));
+    assert!(content.contains("First check"));
+    assert!(content.contains("Second check"));
 
+    // Remove index 0 (the most recently added check due to ordering)
     noslop()
-        .args(["assert", "remove", ".noslop.toml:0"])
+        .args(["check", "remove", ".noslop.toml:0"])
         .current_dir(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Removed assertion"));
+        .stdout(predicate::str::contains("Removed check"));
 
-    // Verify first assertion is gone
+    // Verify one check is gone
     let content = std::fs::read_to_string(temp.path().join(".noslop.toml")).unwrap();
-    assert!(!content.contains("First assertion"));
-    assert!(content.contains("Second assertion"));
+    // Should have only one check remaining
+    noslop()
+        .args(["check", "list"])
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1 check(s) found"));
 }
 
 #[test]
@@ -272,7 +279,7 @@ fn test_json_output_no_args() {
 }
 
 #[test]
-fn test_assert_add_with_severity() {
+fn test_check_add_with_severity() {
     let temp = TempDir::new().unwrap();
 
     // Initialize git repo
@@ -285,9 +292,9 @@ fn test_assert_add_with_severity() {
     // Initialize noslop
     noslop().arg("init").current_dir(temp.path()).assert().success();
 
-    // Add assertion with block severity
+    // Add check with block severity
     noslop()
-        .args(["assert", "add", "*.rs", "-m", "Test assertion", "--severity", "block"])
+        .args(["check", "add", "*.rs", "-m", "Test check", "--severity", "block"])
         .current_dir(temp.path())
         .assert()
         .success();
@@ -317,7 +324,7 @@ fn test_init_with_existing_docs() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Found: CLAUDE.md"))
-        .stdout(predicate::str::contains("noslop assert import"));
+        .stdout(predicate::str::contains("noslop check import"));
 }
 
 #[test]

@@ -1,19 +1,19 @@
 //! Command implementations
 
 mod add_trailers;
-mod assert_cmd;
-mod attest;
 mod check;
+mod check_cmd;
 mod clear_staged;
 mod init;
 mod status;
 mod task;
+mod verify;
 
 pub use add_trailers::add_trailers;
-pub use assert_cmd::assert_cmd;
-pub use attest::attest;
-pub use check::check;
+pub use check::check_run;
+pub use check_cmd::check_cmd;
 pub use clear_staged::clear_staged;
 pub use init::init;
 pub use status::status;
 pub use task::task_cmd;
+pub use verify::verify;

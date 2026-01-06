@@ -1,4 +1,4 @@
-//! Storage abstraction for attestations and tasks
+//! Storage abstraction for verifications and tasks
 //!
 //! Provides pluggable backends:
 //! - `trailer`: Commit message trailers (default, most portable)
@@ -7,31 +7,31 @@
 
 #![allow(dead_code)]
 
-/// File-based storage for staging attestations
+/// File-based storage for staging verifications
 pub mod file;
 /// Task storage
 pub mod task;
-/// Commit trailer storage for attestations
+/// Commit trailer storage for verifications
 pub mod trailer;
 
-use crate::models::Attestation;
+use crate::models::Verification;
 
-/// Storage backend for attestations
-pub trait AttestationStore: Send + Sync {
-    /// Stage an attestation (pending until commit)
-    fn stage(&self, attestation: &Attestation) -> anyhow::Result<()>;
+/// Storage backend for verifications
+pub trait VerificationStore: Send + Sync {
+    /// Stage a verification (pending until commit)
+    fn stage(&self, verification: &Verification) -> anyhow::Result<()>;
 
-    /// Get all staged attestations
-    fn staged(&self) -> anyhow::Result<Vec<Attestation>>;
+    /// Get all staged verifications
+    fn staged(&self) -> anyhow::Result<Vec<Verification>>;
 
-    /// Clear staged attestations (after commit)
+    /// Clear staged verifications (after commit)
     fn clear_staged(&self) -> anyhow::Result<()>;
 
-    /// Format attestations for commit message trailer
-    fn format_trailers(&self, attestations: &[Attestation]) -> String;
+    /// Format verifications for commit message trailer
+    fn format_trailers(&self, verifications: &[Verification]) -> String;
 
-    /// Parse attestations from commit message
-    fn parse_from_commit(&self, commit_sha: &str) -> anyhow::Result<Vec<Attestation>>;
+    /// Parse verifications from commit message
+    fn parse_from_commit(&self, commit_sha: &str) -> anyhow::Result<Vec<Verification>>;
 }
 
 /// Storage backend type
@@ -56,15 +56,15 @@ impl std::str::FromStr for Backend {
     }
 }
 
-/// Get the configured attestation store
+/// Get the configured verification store
 #[must_use]
-pub fn attestation_store() -> Box<dyn AttestationStore> {
+pub fn verification_store() -> Box<dyn VerificationStore> {
     // For now, always use file for staging + trailer for finalized
     // Config-based selection can come later
-    Box::new(TrailerAttestationStore::new())
+    Box::new(TrailerVerificationStore::new())
 }
 
 // Re-export implementations for direct use
 #[allow(unused_imports)]
 pub use task::TaskStore;
-pub use trailer::TrailerAttestationStore;
+pub use trailer::TrailerVerificationStore;

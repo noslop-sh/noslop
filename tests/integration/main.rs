@@ -1,7 +1,7 @@
 //! Integration tests for noslop CLI
 //!
 //! These tests simulate real-world workflows with a complete codebase,
-//! testing the full cycle of: init → assert → attest → check
+//! testing the full cycle of: init → check add → verify → check run
 
 // Include lifecycle tests from the same directory
 mod lifecycle_test;
@@ -61,7 +61,7 @@ fn git_commit(path: &std::path::Path, message: &str) {
 // END-TO-END WORKFLOW TESTS
 // =============================================================================
 
-/// Test complete workflow: init → create files → add assertion → attest → check
+/// Test complete workflow: init → create files → add check → verify → check run
 #[test]
 fn test_e2e_complete_workflow() {
     let temp = TempDir::new().unwrap();
@@ -82,13 +82,13 @@ fn test_e2e_complete_workflow() {
     git_add(repo_path, ".noslop.toml");
     git_commit(repo_path, "Initial commit");
 
-    // Step 4: Add an assertion for Rust files
+    // Step 4: Add a check for Rust files
     noslop()
-        .args(["assert", "add", "*.rs", "-m", "Ensure all Rust code follows style guidelines"])
+        .args(["check", "add", "*.rs", "-m", "Ensure all Rust code follows style guidelines"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Added assertion"));
+        .stdout(predicate::str::contains("Added check"));
 
     // Step 5: Create a Rust source file
     let src_dir = repo_path.join("src");
@@ -105,19 +105,19 @@ fn test_e2e_complete_workflow() {
     // Step 6: Stage the new file
     git_add(repo_path, "src/main.rs");
 
-    // Step 7: Check should FAIL because assertion is not attested
+    // Step 7: Check should FAIL because check is not verified
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .failure()
         .stdout(predicate::str::contains("BLOCKED"))
         .stdout(predicate::str::contains("Ensure all Rust code follows style guidelines"));
 
-    // Step 8: Attest to the assertion
+    // Step 8: Verify the check
     noslop()
         .args([
-            "attest",
+            "verify",
             "Ensure all Rust code follows style guidelines",
             "-m",
             "Reviewed code and it follows rustfmt conventions",
@@ -125,30 +125,30 @@ fn test_e2e_complete_workflow() {
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Staged attestation"));
+        .stdout(predicate::str::contains("Staged verification"));
 
     // Step 9: Check should now PASS
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("All assertions attested"));
+        .stdout(predicate::str::contains("All checks verified"));
 }
 
-/// Test that check fails when blocking assertions are unattested
+/// Test that check fails when blocking checks are not verified
 #[test]
-fn test_check_blocks_without_attestation() {
+fn test_check_blocks_without_verification() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
     // Setup
     init_git_repo(repo_path);
 
-    // Create .noslop.toml with a blocking assertion
+    // Create .noslop.toml with a blocking check
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.py"
 message = "Python code must have type hints"
 severity = "block"
@@ -174,7 +174,7 @@ severity = "block"
 
     // Check should fail
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .failure()
@@ -191,10 +191,10 @@ fn test_warn_severity_shows_warning_but_passes() {
     // Setup
     init_git_repo(repo_path);
 
-    // Create .noslop.toml with a warn assertion
+    // Create .noslop.toml with a warn check
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.js"
 message = "Consider adding JSDoc comments"
 severity = "warn"
@@ -221,45 +221,45 @@ severity = "warn"
 
     // Check should pass but show warning
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .success()
         .stdout(predicate::str::contains("Warnings"))
         .stdout(predicate::str::contains("Consider adding JSDoc comments"))
         .stdout(
-            predicate::str::contains("All assertions attested")
+            predicate::str::contains("All checks verified")
                 .or(predicate::str::contains("Commit may proceed")),
         );
 }
 
 // =============================================================================
-// MULTIPLE ASSERTIONS TESTS
+// MULTIPLE CHECKS TESTS
 // =============================================================================
 
-/// Test handling multiple assertions for different file types
+/// Test handling multiple checks for different file types
 #[test]
-fn test_multiple_assertions_different_targets() {
+fn test_multiple_checks_different_targets() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
     // Setup
     init_git_repo(repo_path);
 
-    // Create .noslop.toml with multiple assertions
+    // Create .noslop.toml with multiple checks
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.rs"
 message = "Rust code must be formatted with rustfmt"
 severity = "block"
 
-[[assert]]
+[[check]]
 target = "*.ts"
 message = "TypeScript must use strict mode"
 severity = "block"
 
-[[assert]]
+[[check]]
 target = "*.md"
 message = "Documentation should be reviewed"
 severity = "warn"
@@ -284,9 +284,9 @@ severity = "warn"
     git_add(repo_path, "app.ts");
     git_add(repo_path, "README.md");
 
-    // Check should fail - missing Rust and TypeScript attestations
+    // Check should fail - missing Rust and TypeScript verifications
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .failure()
@@ -294,10 +294,10 @@ severity = "warn"
         .stdout(predicate::str::contains("Rust code must be formatted with rustfmt"))
         .stdout(predicate::str::contains("TypeScript must use strict mode"));
 
-    // Attest to Rust assertion only
+    // Verify Rust check only
     noslop()
         .args([
-            "attest",
+            "verify",
             "Rust code must be formatted with rustfmt",
             "-m",
             "Ran rustfmt on all files",
@@ -306,18 +306,18 @@ severity = "warn"
         .assert()
         .success();
 
-    // Still should fail - missing TypeScript attestation
+    // Still should fail - missing TypeScript verification
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .failure()
         .stdout(predicate::str::contains("TypeScript must use strict mode"));
 
-    // Attest to TypeScript assertion
+    // Verify TypeScript check
     noslop()
         .args([
-            "attest",
+            "verify",
             "TypeScript must use strict mode",
             "-m",
             "Added strict: true to tsconfig",
@@ -328,16 +328,16 @@ severity = "warn"
 
     // Now should pass
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("All assertions attested"));
+        .stdout(predicate::str::contains("All checks verified"));
 }
 
-/// Test that same assertion applies to multiple matching files
+/// Test that same check applies to multiple matching files
 #[test]
-fn test_single_assertion_multiple_files() {
+fn test_single_check_multiple_files() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -347,7 +347,7 @@ fn test_single_assertion_multiple_files() {
     // Create .noslop.toml with glob pattern (using *.rs which is more reliable)
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.rs"
 message = "All source files need security review"
 severity = "block"
@@ -371,16 +371,16 @@ severity = "block"
 
     // Check should fail
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .failure()
         .stdout(predicate::str::contains("BLOCKED"));
 
-    // Single attestation should cover all files
+    // Single verification should cover all files
     noslop()
         .args([
-            "attest",
+            "verify",
             "All source files need security review",
             "-m",
             "Reviewed all files for security issues",
@@ -391,20 +391,20 @@ severity = "block"
 
     // Now should pass
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("All assertions attested"));
+        .stdout(predicate::str::contains("All checks verified"));
 }
 
 // =============================================================================
-// ATTESTATION MATCHING TESTS
+// VERIFICATION MATCHING TESTS
 // =============================================================================
 
-/// Test attestation matching by assertion target
+/// Test verification matching by check target
 #[test]
-fn test_attest_by_target() {
+fn test_verify_by_target() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -414,7 +414,7 @@ fn test_attest_by_target() {
     // Create .noslop.toml
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "config/*.yaml"
 message = "Config changes require DevOps review"
 severity = "block"
@@ -434,25 +434,25 @@ severity = "block"
     // Stage config file
     git_add(repo_path, "config/app.yaml");
 
-    // Attest by target pattern
+    // Verify by target pattern
     noslop()
-        .args(["attest", "config/*.yaml", "-m", "DevOps team approved changes"])
+        .args(["verify", "config/*.yaml", "-m", "DevOps team approved changes"])
         .current_dir(repo_path)
         .assert()
         .success();
 
     // Should pass
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("All assertions attested"));
+        .stdout(predicate::str::contains("All checks verified"));
 }
 
-/// Test attestation matching by partial message
+/// Test verification matching by partial message
 #[test]
-fn test_attest_by_partial_message() {
+fn test_verify_by_partial_message() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -462,7 +462,7 @@ fn test_attest_by_partial_message() {
     // Create .noslop.toml with a long message
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.sql"
 message = "Database migrations must be reviewed by DBA team for performance impact"
 severity = "block"
@@ -480,10 +480,10 @@ severity = "block"
     // Stage SQL file
     git_add(repo_path, "migration.sql");
 
-    // Attest using the full message
+    // Verify using the full message
     noslop()
         .args([
-            "attest",
+            "verify",
             "Database migrations must be reviewed by DBA team for performance impact",
             "-m",
             "DBA approved - no index changes needed",
@@ -493,16 +493,16 @@ severity = "block"
         .success();
 
     // Should pass
-    noslop().args(["check", "--ci"]).current_dir(repo_path).assert().success();
+    noslop().args(["check", "run", "--ci"]).current_dir(repo_path).assert().success();
 }
 
 // =============================================================================
-// STAGED ATTESTATIONS TESTS
+// STAGED VERIFICATIONS TESTS
 // =============================================================================
 
-/// Test that attestations are stored in staged-attestations.json
+/// Test that verifications are stored in staged-verifications.json
 #[test]
-fn test_attestation_stored_in_json_file() {
+fn test_verification_stored_in_json_file() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -512,29 +512,29 @@ fn test_attestation_stored_in_json_file() {
     // Create .noslop directory
     fs::create_dir_all(repo_path.join(".noslop")).unwrap();
 
-    // Attest
+    // Verify
     noslop()
-        .args(["attest", "test-assertion", "-m", "Test attestation message"])
+        .args(["verify", "test-check", "-m", "Test verification message"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    // Verify staged-attestations.json exists and contains correct data
-    let json_path = repo_path.join(".noslop/staged-attestations.json");
-    assert!(json_path.exists(), "staged-attestations.json should exist");
+    // Verify staged-verifications.json exists and contains correct data
+    let json_path = repo_path.join(".noslop/staged-verifications.json");
+    assert!(json_path.exists(), "staged-verifications.json should exist");
 
     let content = fs::read_to_string(&json_path).unwrap();
-    assert!(content.contains("test-assertion"), "JSON should contain assertion ID");
+    assert!(content.contains("test-check"), "JSON should contain check ID");
     assert!(
-        content.contains("Test attestation message"),
-        "JSON should contain attestation message"
+        content.contains("Test verification message"),
+        "JSON should contain verification message"
     );
-    assert!(content.contains("human"), "JSON should indicate human attestation");
+    assert!(content.contains("human"), "JSON should indicate human verification");
 }
 
-/// Test multiple attestations accumulate in JSON file
+/// Test multiple verifications accumulate in JSON file
 #[test]
-fn test_multiple_attestations_accumulate() {
+fn test_multiple_verifications_accumulate() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -544,37 +544,37 @@ fn test_multiple_attestations_accumulate() {
     // Create .noslop directory
     fs::create_dir_all(repo_path.join(".noslop")).unwrap();
 
-    // Add first attestation
+    // Add first verification
     noslop()
-        .args(["attest", "first-assertion", "-m", "First attestation"])
+        .args(["verify", "first-check", "-m", "First verification"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    // Add second attestation
+    // Add second verification
     noslop()
-        .args(["attest", "second-assertion", "-m", "Second attestation"])
+        .args(["verify", "second-check", "-m", "Second verification"])
         .current_dir(repo_path)
         .assert()
         .success();
 
     // Verify both are in the JSON file
-    let json_path = repo_path.join(".noslop/staged-attestations.json");
+    let json_path = repo_path.join(".noslop/staged-verifications.json");
     let content = fs::read_to_string(&json_path).unwrap();
 
-    assert!(content.contains("first-assertion"), "Should contain first assertion");
-    assert!(content.contains("second-assertion"), "Should contain second assertion");
-    assert!(content.contains("First attestation"), "Should contain first message");
-    assert!(content.contains("Second attestation"), "Should contain second message");
+    assert!(content.contains("first-check"), "Should contain first check");
+    assert!(content.contains("second-check"), "Should contain second check");
+    assert!(content.contains("First verification"), "Should contain first message");
+    assert!(content.contains("Second verification"), "Should contain second message");
 }
 
 // =============================================================================
-// ASSERT COMMAND TESTS
+// CHECK COMMAND TESTS
 // =============================================================================
 
-/// Test assert add with different severity levels
+/// Test check add with different severity levels
 #[test]
-fn test_assert_add_with_severity() {
+fn test_check_add_with_severity() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -582,17 +582,17 @@ fn test_assert_add_with_severity() {
     init_git_repo(repo_path);
     noslop().arg("init").current_dir(repo_path).assert().success();
 
-    // Add block severity assertion
+    // Add block severity check
     noslop()
-        .args(["assert", "add", "*.secret", "-m", "Never commit secrets", "-s", "block"])
+        .args(["check", "add", "*.secret", "-m", "Never commit secrets", "-s", "block"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    // Add warn severity assertion
+    // Add warn severity check
     noslop()
         .args([
-            "assert",
+            "check",
             "add",
             "*.log",
             "-m",
@@ -612,54 +612,54 @@ fn test_assert_add_with_severity() {
     assert!(content.contains("warn"));
 }
 
-/// Test assert list filters by target
+/// Test check list filters by target
 #[test]
-fn test_assert_list_filter_by_target() {
+fn test_check_list_filter_by_target() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
     // Setup
     init_git_repo(repo_path);
 
-    // Create .noslop.toml with multiple assertions
+    // Create .noslop.toml with multiple checks
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.rs"
-message = "Rust assertion"
+message = "Rust check"
 severity = "block"
 
-[[assert]]
+[[check]]
 target = "*.py"
-message = "Python assertion"
+message = "Python check"
 severity = "block"
 
-[[assert]]
+[[check]]
 target = "*.rs"
-message = "Another Rust assertion"
+message = "Another Rust check"
 severity = "warn"
 "#,
     )
     .unwrap();
 
-    // List all assertions
+    // List all checks
     noslop()
-        .args(["assert", "list"])
+        .args(["check", "list"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Rust assertion"))
-        .stdout(predicate::str::contains("Python assertion"))
-        .stdout(predicate::str::contains("Another Rust assertion"));
+        .stdout(predicate::str::contains("Rust check"))
+        .stdout(predicate::str::contains("Python check"))
+        .stdout(predicate::str::contains("Another Rust check"));
 
     // List filtered by target
     noslop()
-        .args(["assert", "list", "-t", "*.rs"])
+        .args(["check", "list", "-t", "*.rs"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Rust assertion"))
-        .stdout(predicate::str::contains("Another Rust assertion"));
+        .stdout(predicate::str::contains("Rust check"))
+        .stdout(predicate::str::contains("Another Rust check"));
 }
 
 // =============================================================================
@@ -672,7 +672,7 @@ fn test_check_in_non_git_directory() {
     let temp = TempDir::new().unwrap();
 
     // Don't initialize git - just run check
-    noslop().arg("check").current_dir(temp.path()).assert().failure();
+    noslop().args(["check", "run"]).current_dir(temp.path()).assert().failure();
 }
 
 /// Test init fails gracefully in non-git directory
@@ -687,7 +687,7 @@ fn test_init_requires_git_repo() {
 // NESTED DIRECTORY TESTS
 // =============================================================================
 
-/// Test assertions in nested .noslop.toml files
+/// Test checks in nested .noslop.toml files
 #[test]
 fn test_nested_noslop_toml_files() {
     let temp = TempDir::new().unwrap();
@@ -699,7 +699,7 @@ fn test_nested_noslop_toml_files() {
     // Root .noslop.toml
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.rs"
 message = "Global Rust check"
 severity = "block"
@@ -712,7 +712,7 @@ severity = "block"
     fs::create_dir_all(&api_dir).unwrap();
     fs::write(
         api_dir.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.rs"
 message = "API-specific security check"
 severity = "block"
@@ -731,10 +731,10 @@ severity = "block"
     // Stage the file
     git_add(repo_path, "api/handler.rs");
 
-    // Check should require both assertions to be attested
-    let output = noslop().args(["check", "--ci"]).current_dir(repo_path).assert().failure();
+    // Check should require both checks to be verified
+    let output = noslop().args(["check", "run", "--ci"]).current_dir(repo_path).assert().failure();
 
-    // The check should mention both assertions
+    // The check should mention both checks
     output.stdout(
         predicate::str::contains("Global Rust check").or(predicate::str::contains("API-specific")),
     );
@@ -753,10 +753,10 @@ fn test_ci_mode_exit_codes() {
     // Setup
     init_git_repo(repo_path);
 
-    // Create blocking assertion
+    // Create blocking check
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.go"
 message = "Go code review required"
 severity = "block"
@@ -774,26 +774,26 @@ severity = "block"
     // Without --ci, check might exit differently
     // With --ci, should return error result (for CI systems)
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .failure()
         .stdout(predicate::str::contains("BLOCKED"));
 }
 
-/// Test check succeeds in CI when no assertions apply
+/// Test check succeeds in CI when no checks apply
 #[test]
-fn test_ci_no_applicable_assertions() {
+fn test_ci_no_applicable_checks() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
     // Setup
     init_git_repo(repo_path);
 
-    // Create assertion for .rs files only
+    // Create check for .rs files only
     fs::write(
         repo_path.join(".noslop.toml"),
-        r#"[[assert]]
+        r#"[[check]]
 target = "*.rs"
 message = "Rust check"
 severity = "block"
@@ -804,15 +804,15 @@ severity = "block"
     git_add(repo_path, ".noslop.toml");
     git_commit(repo_path, "Initial commit");
 
-    // Create and stage a Python file (doesn't match assertion)
+    // Create and stage a Python file (doesn't match check)
     fs::write(repo_path.join("script.py"), "print('hello')").unwrap();
     git_add(repo_path, "script.py");
 
-    // Check should pass - no assertions apply to .py files
+    // Check should pass - no checks apply to .py files
     noslop()
-        .args(["check", "--ci"])
+        .args(["check", "run", "--ci"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("No assertions apply"));
+        .stdout(predicate::str::contains("No checks apply"));
 }

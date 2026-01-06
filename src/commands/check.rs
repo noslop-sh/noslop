@@ -1,14 +1,14 @@
-//! Check assertions for staged changes
+//! Check for staged changes
 
-use noslop::output::{AssertionMatch, CheckResult, OutputMode};
+use noslop::output::{CheckMatch, CheckResult, OutputMode};
 
 use crate::git;
 use crate::models::Severity;
 use crate::noslop_file;
 use crate::storage;
 
-/// Check assertions for staged changes (pre-commit hook)
-pub fn check(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
+/// Run checks for staged changes (pre-commit hook)
+pub fn check_run(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
     // Get staged files
     let staged = git::staged::get_staged_files()?;
 
@@ -18,14 +18,14 @@ pub fn check(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
             files_checked: 0,
             blocking: vec![],
             warnings: vec![],
-            attested: vec![],
+            verified: vec![],
         };
         result.render(mode);
         return Ok(());
     }
 
-    // Load assertions from .noslop.toml files
-    let applicable = noslop_file::load_assertions_for_files(&staged)?;
+    // Load checks from .noslop.toml files
+    let applicable = noslop_file::load_checks_for_files(&staged)?;
 
     if applicable.is_empty() {
         let result = CheckResult {
@@ -33,47 +33,47 @@ pub fn check(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
             files_checked: staged.len(),
             blocking: vec![],
             warnings: vec![],
-            attested: vec![],
+            verified: vec![],
         };
         result.render(mode);
         return Ok(());
     }
 
-    // Load staged attestations via storage abstraction
-    let store = storage::attestation_store();
-    let attestations = store.staged()?;
+    // Load staged verifications via storage abstraction
+    let store = storage::verification_store();
+    let verifications = store.staged()?;
 
-    // Check for unattested assertions
+    // Check for unverified checks
     let mut blocking = Vec::new();
     let mut warnings = Vec::new();
-    let mut attested_list = Vec::new();
+    let mut verified_list = Vec::new();
 
-    for (assertion, file) in &applicable {
-        let is_attested = attestations.iter().any(|a| {
+    for (check, file) in &applicable {
+        let is_verified = verifications.iter().any(|v| {
             // Priority matching: ID first, then message, then target
-            a.assertion_id == assertion.id
-                || a.assertion_id.contains(&assertion.message)
-                || a.assertion_id == assertion.target
+            v.check_id == check.id
+                || v.check_id.contains(&check.message)
+                || v.check_id == check.target
         });
 
-        let assertion_match = AssertionMatch {
-            id: assertion.id.clone(),
+        let check_match = CheckMatch {
+            id: check.id.clone(),
             file: file.clone(),
-            target: assertion.target.clone(),
-            message: assertion.message.clone(),
-            severity: assertion.severity.to_string(),
-            attested: is_attested,
+            target: check.target.clone(),
+            message: check.message.clone(),
+            severity: check.severity.to_string(),
+            verified: is_verified,
         };
 
-        match assertion.severity {
-            Severity::Block if !is_attested => {
-                blocking.push(assertion_match);
+        match check.severity {
+            Severity::Block if !is_verified => {
+                blocking.push(check_match);
             },
-            Severity::Warn if !is_attested => {
-                warnings.push(assertion_match);
+            Severity::Warn if !is_verified => {
+                warnings.push(check_match);
             },
-            _ if is_attested => {
-                attested_list.push(assertion_match);
+            _ if is_verified => {
+                verified_list.push(check_match);
             },
             _ => {},
         }
@@ -86,7 +86,7 @@ pub fn check(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
         files_checked: staged.len(),
         blocking,
         warnings,
-        attested: attested_list,
+        verified: verified_list,
     };
 
     result.render(mode);
@@ -95,7 +95,7 @@ pub fn check(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
         if !ci {
             std::process::exit(1);
         }
-        anyhow::bail!("Unattested assertions");
+        anyhow::bail!("Unverified checks");
     }
 
     Ok(())

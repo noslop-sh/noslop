@@ -1,39 +1,39 @@
-//! Add attestation trailers to commit message
+//! Add verification trailers to commit message
 //!
 //! This command is called by the prepare-commit-msg hook to append
-//! attestation trailers to the commit message.
+//! verification trailers to the commit message.
 
 use std::fs;
 use std::path::Path;
 
-/// Add attestation trailers to commit message file
+/// Add verification trailers to commit message file
 ///
 /// Called by prepare-commit-msg hook with the commit message file path.
-/// Appends Noslop-Attest trailers from staged attestations.
+/// Appends Noslop-Verify trailers from staged verifications.
 pub fn add_trailers(commit_msg_file: &str) -> anyhow::Result<()> {
     add_trailers_in(Path::new("."), commit_msg_file)
 }
 
-/// Add attestation trailers in a specific directory (for testing)
+/// Add verification trailers in a specific directory (for testing)
 fn add_trailers_in(base_dir: &Path, commit_msg_file: &str) -> anyhow::Result<()> {
-    use crate::models::Attestation;
+    use crate::models::Verification;
 
     let msg_path = Path::new(commit_msg_file);
     if !msg_path.exists() {
         anyhow::bail!("Commit message file not found: {commit_msg_file}");
     }
 
-    // Load staged attestations from base_dir
-    let attestations_file = base_dir.join(".noslop/staged-attestations.json");
-    let attestations: Vec<Attestation> = if attestations_file.exists() {
-        let json = fs::read_to_string(&attestations_file)?;
+    // Load staged verifications from base_dir
+    let verifications_file = base_dir.join(".noslop/staged-verifications.json");
+    let verifications: Vec<Verification> = if verifications_file.exists() {
+        let json = fs::read_to_string(&verifications_file)?;
         serde_json::from_str(&json)?
     } else {
         Vec::new()
     };
 
-    if attestations.is_empty() {
-        // No attestations to add
+    if verifications.is_empty() {
+        // No verifications to add
         return Ok(());
     }
 
@@ -50,11 +50,11 @@ fn add_trailers_in(base_dir: &Path, commit_msg_file: &str) -> anyhow::Result<()>
         msg.push('\n');
     }
 
-    // Append attestation trailers
-    for attestation in &attestations {
+    // Append verification trailers
+    for verification in &verifications {
         let trailer = format!(
-            "Noslop-Attest: {} | {} | {}\n",
-            attestation.assertion_id, attestation.message, attestation.attested_by
+            "Noslop-Verify: {} | {} | {}\n",
+            verification.check_id, verification.message, verification.verified_by
         );
         msg.push_str(&trailer);
     }

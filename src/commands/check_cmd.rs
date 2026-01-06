@@ -1,29 +1,31 @@
-//! Assert command - manage assertions
+//! Check command - manage checks
 
 use std::path::Path;
 
 use noslop::output::OutputMode;
 
-use crate::cli::AssertAction;
+use crate::cli::CheckAction;
 use crate::noslop_file;
 
-/// Handle assert subcommands
-pub fn assert_cmd(action: AssertAction, _mode: OutputMode) -> anyhow::Result<()> {
+/// Handle check subcommands (add, list, remove)
+pub fn check_cmd(action: CheckAction, _mode: OutputMode) -> anyhow::Result<()> {
     match action {
-        AssertAction::Add {
+        CheckAction::Add {
             target,
             message,
             severity,
         } => add(&target, &message, &severity),
-        AssertAction::List { target } => list(target.as_deref()),
-        AssertAction::Remove { id } => remove(&id),
+        CheckAction::List { target } => list(target.as_deref()),
+        CheckAction::Remove { id } => remove(&id),
+        // Run is handled directly in cli.rs before reaching here
+        CheckAction::Run { .. } => unreachable!("Run is handled directly in cli.rs"),
     }
 }
 
 fn add(target: &str, message: &str, severity: &str) -> anyhow::Result<()> {
-    let id = noslop_file::add_assertion(target, message, severity)?;
+    let id = noslop_file::add_check(target, message, severity)?;
 
-    println!("Added assertion to .noslop.toml");
+    println!("Added check to .noslop.toml");
     println!("  target: {}", target);
     println!("  message: {}", message);
     println!("  severity: {}", severity);
@@ -40,29 +42,30 @@ fn list(target: Option<&str>) -> anyhow::Result<()> {
 
     if noslop_files.is_empty() {
         println!("No .noslop.toml files found.");
-        println!("Add an assertion with: noslop assert add <target> -m \"message\"");
+        println!("Add a check with: noslop check add <target> -m \"message\"");
         return Ok(());
     }
 
     let mut total = 0;
     for path in &noslop_files {
         let file = noslop_file::load_file(path)?;
-        if file.assertions.is_empty() {
+        let checks: Vec<_> = file.all_checks().collect();
+        if checks.is_empty() {
             continue;
         }
 
         println!("{}:", path.display());
-        for a in file.assertions.iter() {
-            println!("  [{}] {} -> {}", a.severity.to_uppercase(), a.target, a.message);
+        for c in &checks {
+            println!("  [{}] {} -> {}", c.severity.to_uppercase(), c.target, c.message);
             total += 1;
         }
         println!();
     }
 
     if total == 0 {
-        println!("No assertions defined.");
+        println!("No checks defined.");
     } else {
-        println!("{} assertion(s) found.", total);
+        println!("{} check(s) found.", total);
     }
 
     Ok(())
@@ -82,31 +85,49 @@ fn remove(id: &str) -> anyhow::Result<()> {
         anyhow::bail!("File not found: {}", file_path.display());
     }
 
-    let mut file = noslop_file::load_file(file_path)?;
-    if index >= file.assertions.len() {
+    let file = noslop_file::load_file(file_path)?;
+    let checks: Vec<_> = file.all_checks().collect();
+    if index >= checks.len() {
         anyhow::bail!(
-            "Index {} out of range (file has {} assertions)",
+            "Index {} out of range (file has {} checks)",
             index,
-            file.assertions.len()
+            checks.len()
         );
     }
 
-    let removed = file.assertions.remove(index);
+    let removed_message = checks[index].message.clone();
+
+    // Rebuild checks without the removed one
+    let new_checks: Vec<_> = checks
+        .into_iter()
+        .enumerate()
+        .filter(|(i, _)| *i != index)
+        .map(|(_, c)| c.clone())
+        .collect();
 
     // Rewrite file
-    let content = format_noslop_file(&file);
+    let content = format_noslop_file(&file.project.prefix, &new_checks);
     std::fs::write(file_path, content)?;
 
-    println!("Removed assertion: {}", removed.message);
+    println!("Removed check: {}", removed_message);
     Ok(())
 }
 
-fn format_noslop_file(file: &noslop_file::NoslopFile) -> String {
+fn format_noslop_file(prefix: &str, checks: &[noslop_file::CheckEntry]) -> String {
     let mut out = String::new();
-    out.push_str("# noslop assertions\n\n");
+    out.push_str("# noslop checks\n\n");
 
-    for entry in &file.assertions {
-        out.push_str("[[assert]]\n");
+    // Add project config if prefix is not default
+    if prefix != "NOS" {
+        out.push_str("[project]\n");
+        out.push_str(&format!("prefix = \"{}\"\n\n", prefix));
+    }
+
+    for entry in checks {
+        out.push_str("[[check]]\n");
+        if let Some(id) = &entry.id {
+            out.push_str(&format!("id = \"{}\"\n", id));
+        }
         out.push_str(&format!("target = \"{}\"\n", entry.target));
         out.push_str(&format!("message = \"{}\"\n", entry.message));
         out.push_str(&format!("severity = \"{}\"\n", entry.severity));

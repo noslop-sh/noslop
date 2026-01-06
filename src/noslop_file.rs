@@ -1,14 +1,14 @@
 //! .noslop.toml file loading
 //!
 //! Scans for .noslop.toml files from a path up to the repo root,
-//! collecting all assertions that apply.
+//! collecting all checks that apply.
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::models::{Assertion, Severity};
+use crate::models::{Check, Severity};
 
 /// A .noslop.toml file structure
 #[derive(Debug, Deserialize)]
@@ -17,19 +17,30 @@ pub struct NoslopFile {
     #[serde(default)]
     pub project: ProjectConfig,
 
-    /// Assertions in this file
-    #[serde(default, rename = "assert")]
-    pub assertions: Vec<AssertionEntry>,
+    /// Checks in this file (supports both [[check]] and legacy [[assert]])
+    #[serde(default, alias = "assert")]
+    pub checks: Vec<CheckEntry>,
+
+    /// Legacy support: also read [[check]] if present
+    #[serde(default, rename = "check")]
+    checks_new: Vec<CheckEntry>,
+}
+
+impl NoslopFile {
+    /// Get all checks (merging legacy [[assert]] and new [[check]])
+    pub fn all_checks(&self) -> impl Iterator<Item = &CheckEntry> {
+        self.checks.iter().chain(self.checks_new.iter())
+    }
 }
 
 /// Project-level configuration
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct ProjectConfig {
-    /// 3-letter prefix for assertion IDs (e.g., "NSL" for noslop-123)
+    /// 3-letter prefix for check IDs (e.g., "NOS" for NOS-123)
     pub prefix: String,
 
-    /// Next assertion ID number
+    /// Next check ID number
     #[serde(skip)]
     pub next_id: u32,
 }
@@ -37,22 +48,22 @@ pub struct ProjectConfig {
 impl Default for ProjectConfig {
     fn default() -> Self {
         Self {
-            prefix: "AST".to_string(), // Fallback if not set
+            prefix: "NOS".to_string(), // New default prefix
             next_id: 1,
         }
     }
 }
 
-/// An assertion entry in .noslop.toml
-#[derive(Debug, Deserialize)]
-pub struct AssertionEntry {
+/// A check entry in .noslop.toml
+#[derive(Debug, Clone, Deserialize)]
+pub struct CheckEntry {
     /// Optional custom ID (if not provided, will be auto-generated as PREFIX-N)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
 
     /// Target pattern (glob or path)
     pub target: String,
-    /// The assertion message
+    /// The check message
     pub message: String,
     /// Severity: info, warn, block
     #[serde(default = "default_severity")]
@@ -90,20 +101,20 @@ pub fn find_noslop_files(from: &Path) -> Vec<PathBuf> {
         current = current.parent().unwrap().to_path_buf();
     }
 
-    // Reverse so root comes first (assertions stack up)
+    // Reverse so root comes first (checks stack up)
     files.reverse();
     files
 }
 
-/// Load assertions from a .noslop.toml file
+/// Load checks from a .noslop.toml file
 pub fn load_file(path: &Path) -> anyhow::Result<NoslopFile> {
     let content = fs::read_to_string(path)?;
     let file: NoslopFile = toml::from_str(&content)?;
     Ok(file)
 }
 
-/// Load all assertions applicable to a set of files
-pub fn load_assertions_for_files(files: &[String]) -> anyhow::Result<Vec<(Assertion, String)>> {
+/// Load all checks applicable to a set of files
+pub fn load_checks_for_files(files: &[String]) -> anyhow::Result<Vec<(Check, String)>> {
     let mut result = Vec::new();
     let cwd = std::env::current_dir()?;
 
@@ -115,21 +126,21 @@ pub fn load_assertions_for_files(files: &[String]) -> anyhow::Result<Vec<(Assert
             let noslop_file = load_file(&noslop_path)?;
             let noslop_dir = noslop_path.parent().unwrap_or(&cwd);
 
-            for entry in &noslop_file.assertions {
+            for entry in noslop_file.all_checks() {
                 if matches_target(&entry.target, file, noslop_dir, &cwd) {
-                    let assertion = Assertion::new(
+                    let check = Check::new(
                         entry.id.clone(),
                         entry.target.clone(),
                         entry.message.clone(),
                         entry.severity.parse().unwrap_or(Severity::Block),
                     );
-                    result.push((assertion, file.clone()));
+                    result.push((check, file.clone()));
                 }
             }
         }
     }
 
-    // Dedupe by assertion message + file (same assertion might match from multiple noslop files)
+    // Dedupe by check message + file (same check might match from multiple noslop files)
     result.sort_by(|a, b| (&a.0.message, &a.1).cmp(&(&b.0.message, &b.1)));
     result.dedup_by(|a, b| a.0.message == b.0.message && a.1 == b.1);
 
@@ -199,8 +210,8 @@ fn matches_target(target: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bo
     file_rel == target || file_rel.starts_with(target) || file.contains(target)
 }
 
-/// Create or update a .noslop.toml file with a new assertion
-pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Result<String> {
+/// Create or update a .noslop.toml file with a new check
+pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<String> {
     let path = Path::new(".noslop.toml");
 
     let mut file = if path.exists() {
@@ -208,15 +219,15 @@ pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Res
     } else {
         NoslopFile {
             project: ProjectConfig::default(),
-            assertions: Vec::new(),
+            checks: Vec::new(),
+            checks_new: Vec::new(),
         }
     };
 
     // Calculate next ID number (max existing ID + 1)
     let next_num = file
-        .assertions
-        .iter()
-        .filter_map(|a| a.id.as_ref())
+        .all_checks()
+        .filter_map(|c| c.id.as_ref())
         .filter_map(|id| {
             // Parse PREFIX-123 format
             id.split('-').nth(1).and_then(|n| n.parse::<u32>().ok())
@@ -228,7 +239,7 @@ pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Res
     // Generate JIRA-style ID
     let generated_id = format!("{}-{}", file.project.prefix, next_num);
 
-    let entry = AssertionEntry {
+    let entry = CheckEntry {
         id: Some(generated_id.clone()),
         target: target.to_string(),
         message: message.to_string(),
@@ -236,28 +247,28 @@ pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Res
         tags: Vec::new(),
     };
 
-    file.assertions.push(entry);
+    file.checks.push(entry);
 
-    // Write back
+    // Write back using new [[check]] format
     let content = format_noslop_file(&file);
     fs::write(path, content)?;
 
     Ok(generated_id)
 }
 
-/// Format a NoslopFile as TOML
+/// Format a NoslopFile as TOML (using new [[check]] format)
 fn format_noslop_file(file: &NoslopFile) -> String {
     let mut out = String::new();
-    out.push_str("# noslop assertions\n\n");
+    out.push_str("# noslop checks\n\n");
 
     // Add project config if prefix is not default
-    if file.project.prefix != "AST" {
+    if file.project.prefix != "NOS" {
         out.push_str("[project]\n");
         out.push_str(&format!("prefix = \"{}\"\n\n", file.project.prefix));
     }
 
-    for entry in &file.assertions {
-        out.push_str("[[assert]]\n");
+    for entry in file.all_checks() {
+        out.push_str("[[check]]\n");
         if let Some(id) = &entry.id {
             out.push_str(&format!("id = \"{}\"\n", id));
         }
@@ -305,7 +316,7 @@ fn generate_3_letter_prefix(name: &str) -> String {
         // Single word: take first 3 letters
         words[0].chars().take(3).collect()
     } else {
-        "AST".to_string() // Fallback
+        "NOS".to_string() // Fallback
     };
 
     prefix.to_uppercase()
