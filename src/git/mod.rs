@@ -110,20 +110,15 @@ pub fn add_file(path: &Path, file: &str) -> bool {
 }
 
 /// Create a commit with the given message
-pub fn commit(path: &Path, message: &str) -> bool {
-    Command::new("git")
-        .args(["commit", "-m", message])
-        .current_dir(path)
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
-}
+/// Set `run_hooks` to false to skip pre-commit/commit-msg hooks
+pub fn commit(path: &Path, message: &str, run_hooks: bool) -> bool {
+    let mut args = vec!["commit", "-m", message];
+    if !run_hooks {
+        args.insert(1, "--no-verify");
+    }
 
-/// Disable git hooks in a repository (for test setup)
-pub fn disable_hooks(path: &Path) -> bool {
-    // Remove or disable hooks by setting core.hooksPath to a non-existent directory
     Command::new("git")
-        .args(["config", "core.hooksPath", "/dev/null"])
+        .args(&args)
         .current_dir(path)
         .output()
         .map(|o| o.status.success())

@@ -18,15 +18,12 @@ fn noslop() -> assert_cmd::Command {
 }
 
 /// Helper to initialize a git repo with basic config
-/// Also disables hooks to avoid PATH issues in tests
 fn init_git_repo(path: &std::path::Path) {
     assert!(git::init_repo(path), "Failed to init git repo");
     assert!(
         git::configure_user(path, "test@example.com", "Test User"),
         "Failed to configure git user"
     );
-    // Disable hooks to avoid PATH issues when hooks call noslop
-    git::disable_hooks(path);
 }
 
 /// Helper to stage files in git
@@ -34,10 +31,10 @@ fn git_add(path: &std::path::Path, file: &str) {
     assert!(git::add_file(path, file), "Failed to stage file: {}", file);
 }
 
-/// Helper to create a git commit
+/// Helper to create a git commit (skips hooks to avoid PATH issues in tests)
 fn git_commit(path: &std::path::Path, message: &str) {
     assert!(
-        git::commit(path, message),
+        git::commit(path, message, false),
         "Failed to create commit: {}",
         message
     );
