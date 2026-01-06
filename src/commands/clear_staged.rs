@@ -1,16 +1,27 @@
-//! Clear staged verifications
+//! Clear staged verifications and pending task trailers
 //!
 //! This command is called by the post-commit hook to remove
-//! staged verifications after they've been added to the commit.
+//! staged verifications and pending task trailers after they've
+//! been added to the commit.
 
 use std::path::Path;
 
-/// Clear staged verifications
+use noslop::storage::TaskRefs;
+
+/// Clear staged verifications and pending task trailers
 ///
-/// Called by post-commit hook to delete .noslop/staged-verifications.json
-/// after the commit has been created with verification trailers.
+/// Called by post-commit hook to:
+/// 1. Delete .noslop/staged-verifications.json
+/// 2. Clear pending_trailer field from all tasks
+///
+/// This runs after the commit has been created with all trailers.
 pub fn clear_staged() -> anyhow::Result<()> {
-    clear_staged_in(Path::new("."))
+    clear_staged_in(Path::new("."))?;
+
+    // Clear pending task trailers
+    TaskRefs::clear_all_pending_trailers()?;
+
+    Ok(())
 }
 
 /// Clear staged verifications in a specific directory (for testing)

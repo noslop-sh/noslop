@@ -47,12 +47,15 @@ prefix = "{prefix}"
 
     // Create .noslop/ for verifications and tasks
     fs::create_dir_all(".noslop")?;
-    fs::create_dir_all(".noslop/tasks")?;
+    fs::create_dir_all(".noslop/refs/tasks")?;
 
-    // Create .gitignore to exclude task files (they're local scratch)
-    fs::write(".noslop/.gitignore", "tasks/\n")?;
+    // Create .gitignore to exclude local task data
+    // - refs/ contains task ref files (one file per task)
+    // - HEAD contains current active task
+    // - tasks/ is legacy but included for backwards compatibility
+    fs::write(".noslop/.gitignore", "refs/\nHEAD\ntasks/\n")?;
     println!("  Created .noslop/");
-    println!("  Created .noslop/tasks/ (gitignored)");
+    println!("  Created .noslop/refs/tasks/ (gitignored)");
 
     // Install git hooks
     git::hooks::install_pre_commit()?;

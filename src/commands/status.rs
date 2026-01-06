@@ -1,8 +1,7 @@
 //! Status command - show overview of current noslop state
 
-use noslop::models::TaskStatus;
 use noslop::output::OutputMode;
-use noslop::storage::TaskStore;
+use noslop::storage::TaskRefs;
 
 use crate::noslop_file;
 
@@ -11,12 +10,14 @@ pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {
     // Get git info
     let branch = get_current_branch();
 
-    // Load tasks
-    let tasks = TaskStore::load().unwrap_or_default();
-    let pending = tasks.iter().filter(|t| t.status == TaskStatus::Pending).count();
-    let in_progress = tasks.iter().filter(|t| t.status == TaskStatus::InProgress).count();
-    let done = tasks.iter().filter(|t| t.status == TaskStatus::Done).count();
-    let ready = tasks.iter().filter(|t| t.is_ready(&tasks)).count();
+    // Load tasks from refs storage
+    let tasks = TaskRefs::list().unwrap_or_default();
+    let pending = tasks.iter().filter(|(_, t)| t.status == "pending").count();
+    let in_progress = tasks.iter().filter(|(_, t)| t.status == "in_progress").count();
+    let done = tasks.iter().filter(|(_, t)| t.status == "done").count();
+
+    // Get current active task
+    let current = TaskRefs::current().ok().flatten();
 
     // Load checks
     let checks = load_check_count();
@@ -24,12 +25,12 @@ pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {
     if output_mode == OutputMode::Json {
         let json = serde_json::json!({
             "branch": branch,
+            "current_task": current,
             "tasks": {
                 "total": tasks.len(),
                 "pending": pending,
                 "in_progress": in_progress,
-                "done": done,
-                "ready": ready
+                "done": done
             },
             "checks": checks
         });
@@ -38,6 +39,13 @@ pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {
         println!("Branch: {}", branch.as_deref().unwrap_or("(not in git repo)"));
         println!();
 
+        if let Some(task_id) = &current {
+            if let Some((_, task)) = tasks.iter().find(|(id, _)| id == task_id) {
+                println!("Current task: {} - {}", task_id, task.title);
+                println!();
+            }
+        }
+
         if tasks.is_empty() {
             println!("Tasks: none");
         } else {
@@ -45,11 +53,8 @@ pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {
             if in_progress > 0 {
                 println!("  • {} in progress", in_progress);
             }
-            if ready > 0 {
-                println!("  • {} ready", ready);
-            }
-            if pending > ready {
-                println!("  • {} blocked", pending - ready);
+            if pending > 0 {
+                println!("  • {} pending", pending);
             }
             if done > 0 {
                 println!("  • {} done", done);

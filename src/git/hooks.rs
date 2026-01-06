@@ -18,9 +18,13 @@ pub fn install_pre_commit() -> anyhow::Result<()> {
     let hook_path = hooks_dir.join("pre-commit");
     let hook_content = r#"#!/bin/sh
 # noslop pre-commit hook
-# Checks are verified before allowing commit
+# 1. Validates checks are verified
+# 2. Prompts for task status if a task is in progress
 
-noslop check run
+noslop check run || exit 1
+
+# Prompt for task status (if a task is active)
+noslop task-prompt
 "#;
 
     if hook_path.exists() {

@@ -1,97 +1,25 @@
-//! Task command - manage tasks
+//! Task command - manage tasks using git-like refs storage
 
-use noslop::models::{Priority, Task, TaskStatus};
-use noslop::output::{OutputMode, TaskInfo, TaskListResult, TaskShowResult};
-use noslop::storage::TaskStore;
+use noslop::output::OutputMode;
+use noslop::storage::TaskRefs;
 
 use crate::cli::TaskAction;
-
-/// Initialize task file for current branch
-fn init_task_file(notes: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
-    let branch = TaskStore::current_branch()?;
-
-    if TaskStore::has_task_file() {
-        if mode == OutputMode::Json {
-            println!(
-                "{}",
-                serde_json::json!({
-                    "success": false,
-                    "error": "Task file already exists",
-                    "branch": branch,
-                })
-            );
-        } else {
-            println!("Task file already exists for branch: {}", branch);
-        }
-        return Ok(());
-    }
-
-    let path = TaskStore::init_branch(notes)?;
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": true,
-                "branch": branch,
-                "path": path.display().to_string(),
-            })
-        );
-    } else {
-        println!("Created: {}", path.display());
-        println!("Branch:  {}", branch);
-        if let Some(n) = notes {
-            println!("Notes:   {}", n);
-        }
-    }
-
-    Ok(())
-}
 
 /// Handle task subcommands
 pub fn task_cmd(action: TaskAction, mode: OutputMode) -> anyhow::Result<()> {
     match action {
-        TaskAction::Init { note } => init_task_file(note.as_deref(), mode),
-        TaskAction::Add {
-            title,
-            priority,
-            blocked_by,
-            note,
-        } => add(&title, priority.as_deref(), blocked_by, note.as_deref(), mode),
-        TaskAction::List { status, ready } => list(status.as_deref(), ready, mode),
+        TaskAction::Add { title, priority } => add(&title, priority.as_deref(), mode),
+        TaskAction::List { status } => list(status.as_deref(), mode),
         TaskAction::Show { id } => show(&id, mode),
+        TaskAction::Current => current(mode),
         TaskAction::Start { id } => start(&id, mode),
-        TaskAction::Done { id } => done(&id, mode),
-        TaskAction::Note { id, message } => note(&id, &message, mode),
-        TaskAction::Block { id, blocker_ids } => block(&id, &blocker_ids, mode),
-        TaskAction::Unblock { id, blocker_ids } => unblock(&id, &blocker_ids, mode),
+        TaskAction::Done => done(mode),
         TaskAction::Remove { id } => remove(&id, mode),
     }
 }
 
-fn add(
-    title: &str,
-    priority: Option<&str>,
-    blocked_by: Vec<String>,
-    note: Option<&str>,
-    mode: OutputMode,
-) -> anyhow::Result<()> {
-    let id = TaskStore::next_id()?;
-    let priority: Priority = priority
-        .map(|p| p.parse())
-        .transpose()
-        .map_err(|e: String| anyhow::anyhow!(e))?
-        .unwrap_or_default();
-
-    let task = Task::with_options(
-        id.clone(),
-        title.to_string(),
-        priority,
-        blocked_by,
-        note.map(String::from),
-    );
-
-    TaskStore::add(task)?;
+fn add(title: &str, priority: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
+    let id = TaskRefs::create(title, priority)?;
 
     if mode == OutputMode::Json {
         println!(
@@ -100,184 +28,207 @@ fn add(
                 "success": true,
                 "id": id,
                 "title": title,
-                "priority": priority.to_string(),
             })
         );
     } else {
-        println!("Created task: {}", id);
-        println!("  Title:    {}", title);
-        println!("  Priority: {}", priority);
+        println!("Created: {}", id);
+        println!("  {}", title);
     }
 
     Ok(())
 }
 
-fn list(status: Option<&str>, ready: bool, mode: OutputMode) -> anyhow::Result<()> {
-    let tasks = if ready {
-        TaskStore::list_ready()
-    } else {
-        let status_filter: Option<TaskStatus> =
-            status.map(|s| s.parse()).transpose().map_err(|e: String| anyhow::anyhow!(e))?;
-        TaskStore::list_by_status(status_filter)
-    };
+fn list(status_filter: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
+    let tasks = TaskRefs::list()?;
+    let current = TaskRefs::current()?;
 
-    let all_tasks = TaskStore::load()?;
-
-    let task_infos: Vec<TaskInfo> = tasks
+    let filtered: Vec<_> = tasks
         .iter()
-        .map(|t| TaskInfo {
-            id: t.id.clone(),
-            title: t.title.clone(),
-            status: t.status.to_string(),
-            priority: t.priority.to_string(),
-            blocked_by: t.blocked_by.clone(),
-            ready: t.is_ready(&all_tasks),
-            notes: t.notes.clone(),
-            created_at: t.created_at.clone(),
-        })
+        .filter(|(_, t)| status_filter.is_none() || t.status == status_filter.unwrap())
         .collect();
 
-    let branch = TaskStore::current_branch().ok();
+    if mode == OutputMode::Json {
+        let json_tasks: Vec<_> = filtered
+            .iter()
+            .map(|(id, t)| {
+                serde_json::json!({
+                    "id": id,
+                    "title": t.title,
+                    "status": t.status,
+                    "priority": t.priority,
+                    "current": current.as_ref() == Some(id),
+                })
+            })
+            .collect();
+        println!("{}", serde_json::json!({ "tasks": json_tasks }));
+    } else {
+        if filtered.is_empty() {
+            println!("No tasks");
+            return Ok(());
+        }
 
-    let result = TaskListResult {
-        branch,
-        total: task_infos.len(),
-        tasks: task_infos,
-    };
+        for (id, task) in &filtered {
+            let marker = if current.as_ref() == Some(id) { ">" } else { " " };
+            let status_icon = match task.status.as_str() {
+                "done" => "✓",
+                "in_progress" => "●",
+                _ => "○",
+            };
+            println!("{} [{}] {} {}", marker, id, status_icon, task.title);
+        }
+    }
 
-    result.render(mode);
     Ok(())
 }
 
 fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
-    let task = TaskStore::get(id);
-    let all_tasks = TaskStore::load()?;
+    let task = TaskRefs::get(id)?;
+    let current = TaskRefs::current()?;
 
-    let result = TaskShowResult {
-        found: task.is_some(),
-        task: task.map(|t| TaskInfo {
-            id: t.id.clone(),
-            title: t.title.clone(),
-            status: t.status.to_string(),
-            priority: t.priority.to_string(),
-            blocked_by: t.blocked_by.clone(),
-            ready: t.is_ready(&all_tasks),
-            notes: t.notes.clone(),
-            created_at: t.created_at.clone(),
-        }),
-    };
+    if mode == OutputMode::Json {
+        if let Some(t) = task {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "found": true,
+                    "id": id,
+                    "title": t.title,
+                    "status": t.status,
+                    "priority": t.priority,
+                    "current": current.as_deref() == Some(id),
+                    "created_at": t.created_at,
+                    "notes": t.notes,
+                })
+            );
+        } else {
+            println!("{}", serde_json::json!({ "found": false, "id": id }));
+        }
+    } else if let Some(t) = task {
+        let is_current = current.as_deref() == Some(id);
+        println!("{}{}", id, if is_current { " (current)" } else { "" });
+        println!("  Title:    {}", t.title);
+        println!("  Status:   {}", t.status);
+        println!("  Priority: {}", t.priority);
+        println!("  Created:  {}", t.created_at);
+        if let Some(notes) = &t.notes {
+            println!("  Notes:    {}", notes);
+        }
+    } else {
+        println!("Task not found: {}", id);
+    }
 
-    result.render(mode);
+    Ok(())
+}
+
+fn current(mode: OutputMode) -> anyhow::Result<()> {
+    let current_id = TaskRefs::current()?;
+
+    if mode == OutputMode::Json {
+        if let Some(id) = &current_id {
+            let task = TaskRefs::get(id)?;
+            println!(
+                "{}",
+                serde_json::json!({
+                    "current": id,
+                    "title": task.map(|t| t.title),
+                })
+            );
+        } else {
+            println!("{}", serde_json::json!({ "current": null }));
+        }
+    } else if let Some(id) = &current_id {
+        if let Some(task) = TaskRefs::get(id)? {
+            println!("{}: {}", id, task.title);
+        } else {
+            println!("{} (task file missing)", id);
+        }
+    } else {
+        println!("No active task");
+        println!("Use 'noslop task start <id>' to start one");
+    }
+
     Ok(())
 }
 
 fn start(id: &str, mode: OutputMode) -> anyhow::Result<()> {
-    let found = TaskStore::update_status(id, TaskStatus::InProgress)?;
+    // Check task exists
+    let task = TaskRefs::get(id)?;
+    if task.is_none() {
+        if mode == OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::json!({ "success": false, "error": "Task not found" })
+            );
+        } else {
+            println!("Task not found: {}", id);
+        }
+        return Ok(());
+    }
+
+    // Set status to in_progress and set HEAD
+    TaskRefs::set_status(id, "in_progress")?;
+    TaskRefs::set_current(id)?;
 
     if mode == OutputMode::Json {
         println!(
             "{}",
             serde_json::json!({
-                "success": found,
+                "success": true,
                 "id": id,
                 "status": "in_progress",
             })
         );
-    } else if found {
-        println!("Started: {}", id);
     } else {
-        println!("Task not found: {}", id);
+        let task = TaskRefs::get(id)?.unwrap();
+        println!("Started: {}", id);
+        println!("  {}", task.title);
     }
 
     Ok(())
 }
 
-fn done(id: &str, mode: OutputMode) -> anyhow::Result<()> {
-    let found = TaskStore::update_status(id, TaskStatus::Done)?;
+fn done(mode: OutputMode) -> anyhow::Result<()> {
+    let current_id = TaskRefs::current()?;
+
+    if current_id.is_none() {
+        if mode == OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::json!({ "success": false, "error": "No active task" })
+            );
+        } else {
+            println!("No active task");
+            println!("Use 'noslop task start <id>' to start one first");
+        }
+        return Ok(());
+    }
+
+    let id = current_id.unwrap();
+
+    // Set status to done and clear HEAD
+    TaskRefs::set_status(&id, "done")?;
+    TaskRefs::clear_current()?;
 
     if mode == OutputMode::Json {
         println!(
             "{}",
             serde_json::json!({
-                "success": found,
+                "success": true,
                 "id": id,
                 "status": "done",
             })
         );
-    } else if found {
+    } else {
+        let task = TaskRefs::get(&id)?.unwrap();
         println!("Completed: {}", id);
-    } else {
-        println!("Task not found: {}", id);
-    }
-
-    Ok(())
-}
-
-fn note(id: &str, message: &str, mode: OutputMode) -> anyhow::Result<()> {
-    let found = TaskStore::update_notes(id, message)?;
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": found,
-                "id": id,
-                "notes": message,
-            })
-        );
-    } else if found {
-        println!("Updated notes for: {}", id);
-    } else {
-        println!("Task not found: {}", id);
-    }
-
-    Ok(())
-}
-
-fn block(id: &str, blocker_ids: &[String], mode: OutputMode) -> anyhow::Result<()> {
-    for blocker_id in blocker_ids {
-        TaskStore::add_blocker(id, blocker_id)?;
-    }
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": true,
-                "id": id,
-                "blocked_by": blocker_ids,
-            })
-        );
-    } else {
-        println!("{} is now blocked by: {}", id, blocker_ids.join(", "));
-    }
-
-    Ok(())
-}
-
-fn unblock(id: &str, blocker_ids: &[String], mode: OutputMode) -> anyhow::Result<()> {
-    for blocker_id in blocker_ids {
-        TaskStore::remove_blocker(id, blocker_id)?;
-    }
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": true,
-                "id": id,
-                "unblocked": blocker_ids,
-            })
-        );
-    } else {
-        println!("{} is no longer blocked by: {}", id, blocker_ids.join(", "));
+        println!("  {}", task.title);
     }
 
     Ok(())
 }
 
 fn remove(id: &str, mode: OutputMode) -> anyhow::Result<()> {
-    let found = TaskStore::remove(id)?;
+    let found = TaskRefs::delete(id)?;
 
     if mode == OutputMode::Json {
         println!(
@@ -285,7 +236,6 @@ fn remove(id: &str, mode: OutputMode) -> anyhow::Result<()> {
             serde_json::json!({
                 "success": found,
                 "id": id,
-                "removed": found,
             })
         );
     } else if found {

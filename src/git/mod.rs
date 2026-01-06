@@ -8,6 +8,9 @@
 //! - Repository operations (init, checkout, commit)
 //! - Notes for verifications/intents (coming soon)
 
+// Some functions here are test utilities or may be used in future
+#![allow(dead_code)]
+
 use std::path::Path;
 use std::process::Command;
 

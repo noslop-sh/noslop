@@ -7,6 +7,7 @@ mod clear_staged;
 mod init;
 mod status;
 mod task;
+mod task_prompt;
 mod verify;
 
 pub use add_trailers::add_trailers;
@@ -16,4 +17,5 @@ pub use clear_staged::clear_staged;
 pub use init::init;
 pub use status::status;
 pub use task::task_cmd;
+pub use task_prompt::task_prompt;
 pub use verify::verify;

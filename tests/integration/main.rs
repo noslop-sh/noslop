@@ -801,12 +801,12 @@ severity = "block"
 }
 
 // =============================================================================
-// BRANCH-SCOPED TASK TESTS
+// REFS-BASED TASK TESTS
 // =============================================================================
 
-/// Test that task init creates branch-specific task file
+/// Test that task add creates a task with refs storage
 #[test]
-fn test_task_init_creates_branch_file() {
+fn test_task_add_creates_ref() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
     init_git_repo(repo_path);
@@ -819,40 +819,35 @@ fn test_task_init_creates_branch_file() {
     // Initialize noslop
     noslop().arg("init").current_dir(repo_path).assert().success();
 
-    // Check that we're on a branch (should be main or master)
-    let branch = git::get_branch_in(repo_path).expect("Should be on a branch");
-
-    // Init task file for current branch
+    // Add a task
     noslop()
-        .args(["task", "init"])
+        .args(["task", "add", "Test task"])
         .current_dir(repo_path)
         .assert()
         .success()
         .stdout(predicate::str::contains("Created:"))
-        .stdout(predicate::str::contains(&branch));
+        .stdout(predicate::str::contains("TSK-1"));
 
-    // Check that task file was created
-    let task_file = repo_path
-        .join(".noslop/tasks")
-        .join(format!("{}.toml", branch.replace('/', "-")));
-    assert!(task_file.exists(), "Task file should exist: {:?}", task_file);
+    // Check that task ref file was created
+    let task_file = repo_path.join(".noslop/refs/tasks/TSK-1");
+    assert!(task_file.exists(), "Task ref file should exist: {:?}", task_file);
 
-    // Verify it's gitignored (tasks/ should be in .gitignore)
+    // Verify refs/ is gitignored
     let gitignore_content = fs::read_to_string(repo_path.join(".noslop/.gitignore")).unwrap();
     assert!(
-        gitignore_content.contains("tasks/"),
-        "tasks/ should be gitignored"
+        gitignore_content.contains("refs/"),
+        "refs/ should be gitignored"
     );
 }
 
-/// Test that tasks are added to branch-specific file
+/// Test that task list shows all tasks
 #[test]
-fn test_task_add_uses_branch_file() {
+fn test_task_list_shows_tasks() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
     init_git_repo(repo_path);
 
-    // Create initial commit so we have a branch
+    // Create initial commit
     fs::write(repo_path.join("README.md"), "# Test").unwrap();
     git_add(repo_path, "README.md");
     git_commit(repo_path, "Initial commit");
@@ -861,33 +856,24 @@ fn test_task_add_uses_branch_file() {
 
     // Add a task
     noslop()
-        .args(["task", "add", "Test task for branch"])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Created task:"));
-
-    // List tasks - should show the branch name
-    let output = noslop()
-        .args(["task", "list"])
+        .args(["task", "add", "Test task for listing"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
-    assert!(
-        stdout.contains("Branch:"),
-        "Task list should show branch name"
-    );
-    assert!(
-        stdout.contains("Test task for branch"),
-        "Task list should show added task"
-    );
+    // List tasks
+    noslop()
+        .args(["task", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Test task for listing"))
+        .stdout(predicate::str::contains("TSK-1"));
 }
 
-/// Test that tasks are isolated per branch
+/// Test that tasks are global (not branch-scoped in refs storage)
 #[test]
-fn test_tasks_isolated_per_branch() {
+fn test_tasks_are_global() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
     init_git_repo(repo_path);
@@ -901,18 +887,10 @@ fn test_tasks_isolated_per_branch() {
 
     // Add task on main branch
     noslop()
-        .args(["task", "add", "Main branch task"])
+        .args(["task", "add", "Global task"])
         .current_dir(repo_path)
         .assert()
         .success();
-
-    // Verify main branch has the task
-    noslop()
-        .args(["task", "list"])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Main branch task"));
 
     // Create and switch to feature branch
     assert!(
@@ -920,59 +898,35 @@ fn test_tasks_isolated_per_branch() {
         "Failed to create feature branch"
     );
 
-    // Feature branch should have no tasks
+    // Feature branch should see the same task (tasks are global now)
     noslop()
         .args(["task", "list"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("No tasks found"));
+        .stdout(predicate::str::contains("Global task"));
 
-    // Add task on feature branch
-    noslop()
-        .args(["task", "add", "Feature branch task"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Verify feature branch has its task
-    noslop()
-        .args(["task", "list"])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Feature branch task"));
-
-    // Switch back to main (try master first, then main)
+    // Switch back to main
     let _ = git::checkout(repo_path, "master", false);
     let _ = git::checkout(repo_path, "main", false);
 
-    // Main should only show main branch task
-    let output = noslop()
+    // Main should also show the task
+    noslop()
         .args(["task", "list"])
         .current_dir(repo_path)
         .assert()
-        .success();
-
-    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
-    assert!(
-        stdout.contains("Main branch task"),
-        "Main branch should show its task"
-    );
-    assert!(
-        !stdout.contains("Feature branch task"),
-        "Main branch should NOT show feature branch task"
-    );
+        .success()
+        .stdout(predicate::str::contains("Global task"));
 }
 
-/// Test task operations (start, done, remove) work on branch-scoped tasks
+/// Test task operations (start, done, remove) with refs storage
 #[test]
-fn test_task_operations_branch_scoped() {
+fn test_task_operations_refs() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
     init_git_repo(repo_path);
 
-    // Create initial commit so we have a branch
+    // Create initial commit
     fs::write(repo_path.join("README.md"), "# Test").unwrap();
     git_add(repo_path, "README.md");
     git_commit(repo_path, "Initial commit");
@@ -986,48 +940,49 @@ fn test_task_operations_branch_scoped() {
         .assert()
         .success();
 
-    // Start the task (get the ID from the output)
-    let output = noslop()
-        .args(["task", "list", "--json"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    let stdout = String::from_utf8_lossy(&output.get_output().stdout);
-    // Parse task ID from JSON (simple extraction)
-    let task_id = if stdout.contains("TSK-1") {
-        "TSK-1"
-    } else {
-        "NOS-1" // In case project prefix is different
-    };
-
     // Start the task
     noslop()
-        .args(["task", "start", task_id])
+        .args(["task", "start", "TSK-1"])
         .current_dir(repo_path)
         .assert()
         .success()
         .stdout(predicate::str::contains("Started:"));
 
-    // Verify it's in progress
+    // Verify it's in progress (● icon for in_progress)
     noslop()
         .args(["task", "list"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("◐")); // in_progress icon
+        .stdout(predicate::str::contains("●"));
 
-    // Complete the task
+    // Verify current task shows the active task
     noslop()
-        .args(["task", "done", task_id])
+        .args(["task", "current"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("TSK-1"));
+
+    // Complete the current task (done without ID)
+    noslop()
+        .args(["task", "done"])
         .current_dir(repo_path)
         .assert()
         .success()
         .stdout(predicate::str::contains("Completed:"));
 
+    // Verify no current task
+    noslop()
+        .args(["task", "current"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No active task"));
+
     // Remove the task
     noslop()
-        .args(["task", "remove", task_id])
+        .args(["task", "remove", "TSK-1"])
         .current_dir(repo_path)
         .assert()
         .success()
@@ -1039,88 +994,84 @@ fn test_task_operations_branch_scoped() {
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("No tasks found"));
+        .stdout(predicate::str::contains("No tasks"));
 }
 
-/// Test that task init fails if task file already exists
+/// Test HEAD file tracks current active task
 #[test]
-fn test_task_init_fails_if_exists() {
+fn test_task_head_tracking() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
     init_git_repo(repo_path);
 
-    // Create initial commit so we have a branch
+    // Create initial commit
     fs::write(repo_path.join("README.md"), "# Test").unwrap();
     git_add(repo_path, "README.md");
     git_commit(repo_path, "Initial commit");
 
     noslop().arg("init").current_dir(repo_path).assert().success();
 
-    // Init task file first time
+    // No current task initially
+    let head_path = repo_path.join(".noslop/HEAD");
+    assert!(!head_path.exists(), "HEAD should not exist initially");
+
+    // Add and start a task
     noslop()
-        .args(["task", "init"])
+        .args(["task", "add", "Active task"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    // Second init should report already exists
     noslop()
-        .args(["task", "init"])
+        .args(["task", "start", "TSK-1"])
         .current_dir(repo_path)
         .assert()
-        .success()
-        .stdout(predicate::str::contains("already exists"));
+        .success();
+
+    // HEAD should now point to TSK-1
+    assert!(head_path.exists(), "HEAD should exist after start");
+    let head_content = fs::read_to_string(&head_path).unwrap();
+    assert!(head_content.trim() == "TSK-1", "HEAD should contain TSK-1");
+
+    // Complete the task
+    noslop()
+        .args(["task", "done"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // HEAD should be cleared
+    assert!(!head_path.exists(), "HEAD should be removed after done");
 }
 
-/// Test task blocked_by functionality with branch-scoped storage
+/// Test task show displays task details
 #[test]
-fn test_task_blocked_by_branch_scoped() {
+fn test_task_show_details() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
     init_git_repo(repo_path);
 
-    // Create initial commit so we have a branch
+    // Create initial commit
     fs::write(repo_path.join("README.md"), "# Test").unwrap();
     git_add(repo_path, "README.md");
     git_commit(repo_path, "Initial commit");
 
     noslop().arg("init").current_dir(repo_path).assert().success();
 
-    // Add first task
+    // Add a task with priority
     noslop()
-        .args(["task", "add", "First task"])
+        .args(["task", "add", "Detailed task", "-p", "p0"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    // Add second task blocked by first (use --blocked-by with ID format)
+    // Show task details
     noslop()
-        .args(["task", "add", "Second task", "--blocked-by", "TSK-1"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // List ready tasks - only first should be ready
-    noslop()
-        .args(["task", "list", "--ready"])
+        .args(["task", "show", "TSK-1"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("First task"))
-        .stdout(predicate::str::contains("Second task").not());
-
-    // Complete first task
-    noslop()
-        .args(["task", "done", "TSK-1"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Now second task should be ready
-    noslop()
-        .args(["task", "list", "--ready"])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Second task"));
+        .stdout(predicate::str::contains("TSK-1"))
+        .stdout(predicate::str::contains("Detailed task"))
+        .stdout(predicate::str::contains("p0"));
 }

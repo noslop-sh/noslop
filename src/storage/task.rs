@@ -1,7 +1,13 @@
-//! Task storage
+//! Task storage (DEPRECATED)
 //!
-//! Stores tasks in branch-scoped TOML files: .noslop/tasks/{branch}.toml
-//! Task files are gitignored (local scratch), while completions are recorded in commit trailers.
+//! **This module is deprecated. Use `refs.rs` (TaskRefs) instead.**
+//!
+//! This old implementation stored tasks in branch-scoped TOML files:
+//! .noslop/tasks/{branch}.toml
+//!
+//! The new implementation uses git-like refs:
+//! - .noslop/HEAD - current active task
+//! - .noslop/refs/tasks/TSK-1 - individual task files
 
 use std::fs;
 use std::path::{Path, PathBuf};

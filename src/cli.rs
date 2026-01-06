@@ -64,6 +64,10 @@ pub enum Command {
     #[command(hide = true)]
     ClearStaged,
 
+    /// Prompt for task status at commit time (used by pre-commit hook)
+    #[command(hide = true)]
+    TaskPrompt,
+
     /// Manage tasks (track work to be done)
     Task {
         #[command(subcommand)]
@@ -116,13 +120,6 @@ pub enum CheckAction {
 
 #[derive(Subcommand, Debug)]
 pub enum TaskAction {
-    /// Initialize task file for current branch
-    Init {
-        /// Optional notes about this branch's work
-        #[arg(short, long)]
-        note: Option<String>,
-    },
-
     /// Add a new task
     Add {
         /// Task title (what needs to be done)
@@ -131,25 +128,13 @@ pub enum TaskAction {
         /// Priority: p0 (critical), p1 (high), p2 (medium), p3 (low)
         #[arg(short, long)]
         priority: Option<String>,
-
-        /// Task IDs that block this one
-        #[arg(long = "blocked-by", value_delimiter = ',')]
-        blocked_by: Vec<String>,
-
-        /// Optional note/context
-        #[arg(short, long)]
-        note: Option<String>,
     },
 
-    /// List tasks
+    /// List all tasks
     List {
         /// Filter by status: pending, in_progress, done
         #[arg(short, long)]
         status: Option<String>,
-
-        /// Show only ready tasks (pending with no blockers)
-        #[arg(long)]
-        ready: bool,
     },
 
     /// Show task details
@@ -158,47 +143,17 @@ pub enum TaskAction {
         id: String,
     },
 
-    /// Start a task (mark as in_progress)
+    /// Show current active task (HEAD)
+    Current,
+
+    /// Start working on a task (sets HEAD)
     Start {
         /// Task ID
         id: String,
     },
 
-    /// Complete a task (mark as done)
-    Done {
-        /// Task ID
-        id: String,
-    },
-
-    /// Add or update notes on a task
-    Note {
-        /// Task ID
-        id: String,
-
-        /// Note message
-        #[arg(short, long)]
-        message: String,
-    },
-
-    /// Add blockers to a task
-    Block {
-        /// Task ID to add blockers to
-        id: String,
-
-        /// Task IDs that block this one
-        #[arg(required = true)]
-        blocker_ids: Vec<String>,
-    },
-
-    /// Remove blockers from a task
-    Unblock {
-        /// Task ID to remove blockers from
-        id: String,
-
-        /// Task IDs to unblock
-        #[arg(required = true)]
-        blocker_ids: Vec<String>,
-    },
+    /// Mark current task as done
+    Done,
 
     /// Remove a task
     Remove {
@@ -232,6 +187,10 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::Verify { id, message }) => commands::verify(&id, &message, output_mode),
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),
+        Some(Command::TaskPrompt) => {
+            commands::task_prompt()?;
+            Ok(())
+        }
         Some(Command::Task { action }) => commands::task_cmd(action, output_mode),
         Some(Command::Status) => commands::status(output_mode),
         Some(Command::Version) => {

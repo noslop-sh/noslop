@@ -3,13 +3,15 @@
 //! Provides pluggable backends:
 //! - `trailer`: Commit message trailers (default, most portable)
 //! - `file`: JSON files in .noslop/ (fallback)
-//! - `notes`: Git notes (optional, requires config)
+//! - `refs`: Git-like refs for tasks (one file per task)
 
 #![allow(dead_code)]
 
 /// File-based storage for staging verifications
 pub mod file;
-/// Task storage
+/// Git-like refs storage for tasks
+pub mod refs;
+/// Legacy branch-scoped task storage (deprecated)
 pub mod task;
 /// Commit trailer storage for verifications
 pub mod trailer;
@@ -65,6 +67,12 @@ pub fn verification_store() -> Box<dyn VerificationStore> {
 }
 
 // Re-export implementations for direct use
+// Note: TaskRef/TaskRefs are used by the binary via `noslop::storage`
 #[allow(unused_imports)]
-pub use task::TaskStore;
+pub use refs::{TaskRef, TaskRefs};
 pub use trailer::TrailerVerificationStore;
+
+// Legacy task storage (deprecated, use TaskRefs instead)
+#[allow(unused_imports)]
+#[deprecated(since = "0.2.0", note = "Use TaskRefs instead of TaskStore")]
+pub use task::TaskStore;

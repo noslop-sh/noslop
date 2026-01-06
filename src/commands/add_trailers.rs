@@ -1,20 +1,23 @@
-//! Add verification trailers to commit message
+//! Add verification and task trailers to commit message
 //!
-//! This command is called by the prepare-commit-msg hook to append
-//! verification trailers to the commit message.
+//! This command is called by the commit-msg hook to append
+//! trailers to the commit message.
 
 use std::fs;
 use std::path::Path;
 
-/// Add verification trailers to commit message file
+use noslop::storage::TaskRefs;
+
+/// Add verification and task trailers to commit message file
 ///
-/// Called by prepare-commit-msg hook with the commit message file path.
-/// Appends Noslop-Verify trailers from staged verifications.
+/// Called by commit-msg hook with the commit message file path.
+/// Appends Noslop-Verify trailers from staged verifications and
+/// Noslop-Task trailers from pending task actions.
 pub fn add_trailers(commit_msg_file: &str) -> anyhow::Result<()> {
     add_trailers_in(Path::new("."), commit_msg_file)
 }
 
-/// Add verification trailers in a specific directory (for testing)
+/// Add trailers in a specific directory (for testing)
 fn add_trailers_in(base_dir: &Path, commit_msg_file: &str) -> anyhow::Result<()> {
     use crate::models::Verification;
 
@@ -32,8 +35,11 @@ fn add_trailers_in(base_dir: &Path, commit_msg_file: &str) -> anyhow::Result<()>
         Vec::new()
     };
 
-    if verifications.is_empty() {
-        // No verifications to add
+    // Load tasks with pending trailers
+    let pending_tasks = TaskRefs::list_pending_trailers()?;
+
+    // Nothing to add?
+    if verifications.is_empty() && pending_tasks.is_empty() {
         return Ok(());
     }
 
@@ -57,6 +63,14 @@ fn add_trailers_in(base_dir: &Path, commit_msg_file: &str) -> anyhow::Result<()>
             verification.check_id, verification.message, verification.verified_by
         );
         msg.push_str(&trailer);
+    }
+
+    // Append task trailers
+    for (id, task) in &pending_tasks {
+        if let Some(action) = &task.pending_trailer {
+            let trailer = format!("Noslop-Task: {} | {} | {}\n", id, action, task.title);
+            msg.push_str(&trailer);
+        }
     }
 
     // Write back to commit message file
