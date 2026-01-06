@@ -257,7 +257,7 @@ fn test_multiple_verifications_in_commit() {
         .filter(|l| l.starts_with("id = "))
         .map(|l| l.trim_start_matches("id = ").trim_matches('"'))
         .collect();
-    let check_id_1 = check_ids.get(0).unwrap_or(&"TMP-1");
+    let check_id_1 = check_ids.first().unwrap_or(&"TMP-1");
     let check_id_2 = check_ids.get(1).unwrap_or(&"TMP-2");
 
     // Create files that match both checks

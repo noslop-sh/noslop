@@ -39,11 +39,11 @@ pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {
         println!("Branch: {}", branch.as_deref().unwrap_or("(not in git repo)"));
         println!();
 
-        if let Some(task_id) = &current {
-            if let Some((_, task)) = tasks.iter().find(|(id, _)| id == task_id) {
-                println!("Current task: {} - {}", task_id, task.title);
-                println!();
-            }
+        if let Some(task_id) = &current
+            && let Some((_, task)) = tasks.iter().find(|(id, _)| id == task_id)
+        {
+            println!("Current task: {} - {}", task_id, task.title);
+            println!();
         }
 
         if tasks.is_empty() {

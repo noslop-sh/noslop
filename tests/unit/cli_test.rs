@@ -240,7 +240,7 @@ fn test_check_remove() {
         .stdout(predicate::str::contains("Removed check"));
 
     // Verify one check is gone
-    let content = std::fs::read_to_string(temp.path().join(".noslop.toml")).unwrap();
+    let _content = std::fs::read_to_string(temp.path().join(".noslop.toml")).unwrap();
     // Should have only one check remaining
     noslop()
         .args(["check", "list"])

@@ -264,7 +264,7 @@ impl TaskListResult {
     fn render_human(&self) {
         // Show branch header if available
         if let Some(branch) = &self.branch {
-            println!("Branch: {}\n", branch);
+            println!("Branch: {branch}\n");
         }
 
         if self.tasks.is_empty() {

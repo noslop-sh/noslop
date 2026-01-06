@@ -20,7 +20,7 @@ const REFS_DIR: &str = "refs/tasks";
 pub struct TaskRef {
     /// Task title
     pub title: String,
-    /// Current status: pending, in_progress, done
+    /// Current status: pending, `in_progress`, done
     pub status: String,
     /// Priority: p0, p1, p2, p3
     #[serde(default = "default_priority")]
@@ -105,7 +105,7 @@ impl TaskRefs {
     /// Set current active task (write to HEAD)
     pub fn set_current(id: &str) -> anyhow::Result<()> {
         fs::create_dir_all(Self::noslop_dir())?;
-        fs::write(Self::head_path(), format!("{}\n", id))?;
+        fs::write(Self::head_path(), format!("{id}\n"))?;
         Ok(())
     }
 
@@ -274,12 +274,12 @@ impl TaskRefs {
             // Simple extraction - look for prefix = "..."
             for line in content.lines() {
                 let line = line.trim();
-                if line.starts_with("prefix") {
-                    if let Some(value) = line.split('=').nth(1) {
-                        let value = value.trim().trim_matches('"');
-                        if !value.is_empty() && value != "NOS" {
-                            return Ok(value.to_string());
-                        }
+                if line.starts_with("prefix")
+                    && let Some(value) = line.split('=').nth(1)
+                {
+                    let value = value.trim().trim_matches('"');
+                    if !value.is_empty() && value != "NOS" {
+                        return Ok(value.to_string());
                     }
                 }
             }
@@ -291,6 +291,7 @@ impl TaskRefs {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use tempfile::TempDir;
 
     fn setup() -> TempDir {
@@ -300,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_create_and_get_task() {
         let _temp = setup();
 
@@ -312,6 +314,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_head_operations() {
         let _temp = setup();
 
@@ -328,6 +331,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_pending_trailer() {
         let _temp = setup();
 

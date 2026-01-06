@@ -18,6 +18,7 @@ pub mod hooks;
 pub mod staged;
 
 /// Get the current git branch name
+#[must_use]
 pub fn get_current_branch() -> Option<String> {
     Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])
@@ -31,6 +32,7 @@ pub fn get_current_branch() -> Option<String> {
 
 /// Convert branch name to safe filename
 /// e.g., "feature/oauth" -> "feature-oauth"
+#[must_use]
 pub fn branch_to_filename(branch: &str) -> String {
     branch
         .chars()
@@ -40,6 +42,7 @@ pub fn branch_to_filename(branch: &str) -> String {
 }
 
 /// Get the repository name from git remote or directory name
+#[must_use]
 pub fn get_repo_name() -> String {
     // Try to get repo name from git remote
     Command::new("git")
@@ -65,6 +68,7 @@ pub fn get_repo_name() -> String {
 // =============================================================================
 
 /// Initialize a git repository at the given path
+#[must_use]
 pub fn init_repo(path: &Path) -> bool {
     Command::new("git")
         .args(["init"])
@@ -76,6 +80,7 @@ pub fn init_repo(path: &Path) -> bool {
 
 /// Configure git user for a repository (required for commits)
 /// Also disables commit signing to avoid environment-specific failures
+#[must_use]
 pub fn configure_user(path: &Path, email: &str, name: &str) -> bool {
     let email_ok = Command::new("git")
         .args(["config", "user.email", email])
@@ -103,6 +108,7 @@ pub fn configure_user(path: &Path, email: &str, name: &str) -> bool {
 }
 
 /// Stage a file in the repository
+#[must_use]
 pub fn add_file(path: &Path, file: &str) -> bool {
     Command::new("git")
         .args(["add", file])
@@ -114,6 +120,7 @@ pub fn add_file(path: &Path, file: &str) -> bool {
 
 /// Create a commit with the given message
 /// Set `run_hooks` to false to skip pre-commit/commit-msg hooks
+#[must_use]
 pub fn commit(path: &Path, message: &str, run_hooks: bool) -> bool {
     let mut args = vec!["commit", "-m", message];
     if !run_hooks {
@@ -129,6 +136,7 @@ pub fn commit(path: &Path, message: &str, run_hooks: bool) -> bool {
 }
 
 /// Checkout a branch, optionally creating it
+#[must_use]
 pub fn checkout(path: &Path, branch: &str, create: bool) -> bool {
     let args = if create {
         vec!["checkout", "-b", branch]
@@ -145,6 +153,7 @@ pub fn checkout(path: &Path, branch: &str, create: bool) -> bool {
 }
 
 /// Get current branch name in a specific directory
+#[must_use]
 pub fn get_branch_in(path: &Path) -> Option<String> {
     Command::new("git")
         .args(["rev-parse", "--abbrev-ref", "HEAD"])

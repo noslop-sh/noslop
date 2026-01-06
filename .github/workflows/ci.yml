@@ -145,12 +145,8 @@ jobs:
           noslop check --help
           echo ""
 
-          echo "$ noslop assert --help"
-          noslop assert --help
-          echo ""
-
-          echo "$ noslop attest --help"
-          noslop attest --help
+          echo "$ noslop verify --help"
+          noslop verify --help
           echo ""
 
           echo "$ noslop task --help"
