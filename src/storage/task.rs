@@ -55,10 +55,6 @@ pub struct BranchMeta {
     /// When the task file was created
     pub created_at: String,
 
-    /// Parent branch (typically main/master)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub parent: Option<String>,
-
     /// Optional notes for this branch's work
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
@@ -206,7 +202,6 @@ impl TaskStore {
             branch: BranchMeta {
                 name: branch,
                 created_at: chrono::Utc::now().to_rfc3339(),
-                parent: Self::detect_parent_branch(),
                 notes: notes.map(String::from),
             },
             tasks: Vec::new(),
@@ -216,20 +211,6 @@ impl TaskStore {
         fs::write(&path, content)?;
 
         Ok(path)
-    }
-
-    /// Detect likely parent branch (main, master, or develop)
-    fn detect_parent_branch() -> Option<String> {
-        for branch in ["main", "master", "develop"] {
-            let result = Command::new("git")
-                .args(["rev-parse", "--verify", branch])
-                .output();
-
-            if result.map(|o| o.status.success()).unwrap_or(false) {
-                return Some(branch.to_string());
-            }
-        }
-        None
     }
 
     /// Load task file for current branch
@@ -243,7 +224,6 @@ impl TaskStore {
                 branch: BranchMeta {
                     name: branch,
                     created_at: chrono::Utc::now().to_rfc3339(),
-                    parent: None,
                     notes: None,
                 },
                 tasks: Vec::new(),

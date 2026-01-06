@@ -136,7 +136,6 @@ tasks/
 [branch]
 name = "feature/oauth"
 created_at = "2025-01-06T10:00:00Z"
-parent = "main"
 
 [[task]]
 id = 1
