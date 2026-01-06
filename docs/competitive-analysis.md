@@ -28,9 +28,9 @@ This analysis examines two prominent AI agent tooling projects—**Beads** (task
 
 ### noslop (our project)
 
-**What it does**: Pre-commit feedback loop that teaches agents codebase-specific conventions via assertions and attestations.
+**What it does**: Pre-commit feedback loop that teaches agents codebase-specific conventions via checks and verifications.
 
-**Core mechanism**: File pattern matching triggers contextual guidance at commit time. Agents must attest they addressed each assertion before the commit proceeds.
+**Core mechanism**: File pattern matching triggers contextual guidance at commit time. Agents must verify they addressed each check before the commit proceeds.
 
 ---
 
@@ -65,7 +65,7 @@ This analysis examines two prominent AI agent tooling projects—**Beads** (task
 | **Captures institutional knowledge** | `.noslop.toml` grows into living documentation |
 | **Commit-time interception** | Catches issues before code review round-trip |
 | **Agent self-correction** | Agents fix issues themselves after seeing guidance |
-| **Audit trail** | Attestations recorded as git trailers |
+| **Audit trail** | Verifications recorded as git trailers |
 | **Already has task system** | Built-in dependency-aware task tracking |
 
 ---
@@ -107,18 +107,18 @@ This analysis examines two prominent AI agent tooling projects—**Beads** (task
 │  WHAT TO DO        │  HOW TO DO IT      │  WHAT RULES TO FOLLOW │
 │  (Beads)           │  (Superpowers)     │  (noslop)             │
 ├────────────────────┼────────────────────┼───────────────────────┤
-│  Task tracking     │  Workflow stages   │  Assertion patterns   │
+│  Task tracking     │  Workflow stages   │  Check patterns       │
 │  Dependencies      │  Skills/processes  │  Severity levels      │
 │  Priority/ready    │  TDD enforcement   │  File targeting       │
-│  Memory/context    │  Code review       │  Attestation trail    │
+│  Memory/context    │  Code review       │  Verification trail   │
 └────────────────────┴────────────────────┴───────────────────────┘
 ```
 
 ### Natural Integration Points
 
-1. **Beads → noslop**: When a Beads task involves files matching noslop assertions, the agent gets convention guidance at commit time
+1. **Beads → noslop**: When a Beads task involves files matching noslop checks, the agent gets convention guidance at commit time
 2. **Superpowers → noslop**: The "execute-plan" phase could integrate noslop checks to ensure implementations follow conventions
-3. **noslop → Beads**: Blocking assertions could auto-create follow-up Beads tasks when agents need to address issues
+3. **noslop → Beads**: Blocking checks could auto-create follow-up Beads tasks when agents need to address issues
 4. **Task overlap**: noslop already has a task system (`noslop task`) with dependencies—potential to consolidate or bridge
 
 ### Differentiation
@@ -139,16 +139,16 @@ This analysis examines two prominent AI agent tooling projects—**Beads** (task
 
 #### From Beads
 
-1. **`ready` concept for assertions**
-   - Show which pending attestations can be addressed now vs. are blocked by others
-   - Minimal addition: one flag to `noslop assert list --ready`
+1. **`ready` concept for checks**
+   - Show which pending verifications can be addressed now vs. are blocked by others
+   - Minimal addition: one flag to `noslop check list --ready`
 
 2. **JSON output mode** (already implemented!)
    - noslop already has `--json` flag
    - Ensures agent-friendly programmatic consumption
 
 3. **Memory decay / summarization**
-   - When attestation history grows large, auto-summarize old entries
+   - When verification history grows large, auto-summarize old entries
    - Keeps context window manageable for agents
 
 4. **Collision-free IDs**
@@ -159,16 +159,16 @@ This analysis examines two prominent AI agent tooling projects—**Beads** (task
 
 1. **Pre-commit "checklist" skill concept**
    - A `.noslop/skills/` directory with markdown guidance documents
-   - Assertions could reference skills: `skill = "migrations.md"`
+   - Checks could reference skills: `skill = "migrations.md"`
    - Richer context than single-line messages
 
 2. **Verification commands**
-   - Assertions could include verification: `verify = "alembic heads"`
-   - Agent can run command to confirm compliance before attesting
+   - Checks could include verification: `verify = "alembic heads"`
+   - Agent can run command to confirm compliance before verifying
 
-3. **Staged attestation workflow**
+3. **Staged verification workflow**
    - Like Superpowers' plan → execute → review
-   - `noslop check` → `noslop attest` → `git commit`
+   - `noslop check run` → `noslop verify` → `git commit`
 
 ### Concepts to Avoid (High Bloat, Low Value for noslop)
 
@@ -193,9 +193,9 @@ This analysis examines two prominent AI agent tooling projects—**Beads** (task
 
 ### Phase 2: Minimal Strategic Additions
 
-1. **Verification commands for assertions**
+1. **Verification commands for checks**
    ```toml
-   [[assert]]
+   [[check]]
    target = "migrations/versions/*.py"
    message = "Generated with alembic revision --autogenerate?"
    verify = "alembic heads"
@@ -204,14 +204,14 @@ This analysis examines two prominent AI agent tooling projects—**Beads** (task
 
 2. **Skill references for richer context**
    ```toml
-   [[assert]]
+   [[check]]
    target = "api/public/*_router.py"
    message = "Rate limiting decorator added?"
    skill = "rate-limiting.md"  # .noslop/skills/rate-limiting.md
    severity = "block"
    ```
 
-3. **Hash-based assertion IDs**
+3. **Hash-based check IDs**
    - Prevent merge conflicts in team scenarios
    - `ns-a3f8` instead of `DB-1`
 

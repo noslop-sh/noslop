@@ -298,4 +298,4 @@ Commands:
 1. Should agent auto-verify checks if `run` command passes?
 2. Should there be a `noslop agent loop` command that does the full workflow?
 3. How to handle agent errors mid-task? (Partial commits, recovery)
-4. Should we track which agent worked on which task? (Already in trailers via `attested_by`)
+4. Should we track which agent worked on which task? (Already in trailers via `verified_by`)

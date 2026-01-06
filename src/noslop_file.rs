@@ -17,19 +17,15 @@ pub struct NoslopFile {
     #[serde(default)]
     pub project: ProjectConfig,
 
-    /// Checks in this file (supports both [[check]] and legacy [[assert]])
-    #[serde(default, alias = "assert")]
-    pub checks: Vec<CheckEntry>,
-
-    /// Legacy support: also read [[check]] if present
+    /// Checks defined in this file via [[check]] sections
     #[serde(default, rename = "check")]
-    checks_new: Vec<CheckEntry>,
+    pub checks: Vec<CheckEntry>,
 }
 
 impl NoslopFile {
-    /// Get all checks (merging legacy [[assert]] and new [[check]])
+    /// Get all checks
     pub fn all_checks(&self) -> impl Iterator<Item = &CheckEntry> {
-        self.checks.iter().chain(self.checks_new.iter())
+        self.checks.iter()
     }
 }
 
@@ -220,7 +216,6 @@ pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<
         NoslopFile {
             project: ProjectConfig::default(),
             checks: Vec::new(),
-            checks_new: Vec::new(),
         }
     };
 
