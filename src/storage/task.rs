@@ -105,11 +105,7 @@ impl TaskEntry {
             title: self.title.clone(),
             status: self.status.parse().unwrap_or(TaskStatus::Pending),
             priority: self.priority.parse().unwrap_or(Priority::P1),
-            blocked_by: self
-                .blocked_by
-                .iter()
-                .map(|id| format!("{}-{}", prefix, id))
-                .collect(),
+            blocked_by: self.blocked_by.iter().map(|id| format!("{}-{}", prefix, id)).collect(),
             notes: self.notes.clone(),
             created_at: self.created_at.clone(),
         }
@@ -117,12 +113,7 @@ impl TaskEntry {
 
     /// Create from Task model, extracting numeric ID
     pub fn from_task(task: &Task) -> Self {
-        let numeric_id = task
-            .id
-            .rsplit('-')
-            .next()
-            .and_then(|s| s.parse().ok())
-            .unwrap_or(0);
+        let numeric_id = task.id.rsplit('-').next().and_then(|s| s.parse().ok()).unwrap_or(0);
 
         let blocked_by: Vec<u32> = task
             .blocked_by
@@ -185,9 +176,7 @@ impl TaskStore {
 
     /// Check if task file exists for current branch
     pub fn has_task_file() -> bool {
-        get_current_branch()
-            .map(|b| Self::task_file_path(&b).exists())
-            .unwrap_or(false)
+        get_current_branch().map(|b| Self::task_file_path(&b).exists()).unwrap_or(false)
     }
 
     /// Initialize task file for current branch

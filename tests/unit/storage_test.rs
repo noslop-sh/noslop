@@ -55,8 +55,11 @@ fn test_trailer_store_default() {
 #[test]
 fn test_format_trailers_single() {
     let store = TrailerVerificationStore::new();
-    let verification =
-        Verification::new("NOS-1".to_string(), "Reviewed the code".to_string(), "human".to_string());
+    let verification = Verification::new(
+        "NOS-1".to_string(),
+        "Reviewed the code".to_string(),
+        "human".to_string(),
+    );
 
     let trailers = store.format_trailers(&[verification]);
     assert_eq!(trailers, "Noslop-Verify: NOS-1 | Reviewed the code | human");

@@ -27,9 +27,7 @@ impl std::str::FromStr for TaskAction {
             "d" | "done" | "complete" | "finished" => Ok(Self::Done),
             "c" | "continue" | "partial" | "wip" | "" => Ok(Self::Continue), // empty = default
             "s" | "skip" | "unrelated" | "none" => Ok(Self::Skip),
-            _ => Err(format!(
-                "Invalid action: {s}. Use: done, continue, skip (or d/c/s)"
-            )),
+            _ => Err(format!("Invalid action: {s}. Use: done, continue, skip (or d/c/s)")),
         }
     }
 }
@@ -52,14 +50,12 @@ pub fn task_prompt() -> anyhow::Result<bool> {
             // Task file missing, clear HEAD
             TaskRefs::clear_current()?;
             return Ok(false);
-        }
+        },
     };
 
     // Check for environment variable override (for CI)
     if let Ok(action_str) = env::var("NOSLOP_TASK_ACTION") {
-        let action: TaskAction = action_str
-            .parse()
-            .map_err(|e: String| anyhow::anyhow!(e))?;
+        let action: TaskAction = action_str.parse().map_err(|e: String| anyhow::anyhow!(e))?;
         apply_action(&id, &task.title, action)?;
         return Ok(true);
     }
@@ -81,9 +77,7 @@ pub fn task_prompt() -> anyhow::Result<bool> {
     stdin.lock().read_line(&mut input)?;
 
     // Parse action (empty defaults to continue)
-    let action: TaskAction = input
-        .parse()
-        .map_err(|e: String| anyhow::anyhow!(e))?;
+    let action: TaskAction = input.parse().map_err(|e: String| anyhow::anyhow!(e))?;
 
     apply_action(&id, &task.title, action)?;
 
@@ -94,8 +88,7 @@ pub fn task_prompt() -> anyhow::Result<bool> {
 fn is_interactive() -> bool {
     // Simple check: try to detect if stdin is a terminal
     // In real impl, use atty crate or similar
-    env::var("NOSLOP_INTERACTIVE").map(|v| v != "0").unwrap_or(true)
-        && env::var("CI").is_err()
+    env::var("NOSLOP_INTERACTIVE").map(|v| v != "0").unwrap_or(true) && env::var("CI").is_err()
 }
 
 /// Print the descriptive task prompt
@@ -122,16 +115,16 @@ fn apply_action(id: &str, title: &str, action: TaskAction) -> anyhow::Result<()>
             TaskRefs::set_pending_trailer(id, "done")?;
             TaskRefs::clear_current()?;
             eprintln!("  \x1b[32m✓\x1b[0m Completing: {} - {}", id, title);
-        }
+        },
         TaskAction::Continue => {
             // Set pending trailer for partial progress
             TaskRefs::set_pending_trailer(id, "partial")?;
             eprintln!("  \x1b[33m→\x1b[0m Continuing: {} - {}", id, title);
-        }
+        },
         TaskAction::Skip => {
             // No trailer, task stays in progress
             eprintln!("  \x1b[2m○\x1b[0m Skipped task prompt");
-        }
+        },
     }
     Ok(())
 }

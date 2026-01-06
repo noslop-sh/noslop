@@ -190,7 +190,7 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::TaskPrompt) => {
             commands::task_prompt()?;
             Ok(())
-        }
+        },
         Some(Command::Task { action }) => commands::task_cmd(action, output_mode),
         Some(Command::Status) => commands::status(output_mode),
         Some(Command::Version) => {

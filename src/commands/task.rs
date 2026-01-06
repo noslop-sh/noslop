@@ -68,7 +68,11 @@ fn list(status_filter: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
         }
 
         for (id, task) in &filtered {
-            let marker = if current.as_ref() == Some(id) { ">" } else { " " };
+            let marker = if current.as_ref() == Some(id) {
+                ">"
+            } else {
+                " "
+            };
             let status_icon = match task.status.as_str() {
                 "done" => "✓",
                 "in_progress" => "●",
@@ -155,10 +159,7 @@ fn start(id: &str, mode: OutputMode) -> anyhow::Result<()> {
     let task = TaskRefs::get(id)?;
     if task.is_none() {
         if mode == OutputMode::Json {
-            println!(
-                "{}",
-                serde_json::json!({ "success": false, "error": "Task not found" })
-            );
+            println!("{}", serde_json::json!({ "success": false, "error": "Task not found" }));
         } else {
             println!("Task not found: {}", id);
         }
@@ -192,10 +193,7 @@ fn done(mode: OutputMode) -> anyhow::Result<()> {
 
     if current_id.is_none() {
         if mode == OutputMode::Json {
-            println!(
-                "{}",
-                serde_json::json!({ "success": false, "error": "No active task" })
-            );
+            println!("{}", serde_json::json!({ "success": false, "error": "No active task" }));
         } else {
             println!("No active task");
             println!("Use 'noslop task start <id>' to start one first");

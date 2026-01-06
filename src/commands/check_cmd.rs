@@ -88,11 +88,7 @@ fn remove(id: &str) -> anyhow::Result<()> {
     let file = noslop_file::load_file(file_path)?;
     let checks: Vec<_> = file.all_checks().collect();
     if index >= checks.len() {
-        anyhow::bail!(
-            "Index {} out of range (file has {} checks)",
-            index,
-            checks.len()
-        );
+        anyhow::bail!("Index {} out of range (file has {} checks)", index, checks.len());
     }
 
     let removed_message = checks[index].message.clone();

@@ -236,10 +236,7 @@ impl TaskRefs {
 
     /// List tasks with pending trailers
     pub fn list_pending_trailers() -> anyhow::Result<Vec<(String, TaskRef)>> {
-        Ok(Self::list()?
-            .into_iter()
-            .filter(|(_, t)| t.pending_trailer.is_some())
-            .collect())
+        Ok(Self::list()?.into_iter().filter(|(_, t)| t.pending_trailer.is_some()).collect())
     }
 
     /// Clear all pending trailers

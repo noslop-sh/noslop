@@ -33,11 +33,7 @@ fn git_add(path: &std::path::Path, file: &str) {
 
 /// Helper to create a git commit (skips hooks to avoid PATH issues in tests)
 fn git_commit(path: &std::path::Path, message: &str) {
-    assert!(
-        git::commit(path, message, false),
-        "Failed to create commit: {}",
-        message
-    );
+    assert!(git::commit(path, message, false), "Failed to create commit: {}", message);
 }
 
 // =============================================================================
@@ -476,7 +472,11 @@ severity = "block"
         .success();
 
     // Should pass
-    noslop().args(["check", "run", "--ci"]).current_dir(repo_path).assert().success();
+    noslop()
+        .args(["check", "run", "--ci"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
 }
 
 // =============================================================================
@@ -574,15 +574,7 @@ fn test_check_add_with_severity() {
 
     // Add warn severity check
     noslop()
-        .args([
-            "check",
-            "add",
-            "*.log",
-            "-m",
-            "Log files should not be committed",
-            "-s",
-            "warn",
-        ])
+        .args(["check", "add", "*.log", "-m", "Log files should not be committed", "-s", "warn"])
         .current_dir(repo_path)
         .assert()
         .success();
@@ -715,7 +707,11 @@ severity = "block"
     git_add(repo_path, "api/handler.rs");
 
     // Check should require both checks to be verified
-    let output = noslop().args(["check", "run", "--ci"]).current_dir(repo_path).assert().failure();
+    let output = noslop()
+        .args(["check", "run", "--ci"])
+        .current_dir(repo_path)
+        .assert()
+        .failure();
 
     // The check should mention both checks
     output.stdout(
@@ -834,10 +830,7 @@ fn test_task_add_creates_ref() {
 
     // Verify refs/ is gitignored
     let gitignore_content = fs::read_to_string(repo_path.join(".noslop/.gitignore")).unwrap();
-    assert!(
-        gitignore_content.contains("refs/"),
-        "refs/ should be gitignored"
-    );
+    assert!(gitignore_content.contains("refs/"), "refs/ should be gitignored");
 }
 
 /// Test that task list shows all tasks
@@ -1034,11 +1027,7 @@ fn test_task_head_tracking() {
     assert!(head_content.trim() == "TSK-1", "HEAD should contain TSK-1");
 
     // Complete the task
-    noslop()
-        .args(["task", "done"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
+    noslop().args(["task", "done"]).current_dir(repo_path).assert().success();
 
     // HEAD should be cleared
     assert!(!head_path.exists(), "HEAD should be removed after done");

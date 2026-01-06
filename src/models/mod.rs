@@ -6,8 +6,8 @@
 //! - Task: "What needs to be done" (with dependencies and status)
 
 pub mod check;
-mod verification;
 pub mod task;
+mod verification;
 
 pub use check::{Check, Severity};
 pub use verification::Verification;
