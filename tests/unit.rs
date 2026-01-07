@@ -27,3 +27,13 @@ mod target_test;
 
 #[path = "unit/task_test.rs"]
 mod task_test;
+
+#[path = "unit/verification_test.rs"]
+mod verification_test;
+
+#[path = "unit/refs_test.rs"]
+mod refs_test;
+
+#[cfg(feature = "ui")]
+#[path = "unit/api_test.rs"]
+mod api_test;

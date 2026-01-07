@@ -28,8 +28,11 @@
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+#[cfg(feature = "ui")]
+pub mod api;
 pub mod git;
 pub mod models;
+pub mod noslop_file;
 pub mod output;
 pub mod parser;
 pub mod resolver;

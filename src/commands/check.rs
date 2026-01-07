@@ -2,10 +2,10 @@
 
 use noslop::output::{CheckMatch, CheckResult, OutputMode};
 
-use crate::git;
-use crate::models::Severity;
-use crate::noslop_file;
-use crate::storage;
+use noslop::git;
+use noslop::models::Severity;
+use noslop::noslop_file;
+use noslop::storage;
 
 /// Run checks for staged changes (pre-commit hook)
 pub fn check_run(ci: bool, mode: OutputMode) -> anyhow::Result<()> {

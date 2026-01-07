@@ -5,7 +5,8 @@ use std::path::Path;
 
 use noslop::output::OutputMode;
 
-use crate::{git, noslop_file};
+use noslop::git;
+use noslop::noslop_file;
 
 /// Initialize noslop in the current repository
 pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {

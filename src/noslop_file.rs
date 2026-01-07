@@ -74,6 +74,11 @@ fn default_severity() -> String {
 }
 
 /// Find all .noslop.toml files from path up to repo root
+///
+/// # Panics
+///
+/// Panics if the file path has no parent directory
+#[must_use]
 pub fn find_noslop_files(from: &Path) -> Vec<PathBuf> {
     let mut files = Vec::new();
     let mut current = from.to_path_buf();
@@ -149,8 +154,7 @@ fn matches_target(target: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bo
     let file_abs = cwd.join(file);
     let file_rel = file_abs
         .strip_prefix(noslop_dir)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| file.to_string());
+        .map_or_else(|_| file.to_string(), |p| p.to_string_lossy().to_string());
 
     // Simple matching for now
     if target == "*" {
@@ -165,7 +169,7 @@ fn matches_target(target: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bo
 
     // Glob-style: dir/*.ext matches files in dir with extension
     if let Some(star_pos) = target.find("/*") {
-        let prefix = &target[..star_pos + 1]; // "src/"
+        let prefix = &target[..=star_pos]; // "src/"
         let suffix = &target[star_pos + 2..]; // ".rs" or ""
 
         // File must start with prefix
@@ -193,8 +197,8 @@ fn matches_target(target: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bo
 
     // Glob-style: dir/**/*.ext matches all files recursively
     if let Some(doublestar_pos) = target.find("/**") {
-        let prefix = &target[..doublestar_pos + 1]; // "src/"
-        let suffix = target.strip_suffix(".rs").map(|_| ".rs").unwrap_or("");
+        let prefix = &target[..=doublestar_pos]; // "src/"
+        let suffix = target.strip_suffix(".rs").map_or("", |_| ".rs");
 
         if (file_rel.starts_with(prefix) || file.starts_with(prefix)) && file_rel.ends_with(suffix)
         {
@@ -228,8 +232,7 @@ pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<
             id.split('-').nth(1).and_then(|n| n.parse::<u32>().ok())
         })
         .max()
-        .map(|n| n + 1)
-        .unwrap_or(1);
+        .map_or(1, |n| n + 1);
 
     // Generate JIRA-style ID
     let generated_id = format!("{}-{}", file.project.prefix, next_num);
@@ -251,27 +254,30 @@ pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<
     Ok(generated_id)
 }
 
-/// Format a NoslopFile as TOML (using new [[check]] format)
+/// Format a `NoslopFile` as TOML (using new [[check]] format)
 fn format_noslop_file(file: &NoslopFile) -> String {
+    use std::fmt::Write as _;
+
     let mut out = String::new();
     out.push_str("# noslop checks\n\n");
 
     // Add project config if prefix is not default
     if file.project.prefix != "NOS" {
         out.push_str("[project]\n");
-        out.push_str(&format!("prefix = \"{}\"\n\n", file.project.prefix));
+        let _ = writeln!(out, "prefix = \"{}\"", file.project.prefix);
+        out.push('\n');
     }
 
     for entry in file.all_checks() {
         out.push_str("[[check]]\n");
         if let Some(id) = &entry.id {
-            out.push_str(&format!("id = \"{}\"\n", id));
+            let _ = writeln!(out, "id = \"{id}\"");
         }
-        out.push_str(&format!("target = \"{}\"\n", entry.target));
-        out.push_str(&format!("message = \"{}\"\n", entry.message));
-        out.push_str(&format!("severity = \"{}\"\n", entry.severity));
+        let _ = writeln!(out, "target = \"{}\"", entry.target);
+        let _ = writeln!(out, "message = \"{}\"", entry.message);
+        let _ = writeln!(out, "severity = \"{}\"", entry.severity);
         if !entry.tags.is_empty() {
-            out.push_str(&format!("tags = {:?}\n", entry.tags));
+            let _ = writeln!(out, "tags = {:?}", entry.tags);
         }
         out.push('\n');
     }
@@ -281,6 +287,7 @@ fn format_noslop_file(file: &NoslopFile) -> String {
 
 /// Generate a 3-letter prefix from git repository name
 /// Examples: "noslop" -> "NOS", "my-awesome-project" -> "MAP"
+#[must_use]
 pub fn generate_prefix_from_repo() -> String {
     use crate::git;
     let repo_name = git::get_repo_name();

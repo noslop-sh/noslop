@@ -3,7 +3,7 @@
 use noslop::output::OutputMode;
 use noslop::storage::TaskRefs;
 
-use crate::noslop_file;
+use noslop::noslop_file;
 
 /// Show current noslop status
 pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {

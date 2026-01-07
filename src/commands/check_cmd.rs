@@ -5,7 +5,7 @@ use std::path::Path;
 use noslop::output::OutputMode;
 
 use crate::cli::CheckAction;
-use crate::noslop_file;
+use noslop::noslop_file;
 
 /// Handle check subcommands (add, list, remove)
 pub fn check_cmd(action: CheckAction, _mode: OutputMode) -> anyhow::Result<()> {

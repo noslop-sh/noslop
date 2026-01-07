@@ -2,8 +2,8 @@
 
 use noslop::output::OutputMode;
 
-use crate::models::Verification;
-use crate::storage;
+use noslop::models::Verification;
+use noslop::storage;
 
 /// Verify a check
 pub fn verify(check_ref: &str, message: &str, _mode: OutputMode) -> anyhow::Result<()> {
