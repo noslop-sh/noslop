@@ -5,15 +5,15 @@ use clap::{Parser, Subcommand};
 use crate::commands;
 use noslop::output::OutputMode;
 
-/// noslop - Pre-commit assertions with attestation tracking
+/// noslop - Pre-commit checks with verification tracking
 #[derive(Parser, Debug)]
 #[command(
     name = "noslop",
     version,
-    about = "Pre-commit assertions with attestation tracking",
+    about = "Pre-commit checks with verification tracking",
     long_about = "Enforce code review considerations via pre-commit hooks.\n\n\
-                  Assertions declare what must be reviewed when files change.\n\
-                  Attestations prove the review happened before committing."
+                  Checks declare what must be verified when files change.\n\
+                  Verifications prove the review happened before committing."
 )]
 pub struct Cli {
     /// Enable verbose output
@@ -37,39 +37,36 @@ pub enum Command {
         force: bool,
     },
 
-    /// Check assertions for staged changes (used by pre-commit hook)
+    /// Manage checks (run, add, list, remove)
     Check {
-        /// Run in CI mode (stricter, non-interactive)
-        #[arg(long)]
-        ci: bool,
-    },
-
-    /// Manage assertions (declare what must be considered when code changes)
-    Assert {
         #[command(subcommand)]
-        action: AssertAction,
+        action: CheckAction,
     },
 
-    /// Attest to assertions (prove something was considered)
-    Attest {
-        /// Assertion ID to attest to
+    /// Verify a check (prove something was considered)
+    Verify {
+        /// Check ID to verify
         id: String,
 
-        /// Attestation message
+        /// Verification message
         #[arg(short, long)]
         message: String,
     },
 
-    /// Add attestation trailers to commit message (used by prepare-commit-msg hook)
+    /// Add verification trailers to commit message (used by prepare-commit-msg hook)
     #[command(hide = true)]
     AddTrailers {
         /// Path to commit message file
         commit_msg_file: String,
     },
 
-    /// Clear staged attestations (used by post-commit hook)
+    /// Clear staged verifications (used by post-commit hook)
     #[command(hide = true)]
     ClearStaged,
+
+    /// Prompt for task status at commit time (used by pre-commit hook)
+    #[command(hide = true)]
+    TaskPrompt,
 
     /// Manage tasks (track work to be done)
     Task {
@@ -77,21 +74,40 @@ pub enum Command {
         action: TaskAction,
     },
 
-    /// Show current status (branch, tasks, assertions)
+    /// Show current status (branch, tasks, checks)
     Status,
+
+    /// Start local web UI for task and check management
+    #[cfg(feature = "ui")]
+    Ui {
+        /// Port to listen on
+        #[arg(short, long, default_value = "9999")]
+        port: u16,
+
+        /// Open browser automatically
+        #[arg(long)]
+        open: bool,
+    },
 
     /// Show version
     Version,
 }
 
 #[derive(Subcommand, Debug)]
-pub enum AssertAction {
-    /// Add an assertion
+pub enum CheckAction {
+    /// Run checks for staged changes (used by pre-commit hook)
+    Run {
+        /// Run in CI mode (stricter, non-interactive)
+        #[arg(long)]
+        ci: bool,
+    },
+
+    /// Add a check
     Add {
-        /// File or pattern this assertion applies to
+        /// File or pattern this check applies to
         target: String,
 
-        /// The assertion message
+        /// The check message
         #[arg(short, long)]
         message: String,
 
@@ -100,16 +116,16 @@ pub enum AssertAction {
         severity: String,
     },
 
-    /// List assertions
+    /// List checks
     List {
         /// Filter by file
         #[arg(short, long)]
         target: Option<String>,
     },
 
-    /// Remove an assertion
+    /// Remove a check
     Remove {
-        /// Assertion ID
+        /// Check ID
         id: String,
     },
 }
@@ -125,24 +141,20 @@ pub enum TaskAction {
         #[arg(short, long)]
         priority: Option<String>,
 
-        /// Task IDs that block this one
-        #[arg(long = "blocked-by", value_delimiter = ',')]
-        blocked_by: Vec<String>,
-
-        /// Optional note/context
+        /// Block this task by another task ID
         #[arg(short, long)]
-        note: Option<String>,
+        blocked_by: Option<Vec<String>>,
     },
 
-    /// List tasks
+    /// List all tasks
     List {
         /// Filter by status: pending, in_progress, done
         #[arg(short, long)]
         status: Option<String>,
 
-        /// Show only ready tasks (pending with no blockers)
+        /// Show only unblocked tasks (pending and not blocked)
         #[arg(long)]
-        ready: bool,
+        unblocked: bool,
     },
 
     /// Show task details
@@ -151,46 +163,43 @@ pub enum TaskAction {
         id: String,
     },
 
-    /// Start a task (mark as in_progress)
+    /// Show current active task (HEAD)
+    Current,
+
+    /// Get the next pending unblocked task
+    Next {
+        /// Also start the task (set as current)
+        #[arg(long)]
+        start: bool,
+    },
+
+    /// Start working on a task (sets HEAD)
     Start {
         /// Task ID
         id: String,
     },
 
-    /// Complete a task (mark as done)
-    Done {
-        /// Task ID
-        id: String,
-    },
+    /// Mark current task as done
+    Done,
 
-    /// Add or update notes on a task
-    Note {
-        /// Task ID
-        id: String,
-
-        /// Note message
-        #[arg(short, long)]
-        message: String,
-    },
-
-    /// Add blockers to a task
+    /// Block a task by another task
     Block {
-        /// Task ID to add blockers to
+        /// Task ID to block
         id: String,
 
-        /// Task IDs that block this one
-        #[arg(required = true)]
-        blocker_ids: Vec<String>,
+        /// ID of blocking task
+        #[arg(short, long)]
+        by: String,
     },
 
-    /// Remove blockers from a task
+    /// Unblock a task
     Unblock {
-        /// Task ID to remove blockers from
+        /// Task ID to unblock
         id: String,
 
-        /// Task IDs to unblock
-        #[arg(required = true)]
-        blocker_ids: Vec<String>,
+        /// ID of blocker to remove
+        #[arg(short, long)]
+        by: String,
     },
 
     /// Remove a task
@@ -210,7 +219,9 @@ pub fn run() -> anyhow::Result<()> {
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("info")).init();
     }
 
-    let output_mode = if cli.json {
+    // Support NOSLOP_JSON env var for JSON output (agent-friendly)
+    let json_from_env = std::env::var("NOSLOP_JSON").is_ok_and(|v| v == "1" || v == "true");
+    let output_mode = if cli.json || json_from_env {
         OutputMode::Json
     } else {
         OutputMode::Human
@@ -218,13 +229,21 @@ pub fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::Init { force }) => commands::init(force, output_mode),
-        Some(Command::Check { ci }) => commands::check(ci, output_mode),
-        Some(Command::Assert { action }) => commands::assert_cmd(action, output_mode),
-        Some(Command::Attest { id, message }) => commands::attest(&id, &message, output_mode),
+        Some(Command::Check { action }) => match action {
+            CheckAction::Run { ci } => commands::check_run(ci, output_mode),
+            _ => commands::check_cmd(action, output_mode),
+        },
+        Some(Command::Verify { id, message }) => commands::verify(&id, &message, output_mode),
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),
+        Some(Command::TaskPrompt) => {
+            commands::task_prompt()?;
+            Ok(())
+        },
         Some(Command::Task { action }) => commands::task_cmd(action, output_mode),
         Some(Command::Status) => commands::status(output_mode),
+        #[cfg(feature = "ui")]
+        Some(Command::Ui { port, open }) => commands::ui(port, open),
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {
                 println!(

@@ -35,7 +35,14 @@ fn test_task_status_from_str_invalid() {
 }
 
 #[test]
+fn test_task_status_from_str_backlog() {
+    assert_eq!("backlog".parse::<TaskStatus>().unwrap(), TaskStatus::Backlog);
+    assert_eq!("BACKLOG".parse::<TaskStatus>().unwrap(), TaskStatus::Backlog);
+}
+
+#[test]
 fn test_task_status_display() {
+    assert_eq!(TaskStatus::Backlog.to_string(), "backlog");
     assert_eq!(TaskStatus::Pending.to_string(), "pending");
     assert_eq!(TaskStatus::InProgress.to_string(), "in_progress");
     assert_eq!(TaskStatus::Done.to_string(), "done");
@@ -43,7 +50,7 @@ fn test_task_status_display() {
 
 #[test]
 fn test_task_status_default() {
-    assert_eq!(TaskStatus::default(), TaskStatus::Pending);
+    assert_eq!(TaskStatus::default(), TaskStatus::Backlog);
 }
 
 // =============================================================================
@@ -109,7 +116,7 @@ fn test_task_new() {
 
     assert_eq!(task.id, "TSK-1");
     assert_eq!(task.title, "Test task");
-    assert_eq!(task.status, TaskStatus::Pending);
+    assert_eq!(task.status, TaskStatus::Backlog);
     assert_eq!(task.priority, Priority::P1);
     assert!(task.blocked_by.is_empty());
     assert!(task.notes.is_none());
@@ -128,73 +135,92 @@ fn test_task_with_options() {
 
     assert_eq!(task.id, "TSK-2");
     assert_eq!(task.title, "Complex task");
-    assert_eq!(task.status, TaskStatus::Pending);
+    assert_eq!(task.status, TaskStatus::Backlog);
     assert_eq!(task.priority, Priority::P0);
     assert_eq!(task.blocked_by, vec!["TSK-1"]);
     assert_eq!(task.notes, Some("Important notes".to_string()));
 }
 
 #[test]
-fn test_task_is_ready_no_blockers() {
-    let task = Task::new("TSK-1".to_string(), "Test task".to_string());
+fn test_task_is_blocked_no_blockers() {
+    // Task with no blockers is not blocked
+    let mut task = Task::new("TSK-1".to_string(), "Test task".to_string());
+    task.status = TaskStatus::Pending;
     let all_tasks = vec![task.clone()];
 
-    assert!(task.is_ready(&all_tasks));
+    assert!(!task.is_blocked(&all_tasks));
 }
 
 #[test]
-fn test_task_is_ready_with_done_blocker() {
+fn test_task_is_blocked_with_done_blocker() {
     let mut blocker = Task::new("TSK-1".to_string(), "Blocker".to_string());
     blocker.status = TaskStatus::Done;
 
-    let task = Task::with_options(
+    let mut task = Task::with_options(
         "TSK-2".to_string(),
         "Blocked task".to_string(),
         Priority::P1,
         vec!["TSK-1".to_string()],
         None,
     );
+    task.status = TaskStatus::Pending;
 
     let all_tasks = vec![blocker, task.clone()];
-    assert!(task.is_ready(&all_tasks));
+    // Not blocked because blocker is done
+    assert!(!task.is_blocked(&all_tasks));
 }
 
 #[test]
-fn test_task_is_ready_with_pending_blocker() {
-    let blocker = Task::new("TSK-1".to_string(), "Blocker".to_string());
+fn test_task_is_blocked_with_pending_blocker() {
+    let mut blocker = Task::new("TSK-1".to_string(), "Blocker".to_string());
+    blocker.status = TaskStatus::Pending;
 
-    let task = Task::with_options(
+    let mut task = Task::with_options(
         "TSK-2".to_string(),
         "Blocked task".to_string(),
         Priority::P1,
         vec!["TSK-1".to_string()],
         None,
     );
+    task.status = TaskStatus::Pending;
 
     let all_tasks = vec![blocker, task.clone()];
-    assert!(!task.is_ready(&all_tasks));
+    // Blocked because blocker is not done
+    assert!(task.is_blocked(&all_tasks));
 }
 
 #[test]
-fn test_task_is_ready_not_pending() {
+fn test_task_is_blocked_in_progress() {
     let mut task = Task::new("TSK-1".to_string(), "Test task".to_string());
     task.status = TaskStatus::InProgress;
 
     let all_tasks = vec![task.clone()];
-    assert!(!task.is_ready(&all_tasks));
+    // No blockers, so not blocked
+    assert!(!task.is_blocked(&all_tasks));
 }
 
 #[test]
-fn test_task_is_ready_missing_blocker() {
-    // If blocker doesn't exist, task is considered ready
-    let task = Task::with_options(
+fn test_task_is_blocked_backlog() {
+    // Backlog tasks with no blockers are not blocked
+    let task = Task::new("TSK-1".to_string(), "Test task".to_string());
+    let all_tasks = vec![task.clone()];
+
+    assert!(!task.is_blocked(&all_tasks));
+}
+
+#[test]
+fn test_task_is_blocked_missing_blocker() {
+    // If blocker doesn't exist, task is not blocked
+    let mut task = Task::with_options(
         "TSK-2".to_string(),
         "Blocked task".to_string(),
         Priority::P1,
         vec!["TSK-MISSING".to_string()],
         None,
     );
+    task.status = TaskStatus::Pending;
 
     let all_tasks = vec![task.clone()];
-    assert!(task.is_ready(&all_tasks));
+    // Missing blocker doesn't block the task
+    assert!(!task.is_blocked(&all_tasks));
 }

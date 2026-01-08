@@ -1,9 +1,9 @@
 //! Git hooks installation
 //!
 //! This module handles installation of git hooks for noslop:
-//! - pre-commit: Validates assertions are attested
-//! - prepare-commit-msg: Adds attestation trailers to commit message
-//! - post-commit: Clears staged attestations after commit
+//! - pre-commit: Validates checks are verified
+//! - prepare-commit-msg: Adds verification trailers to commit message
+//! - post-commit: Clears staged verifications after commit
 
 use std::fs;
 use std::path::Path;
@@ -16,12 +16,16 @@ pub fn install_pre_commit() -> anyhow::Result<()> {
     }
 
     let hook_path = hooks_dir.join("pre-commit");
-    let hook_content = r#"#!/bin/sh
+    let hook_content = r"#!/bin/sh
 # noslop pre-commit hook
-# Checks assertions are attested before allowing commit
+# 1. Validates checks are verified
+# 2. Prompts for task status if a task is in progress
 
-noslop check
-"#;
+noslop check run || exit 1
+
+# Prompt for task status (if a task is active)
+noslop task-prompt
+";
 
     if hook_path.exists() {
         let existing = fs::read_to_string(&hook_path)?;
@@ -57,7 +61,7 @@ pub fn install_commit_msg() -> anyhow::Result<()> {
     let hook_path = hooks_dir.join("commit-msg");
     let hook_content = r#"#!/bin/sh
 # noslop commit-msg hook
-# Adds attestation trailers to commit message
+# Adds verification trailers to commit message
 
 noslop add-trailers "$1"
 "#;
@@ -94,12 +98,12 @@ pub fn install_post_commit() -> anyhow::Result<()> {
     }
 
     let hook_path = hooks_dir.join("post-commit");
-    let hook_content = r#"#!/bin/sh
+    let hook_content = r"#!/bin/sh
 # noslop post-commit hook
-# Clears staged attestations after successful commit
+# Clears staged verifications after successful commit
 
 noslop clear-staged
-"#;
+";
 
     if hook_path.exists() {
         let existing = fs::read_to_string(&hook_path)?;

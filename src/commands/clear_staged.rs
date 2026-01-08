@@ -1,23 +1,34 @@
-//! Clear staged attestations
+//! Clear staged verifications and pending task trailers
 //!
 //! This command is called by the post-commit hook to remove
-//! staged attestations after they've been added to the commit.
+//! staged verifications and pending task trailers after they've
+//! been added to the commit.
 
 use std::path::Path;
 
-/// Clear staged attestations
+use noslop::storage::TaskRefs;
+
+/// Clear staged verifications and pending task trailers
 ///
-/// Called by post-commit hook to delete .noslop/staged-attestations.json
-/// after the commit has been created with attestation trailers.
+/// Called by post-commit hook to:
+/// 1. Delete .noslop/staged-verifications.json
+/// 2. Clear pending_trailer field from all tasks
+///
+/// This runs after the commit has been created with all trailers.
 pub fn clear_staged() -> anyhow::Result<()> {
-    clear_staged_in(Path::new("."))
+    clear_staged_in(Path::new("."))?;
+
+    // Clear pending task trailers
+    TaskRefs::clear_all_pending_trailers()?;
+
+    Ok(())
 }
 
-/// Clear staged attestations in a specific directory (for testing)
+/// Clear staged verifications in a specific directory (for testing)
 fn clear_staged_in(base_dir: &Path) -> anyhow::Result<()> {
-    let attestations_file = base_dir.join(".noslop/staged-attestations.json");
-    if attestations_file.exists() {
-        std::fs::remove_file(attestations_file)?;
+    let verifications_file = base_dir.join(".noslop/staged-verifications.json");
+    if verifications_file.exists() {
+        std::fs::remove_file(verifications_file)?;
     }
     Ok(())
 }

@@ -5,7 +5,8 @@ use std::path::Path;
 
 use noslop::output::OutputMode;
 
-use crate::{git, noslop_file};
+use noslop::git;
+use noslop::noslop_file;
 
 /// Initialize noslop in the current repository
 pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
@@ -24,19 +25,19 @@ pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
     let prefix = noslop_file::generate_prefix_from_repo();
     println!("  Generated project prefix: {prefix}");
 
-    // Create .noslop.toml with project config and example assertion
+    // Create .noslop.toml with project config and example check
     let noslop_toml = format!(
-        r#"# noslop assertions
+        r#"# noslop checks
 
 [project]
 prefix = "{prefix}"
 
-# Assertions are auto-assigned IDs like {prefix}-1, {prefix}-2, etc.
+# Checks are auto-assigned IDs like {prefix}-1, {prefix}-2, etc.
 # You can also specify custom IDs:
 #   id = "my-custom-id"
 
-# Example assertion (uncomment to use):
-# [[assert]]
+# Example check (uncomment to use):
+# [[check]]
 # target = "*.rs"
 # message = "Consider impact on public API"
 # severity = "warn"
@@ -45,10 +46,17 @@ prefix = "{prefix}"
     fs::write(noslop_path, noslop_toml)?;
     println!("  Created .noslop.toml");
 
-    // Create .noslop/ for attestations (pending until committed)
+    // Create .noslop/ for verifications and tasks
     fs::create_dir_all(".noslop")?;
-    fs::write(".noslop/.gitkeep", "")?;
+    fs::create_dir_all(".noslop/refs/tasks")?;
+
+    // Create .gitignore to exclude local task data
+    // - refs/ contains task ref files (one file per task)
+    // - HEAD contains current active task
+    // - tasks/ is legacy but included for backwards compatibility
+    fs::write(".noslop/.gitignore", "refs/\nHEAD\ntasks/\n")?;
     println!("  Created .noslop/");
+    println!("  Created .noslop/refs/tasks/ (gitignored)");
 
     // Install git hooks
     git::hooks::install_pre_commit()?;
@@ -65,13 +73,13 @@ prefix = "{prefix}"
     if !found.is_empty() {
         let found_str: Vec<&str> = found.into_iter().copied().collect();
         println!("\n  Found: {}", found_str.join(", "));
-        println!("  Run 'noslop assert import' to extract assertions");
+        println!("  Run 'noslop check import' to extract checks");
     }
 
     println!("\nnoslop initialized!");
     println!("\nNext steps:");
-    println!("  noslop assert add <target> -m \"assertion\"");
-    println!("  git commit  # assertions will be checked");
+    println!("  noslop check add <target> -m \"check message\"");
+    println!("  git commit  # checks will be run");
 
     Ok(())
 }

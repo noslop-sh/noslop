@@ -1,12 +1,9 @@
-//! noslop - Pre-commit assertions with attestation tracking
+//! noslop - Pre-commit checks with verification tracking
 
 mod cli;
 mod commands;
-mod git;
-mod models;
-mod noslop_file;
-mod parser;
-mod storage;
+#[cfg(feature = "ui")]
+mod server;
 
 fn main() {
     if let Err(e) = cli::run() {

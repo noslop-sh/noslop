@@ -1,7 +1,7 @@
-//! Parser abstraction for token-level assertions and pattern matching
+//! Parser abstraction for token-level checks and pattern matching
 //!
 //! Provides pluggable parsers for different languages:
-//! - Token extraction (for symbol-level assertions)
+//! - Token extraction (for symbol-level checks)
 //! - Pattern matching (for code quality enforcement)
 //!
 //! Users can configure custom parsers for specific file extensions.
