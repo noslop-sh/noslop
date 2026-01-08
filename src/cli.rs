@@ -152,9 +152,9 @@ pub enum TaskAction {
         #[arg(short, long)]
         status: Option<String>,
 
-        /// Show only ready tasks (pending and unblocked)
+        /// Show only unblocked tasks (pending and not blocked)
         #[arg(long)]
-        ready: bool,
+        unblocked: bool,
     },
 
     /// Show task details
@@ -166,7 +166,7 @@ pub enum TaskAction {
     /// Show current active task (HEAD)
     Current,
 
-    /// Get the next ready task (pending, unblocked)
+    /// Get the next pending unblocked task
     Next {
         /// Also start the task (set as current)
         #[arg(long)]

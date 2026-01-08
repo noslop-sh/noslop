@@ -80,6 +80,13 @@ fn default_check_severity() -> String {
     "block".to_string()
 }
 
+/// Request body for linking a task to a branch
+#[derive(Debug, Deserialize)]
+pub struct LinkBranchRequest {
+    /// Branch name to link (None to unlink)
+    pub branch: Option<String>,
+}
+
 // =============================================================================
 // RESPONSE DATA TYPES
 // =============================================================================
@@ -102,7 +109,9 @@ pub struct StatusData {
 pub struct TaskCounts {
     /// Total number of tasks
     pub total: usize,
-    /// Pending tasks
+    /// Backlog tasks (not yet committed to a branch)
+    pub backlog: usize,
+    /// Pending tasks (committed to a branch)
     pub pending: usize,
     /// In-progress tasks
     pub in_progress: usize,
@@ -132,8 +141,17 @@ pub struct TaskItem {
     pub blocked_by: Vec<String>,
     /// Whether this is the current task
     pub current: bool,
-    /// Whether this task is ready to work on
-    pub ready: bool,
+    /// Whether this task is blocked by unfinished tasks
+    pub blocked: bool,
+    /// Optional associated git branch
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// When work started (RFC3339)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    /// When completed (RFC3339)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
 }
 
 /// Single task detail response
@@ -149,14 +167,23 @@ pub struct TaskDetailData {
     pub priority: String,
     /// Blocking task IDs
     pub blocked_by: Vec<String>,
-    /// Whether ready to work on
-    pub ready: bool,
+    /// Whether blocked by unfinished tasks
+    pub blocked: bool,
     /// Whether this is the current task
     pub current: bool,
     /// Creation timestamp (RFC3339)
     pub created_at: String,
     /// Optional notes
     pub notes: Option<String>,
+    /// Optional associated git branch
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// When work started (RFC3339)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    /// When completed (RFC3339)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
 }
 
 /// Task mutation (start/done/create) response
@@ -221,4 +248,92 @@ pub struct EventsData {
     pub changed: bool,
     /// Current change counter
     pub counter: u64,
+}
+
+// =============================================================================
+// WORKSPACE TYPES
+// =============================================================================
+
+/// Workspace data showing repos and branches
+#[derive(Debug, Serialize)]
+pub struct WorkspaceData {
+    /// Current working directory (workspace root)
+    pub workspace: String,
+    /// Repos in this workspace
+    pub repos: Vec<RepoInfo>,
+}
+
+/// Information about a single repository
+#[derive(Debug, Serialize)]
+pub struct RepoInfo {
+    /// Repository name (directory name)
+    pub name: String,
+    /// Full path to the repository
+    pub path: String,
+    /// All branches in the repo
+    pub branches: Vec<BranchInfo>,
+    /// Currently checked out branch
+    pub current_branch: Option<String>,
+}
+
+/// Information about a single branch
+#[derive(Debug, Serialize)]
+pub struct BranchInfo {
+    /// Branch name
+    pub name: String,
+    /// Whether this branch is selected (shown in kanban)
+    pub selected: bool,
+    /// Whether user has hidden this branch
+    pub hidden: bool,
+    /// Color index assigned to this branch
+    pub color: usize,
+}
+
+// =============================================================================
+// CONFIG TYPES
+// =============================================================================
+
+/// Config data returned by API
+#[derive(Debug, Serialize)]
+pub struct ConfigData {
+    /// UI theme
+    pub theme: String,
+    /// Branch selections for current workspace
+    pub selections: Vec<BranchSelection>,
+}
+
+/// A branch selection entry
+#[derive(Debug, Serialize)]
+pub struct BranchSelection {
+    /// Repository path
+    pub repo: String,
+    /// Branch name
+    pub branch: String,
+    /// Whether selected
+    pub selected: bool,
+    /// Whether hidden
+    pub hidden: bool,
+    /// Color index
+    pub color: usize,
+}
+
+/// Request to update config
+#[derive(Debug, Deserialize)]
+pub struct UpdateConfigRequest {
+    /// Branch to update (repo/branch format)
+    #[serde(default)]
+    pub branch: Option<String>,
+    /// Set selected state
+    #[serde(default)]
+    pub selected: Option<bool>,
+    /// Set hidden state
+    #[serde(default)]
+    pub hidden: Option<bool>,
+}
+
+/// Request to add or remove a blocker
+#[derive(Debug, Deserialize)]
+pub struct BlockerRequest {
+    /// ID of the task that blocks
+    pub blocker_id: String,
 }

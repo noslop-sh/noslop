@@ -13,7 +13,7 @@ pub fn task_cmd(action: TaskAction, mode: OutputMode) -> anyhow::Result<()> {
             priority,
             blocked_by,
         } => add(&title, priority.as_deref(), blocked_by, mode),
-        TaskAction::List { status, ready } => list(status.as_deref(), ready, mode),
+        TaskAction::List { status, unblocked } => list(status.as_deref(), unblocked, mode),
         TaskAction::Show { id } => show(&id, mode),
         TaskAction::Current => current(mode),
         TaskAction::Next { start } => next(start, mode),
@@ -63,12 +63,15 @@ fn add(
     Ok(())
 }
 
-fn list(status_filter: Option<&str>, ready_only: bool, mode: OutputMode) -> anyhow::Result<()> {
+fn list(status_filter: Option<&str>, unblocked_only: bool, mode: OutputMode) -> anyhow::Result<()> {
     let tasks = TaskRefs::list()?;
     let current = TaskRefs::current()?;
 
-    let filtered: Vec<_> = if ready_only {
-        tasks.iter().filter(|(_, t)| t.is_ready(&tasks)).collect()
+    let filtered: Vec<_> = if unblocked_only {
+        tasks
+            .iter()
+            .filter(|(_, t)| t.status == "pending" && !t.is_blocked(&tasks))
+            .collect()
     } else {
         tasks
             .iter()
@@ -87,15 +90,15 @@ fn list(status_filter: Option<&str>, ready_only: bool, mode: OutputMode) -> anyh
                     "priority": t.priority,
                     "blocked_by": t.blocked_by,
                     "current": current.as_ref() == Some(id),
-                    "ready": t.is_ready(&tasks),
+                    "blocked": t.is_blocked(&tasks),
                 })
             })
             .collect();
         println!("{}", serde_json::json!({ "tasks": json_tasks }));
     } else {
         if filtered.is_empty() {
-            if ready_only {
-                println!("No ready tasks");
+            if unblocked_only {
+                println!("No pending unblocked tasks");
             } else {
                 println!("No tasks");
             }
@@ -111,6 +114,7 @@ fn list(status_filter: Option<&str>, ready_only: bool, mode: OutputMode) -> anyh
             let status_icon = match task.status.as_str() {
                 "done" => "✓",
                 "in_progress" => "●",
+                "backlog" => "◌",
                 _ if task.is_blocked(&tasks) => "⊘",
                 _ => "○",
             };
@@ -142,7 +146,7 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
                     "status": t.status,
                     "priority": t.priority,
                     "blocked_by": t.blocked_by,
-                    "ready": t.is_ready(&tasks),
+                    "blocked": t.is_blocked(&tasks),
                     "current": current.as_deref() == Some(id),
                     "created_at": t.created_at,
                     "notes": t.notes,
@@ -158,9 +162,13 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
         println!("  Status:   {}", t.status);
         println!("  Priority: {}", t.priority);
         if !t.blocked_by.is_empty() {
-            println!("  Blocked:  {}", t.blocked_by.join(", "));
+            let blocked_status = if t.is_blocked(&tasks) {
+                " (blocked)"
+            } else {
+                " (resolved)"
+            };
+            println!("  Blocked by: {}{}", t.blocked_by.join(", "), blocked_status);
         }
-        println!("  Ready:    {}", if t.is_ready(&tasks) { "yes" } else { "no" });
         println!("  Created:  {}", t.created_at);
         if let Some(notes) = &t.notes {
             println!("  Notes:    {}", notes);
@@ -203,15 +211,18 @@ fn current(mode: OutputMode) -> anyhow::Result<()> {
 }
 
 fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
-    let result = TaskRefs::next_ready()?;
+    let result = TaskRefs::next_pending_unblocked()?;
 
     match result {
         Some((id, task)) => {
-            if start {
-                // Also start the task
-                TaskRefs::set_status(&id, "in_progress")?;
-                TaskRefs::set_current(&id)?;
-            }
+            let linked_branch = if start {
+                // Use centralized start logic
+                TaskRefs::start(&id)?;
+                // Re-fetch task to get linked branch
+                TaskRefs::get(&id)?.and_then(|t| t.branch)
+            } else {
+                task.branch.clone()
+            };
 
             if mode == OutputMode::Json {
                 println!(
@@ -223,11 +234,15 @@ fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
                         "priority": task.priority,
                         "notes": task.notes,
                         "started": start,
+                        "branch": linked_branch,
                     })
                 );
             } else if start {
                 println!("Started: {}", id);
                 println!("  {}", task.title);
+                if let Some(branch) = linked_branch {
+                    println!("  Linked to: {}", branch);
+                }
             } else {
                 println!("Next: {} - {}", id, task.title);
                 if let Some(notes) = &task.notes {
@@ -239,7 +254,7 @@ fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
             if mode == OutputMode::Json {
                 println!("{}", serde_json::json!({ "found": false }));
             } else {
-                println!("No ready tasks");
+                println!("No pending unblocked tasks");
             }
         },
     }
@@ -248,34 +263,33 @@ fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
 }
 
 fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
-    // Check task exists
-    let task = TaskRefs::get(id)?;
-    if task.is_none() {
-        if mode == OutputMode::Json {
-            println!("{}", serde_json::json!({ "success": false, "error": "Task not found" }));
-        } else {
-            println!("Task not found: {}", id);
-        }
-        return Ok(());
-    }
-
-    // Set status to in_progress and set HEAD
-    TaskRefs::set_status(id, "in_progress")?;
-    TaskRefs::set_current(id)?;
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": true,
-                "id": id,
-                "status": "in_progress",
-            })
-        );
-    } else {
+    // Use centralized start logic (handles status, current, and auto-linking)
+    if TaskRefs::start(id)? {
+        // Re-fetch task to get linked branch
         let task = TaskRefs::get(id)?.unwrap();
-        println!("Started: {}", id);
-        println!("  {}", task.title);
+        let branch = task.branch;
+
+        if mode == OutputMode::Json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "success": true,
+                    "id": id,
+                    "status": "in_progress",
+                    "branch": branch,
+                })
+            );
+        } else {
+            println!("Started: {}", id);
+            println!("  {}", task.title);
+            if let Some(branch) = branch {
+                println!("  Linked to: {}", branch);
+            }
+        }
+    } else if mode == OutputMode::Json {
+        println!("{}", serde_json::json!({ "success": false, "error": "Task not found" }));
+    } else {
+        println!("Task not found: {}", id);
     }
 
     Ok(())
@@ -295,10 +309,10 @@ fn done(mode: OutputMode) -> anyhow::Result<()> {
     }
 
     let id = current_id.unwrap();
+    let task = TaskRefs::get(&id)?.unwrap();
 
-    // Set status to done and clear HEAD
-    TaskRefs::set_status(&id, "done")?;
-    TaskRefs::clear_current()?;
+    // Use centralized complete logic (handles status and clearing current)
+    TaskRefs::complete(&id)?;
 
     if mode == OutputMode::Json {
         println!(
@@ -310,7 +324,6 @@ fn done(mode: OutputMode) -> anyhow::Result<()> {
             })
         );
     } else {
-        let task = TaskRefs::get(&id)?.unwrap();
         println!("Completed: {}", id);
         println!("  {}", task.title);
     }

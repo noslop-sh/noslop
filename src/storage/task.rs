@@ -419,11 +419,15 @@ impl TaskStore {
             .collect()
     }
 
-    /// List ready tasks (pending with no unfinished blockers)
+    /// List pending unblocked tasks
     #[must_use]
-    pub fn list_ready() -> Vec<Task> {
+    pub fn list_pending_unblocked() -> Vec<Task> {
         let tasks = Self::load().unwrap_or_default();
-        tasks.iter().filter(|t| t.is_ready(&tasks)).cloned().collect()
+        tasks
+            .iter()
+            .filter(|t| t.status == TaskStatus::Pending && !t.is_blocked(&tasks))
+            .cloned()
+            .collect()
     }
 
     /// Get branch metadata for current branch

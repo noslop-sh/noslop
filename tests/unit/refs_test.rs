@@ -88,7 +88,12 @@ fn test_refs_set_status() {
 
     let id = TaskRefs::create("Status test", None).unwrap();
 
-    // Initially pending
+    // Initially backlog
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.status, "backlog");
+
+    // Set to pending
+    TaskRefs::set_status(&id, "pending").unwrap();
     let task = TaskRefs::get(&id).unwrap().unwrap();
     assert_eq!(task.status, "pending");
 
@@ -108,68 +113,76 @@ fn test_refs_set_status() {
 }
 
 // =============================================================================
-// READY AND NEXT OPERATIONS
+// PENDING UNBLOCKED AND NEXT OPERATIONS
 // =============================================================================
 
 #[test]
 #[serial]
-fn test_refs_next_ready_empty() {
+fn test_refs_next_pending_unblocked_empty() {
     let _temp = setup();
 
     // No tasks
-    assert!(TaskRefs::next_ready().unwrap().is_none());
+    assert!(TaskRefs::next_pending_unblocked().unwrap().is_none());
 
     // All done
     let id = TaskRefs::create("Done task", None).unwrap();
     TaskRefs::set_status(&id, "done").unwrap();
-    assert!(TaskRefs::next_ready().unwrap().is_none());
+    assert!(TaskRefs::next_pending_unblocked().unwrap().is_none());
 }
 
 #[test]
 #[serial]
-fn test_refs_next_ready_with_priority() {
+fn test_refs_next_pending_unblocked_with_priority() {
     let _temp = setup();
 
-    // Create tasks with different priorities
+    // Create tasks with different priorities and set them to pending
     let id_p2 = TaskRefs::create("Low priority", Some("p2")).unwrap();
     let id_p0 = TaskRefs::create("High priority", Some("p0")).unwrap();
     let id_p1 = TaskRefs::create("Medium priority", Some("p1")).unwrap();
 
-    // next_ready should return highest priority (p0) first
-    let (next_id, next_task) = TaskRefs::next_ready().unwrap().unwrap();
+    // Move all to pending (backlog tasks aren't actionable)
+    TaskRefs::set_status(&id_p2, "pending").unwrap();
+    TaskRefs::set_status(&id_p0, "pending").unwrap();
+    TaskRefs::set_status(&id_p1, "pending").unwrap();
+
+    // next_pending_unblocked should return highest priority (p0) first
+    let (next_id, next_task) = TaskRefs::next_pending_unblocked().unwrap().unwrap();
     assert_eq!(next_id, id_p0);
     assert_eq!(next_task.priority, "p0");
 
     // Mark p0 as done, next should be p1
     TaskRefs::set_status(&id_p0, "done").unwrap();
-    let (next_id, _) = TaskRefs::next_ready().unwrap().unwrap();
+    let (next_id, _) = TaskRefs::next_pending_unblocked().unwrap().unwrap();
     assert_eq!(next_id, id_p1);
 
     // Mark p1 as done, next should be p2
     TaskRefs::set_status(&id_p1, "done").unwrap();
-    let (next_id, _) = TaskRefs::next_ready().unwrap().unwrap();
+    let (next_id, _) = TaskRefs::next_pending_unblocked().unwrap().unwrap();
     assert_eq!(next_id, id_p2);
 }
 
 #[test]
 #[serial]
-fn test_refs_list_ready() {
+fn test_refs_list_pending_unblocked() {
     let _temp = setup();
 
-    let id1 = TaskRefs::create("Ready 1", None).unwrap();
-    let id2 = TaskRefs::create("Ready 2", None).unwrap();
+    let id1 = TaskRefs::create("Pending 1", None).unwrap();
+    let id2 = TaskRefs::create("Pending 2", None).unwrap();
     let id3 = TaskRefs::create("In progress", None).unwrap();
     let id4 = TaskRefs::create("Done", None).unwrap();
 
+    // Set id1 and id2 to pending, others have different statuses
+    TaskRefs::set_status(&id1, "pending").unwrap();
+    TaskRefs::set_status(&id2, "pending").unwrap();
     TaskRefs::set_status(&id3, "in_progress").unwrap();
     TaskRefs::set_status(&id4, "done").unwrap();
 
-    let ready = TaskRefs::list_ready().unwrap();
-    assert_eq!(ready.len(), 2);
+    let pending_unblocked = TaskRefs::list_pending_unblocked().unwrap();
+    assert_eq!(pending_unblocked.len(), 2);
 
-    let ready_ids: Vec<_> = ready.iter().map(|(id, _)| id.as_str()).collect();
-    assert!(ready_ids.contains(&id1.as_str()));
-    assert!(ready_ids.contains(&id2.as_str()));
+    let ids: Vec<_> = pending_unblocked.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(ids.contains(&id1.as_str()));
+    assert!(ids.contains(&id2.as_str()));
 }
 
 // =============================================================================
@@ -212,15 +225,17 @@ fn test_refs_task_is_blocked() {
     let blocker_id = TaskRefs::create("Blocker task", None).unwrap();
     let blocked_id = TaskRefs::create("Blocked task", None).unwrap();
 
+    // Move blocked task to pending (backlog tasks can't be "ready")
+    TaskRefs::set_status(&blocked_id, "pending").unwrap();
+    // Blocker stays in backlog - still counts as not done
     TaskRefs::add_blocker(&blocked_id, &blocker_id).unwrap();
 
     // Get all tasks to check is_blocked
     let tasks = TaskRefs::list().unwrap();
     let (_, blocked_task) = tasks.iter().find(|(id, _)| id == &blocked_id).unwrap();
 
-    // Should be blocked while blocker is pending
+    // Should be blocked while blocker is not done
     assert!(blocked_task.is_blocked(&tasks));
-    assert!(!blocked_task.is_ready(&tasks));
 
     // Complete the blocker
     TaskRefs::set_status(&blocker_id, "done").unwrap();
@@ -229,9 +244,8 @@ fn test_refs_task_is_blocked() {
     let tasks = TaskRefs::list().unwrap();
     let (_, blocked_task) = tasks.iter().find(|(id, _)| id == &blocked_id).unwrap();
 
-    // Now should be unblocked and ready
+    // Now should be unblocked
     assert!(!blocked_task.is_blocked(&tasks));
-    assert!(blocked_task.is_ready(&tasks));
 }
 
 // =============================================================================
@@ -280,4 +294,105 @@ message = "Test check"
 
     let id = TaskRefs::create("Custom prefix task", None).unwrap();
     assert!(id.starts_with("PROJ-"), "Expected PROJ- prefix, got: {}", id);
+}
+
+// =============================================================================
+// START, COMPLETE, AND BACKLOG OPERATIONS
+// =============================================================================
+
+#[test]
+#[serial]
+fn test_refs_start_sets_status_and_current() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task to start", None).unwrap();
+
+    // Initially backlog
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.status, "backlog");
+    assert!(TaskRefs::current().unwrap().is_none());
+
+    // Start the task
+    let started = TaskRefs::start(&id).unwrap();
+    assert!(started);
+
+    // Status should be in_progress
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.status, "in_progress");
+
+    // Current should be set
+    assert_eq!(TaskRefs::current().unwrap(), Some(id));
+}
+
+#[test]
+#[serial]
+fn test_refs_start_not_found() {
+    let _temp = setup();
+
+    let started = TaskRefs::start("FAKE-999").unwrap();
+    assert!(!started);
+}
+
+#[test]
+#[serial]
+fn test_refs_complete_sets_status_and_clears_current() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task to complete", None).unwrap();
+    TaskRefs::set_status(&id, "in_progress").unwrap();
+    TaskRefs::set_current(&id).unwrap();
+
+    // Complete the task
+    let completed = TaskRefs::complete(&id).unwrap();
+    assert!(completed);
+
+    // Status should be done
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.status, "done");
+
+    // Current should be cleared
+    assert!(TaskRefs::current().unwrap().is_none());
+}
+
+#[test]
+#[serial]
+fn test_refs_complete_not_found() {
+    let _temp = setup();
+
+    let completed = TaskRefs::complete("FAKE-999").unwrap();
+    assert!(!completed);
+}
+
+#[test]
+#[serial]
+fn test_refs_move_to_backlog_unlinks_branch() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task", None).unwrap();
+    TaskRefs::set_status(&id, "pending").unwrap();
+    TaskRefs::link_branch(&id, Some("feature/test")).unwrap();
+    TaskRefs::set_current(&id).unwrap();
+
+    // Verify initial state
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.branch, Some("feature/test".to_string()));
+
+    // Move to backlog
+    let moved = TaskRefs::move_to_backlog(&id).unwrap();
+    assert!(moved);
+
+    // Verify final state
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.status, "backlog");
+    assert!(task.branch.is_none());
+    assert!(TaskRefs::current().unwrap().is_none());
+}
+
+#[test]
+#[serial]
+fn test_refs_move_to_backlog_not_found() {
+    let _temp = setup();
+
+    let moved = TaskRefs::move_to_backlog("FAKE-999").unwrap();
+    assert!(!moved);
 }

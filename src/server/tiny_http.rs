@@ -9,7 +9,10 @@ use std::io::Read as _;
 use serde::{Serialize, de::DeserializeOwned};
 use tiny_http::{Header, Method, Request, Response, StatusCode};
 
-use noslop::api::{self, ApiError, ApiResponse, CreateCheckRequest, CreateTaskRequest};
+use noslop::api::{
+    self, ApiError, ApiResponse, BlockerRequest, CreateCheckRequest, CreateTaskRequest,
+    LinkBranchRequest, UpdateConfigRequest,
+};
 
 // =============================================================================
 // REQUEST HANDLING
@@ -35,6 +38,14 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
         (&Method::Get, "/status") => handle_result(api::get_status()),
         (&Method::Get, "/tasks") => handle_result(api::list_tasks()),
         (&Method::Get, "/checks") => handle_result(api::list_checks()),
+        (&Method::Get, "/workspace") => handle_result(api::get_workspace()),
+        (&Method::Get, "/config") => handle_result(api::get_config()),
+
+        // PATCH /config - update config
+        (&Method::Patch, "/config") => match read_json_body::<UpdateConfigRequest>(request) {
+            Ok(req) => handle_result(api::update_config(&req)),
+            Err(e) => error_response(&e),
+        },
 
         // POST /tasks - create task
         (&Method::Post, "/tasks") => match read_json_body::<CreateTaskRequest>(request) {
@@ -76,6 +87,86 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
                 .and_then(|s| s.strip_suffix("/done"))
                 .unwrap_or("");
             handle_result(api::complete_task(id))
+        },
+
+        // Task reset: POST /tasks/{id}/reset
+        _ if method == Method::Post
+            && api_path.starts_with("/tasks/")
+            && api_path.ends_with("/reset") =>
+        {
+            let id = api_path
+                .strip_prefix("/tasks/")
+                .and_then(|s| s.strip_suffix("/reset"))
+                .unwrap_or("");
+            handle_result(api::reset_task(id))
+        },
+
+        // Task backlog: POST /tasks/{id}/backlog
+        _ if method == Method::Post
+            && api_path.starts_with("/tasks/")
+            && api_path.ends_with("/backlog") =>
+        {
+            let id = api_path
+                .strip_prefix("/tasks/")
+                .and_then(|s| s.strip_suffix("/backlog"))
+                .unwrap_or("");
+            handle_result(api::backlog_task(id))
+        },
+
+        // Task link-branch: POST /tasks/{id}/link-branch
+        _ if method == Method::Post
+            && api_path.starts_with("/tasks/")
+            && api_path.ends_with("/link-branch") =>
+        {
+            let id = api_path
+                .strip_prefix("/tasks/")
+                .and_then(|s| s.strip_suffix("/link-branch"))
+                .unwrap_or("");
+            match read_json_body::<LinkBranchRequest>(request) {
+                Ok(req) => handle_result(api::link_branch(id, &req)),
+                Err(e) => error_response(&e),
+            }
+        },
+
+        // Task block: POST /tasks/{id}/block
+        _ if method == Method::Post
+            && api_path.starts_with("/tasks/")
+            && api_path.ends_with("/block") =>
+        {
+            let id = api_path
+                .strip_prefix("/tasks/")
+                .and_then(|s| s.strip_suffix("/block"))
+                .unwrap_or("");
+            match read_json_body::<BlockerRequest>(request) {
+                Ok(req) => handle_result(api::add_blocker(id, &req)),
+                Err(e) => error_response(&e),
+            }
+        },
+
+        // Task unblock: POST /tasks/{id}/unblock
+        _ if method == Method::Post
+            && api_path.starts_with("/tasks/")
+            && api_path.ends_with("/unblock") =>
+        {
+            let id = api_path
+                .strip_prefix("/tasks/")
+                .and_then(|s| s.strip_suffix("/unblock"))
+                .unwrap_or("");
+            match read_json_body::<BlockerRequest>(request) {
+                Ok(req) => handle_result(api::remove_blocker(id, &req)),
+                Err(e) => error_response(&e),
+            }
+        },
+
+        // Task delete: DELETE /tasks/{id}
+        _ if method == Method::Delete && api_path.starts_with("/tasks/") => {
+            let id = api_path.strip_prefix("/tasks/").unwrap_or("");
+            // Make sure it's not a sub-action like /tasks/id/start
+            if !id.contains('/') {
+                handle_result(api::delete_task(id))
+            } else {
+                not_found_response(&format!("API endpoint not found: {} {}", method, api_path))
+            }
         },
 
         // 404 for unknown API routes

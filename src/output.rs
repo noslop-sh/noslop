@@ -233,8 +233,8 @@ pub struct TaskInfo {
     pub priority: String,
     /// Tasks blocking this one
     pub blocked_by: Vec<String>,
-    /// Whether this task is ready to work on
-    pub ready: bool,
+    /// Whether this task is blocked by unfinished tasks
+    pub blocked: bool,
     /// Optional notes
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
@@ -281,12 +281,8 @@ impl TaskListResult {
                 "done" => "●",
                 _ => "?",
             };
-            let ready_marker = if t.ready && t.status == "pending" {
-                " [ready]"
-            } else {
-                ""
-            };
-            println!("  {} [{}] {} ({}){}", status_icon, t.id, t.title, t.priority, ready_marker);
+            let blocked_marker = if t.blocked { " [blocked]" } else { "" };
+            println!("  {} [{}] {} ({}){}", status_icon, t.id, t.title, t.priority, blocked_marker);
             if !t.blocked_by.is_empty() {
                 println!("      blocked by: {}", t.blocked_by.join(", "));
             }
@@ -313,7 +309,7 @@ impl TaskShowResult {
             println!("  Title:    {}", t.title);
             println!("  Status:   {}", t.status);
             println!("  Priority: {}", t.priority);
-            println!("  Ready:    {}", if t.ready { "yes" } else { "no" });
+            println!("  Blocked:  {}", if t.blocked { "yes" } else { "no" });
             if !t.blocked_by.is_empty() {
                 println!("  Blocked by: {}", t.blocked_by.join(", "));
             }

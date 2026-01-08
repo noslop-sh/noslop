@@ -36,8 +36,10 @@ pub struct Task {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum TaskStatus {
-    /// Not yet started
+    /// In the backlog - not yet committed to any branch
     #[default]
+    Backlog,
+    /// Committed to work on (linked to a branch)
     Pending,
     /// Currently being worked on
     InProgress,
@@ -48,6 +50,7 @@ pub enum TaskStatus {
 impl std::fmt::Display for TaskStatus {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Backlog => write!(f, "backlog"),
             Self::Pending => write!(f, "pending"),
             Self::InProgress => write!(f, "in_progress"),
             Self::Done => write!(f, "done"),
@@ -60,10 +63,11 @@ impl std::str::FromStr for TaskStatus {
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().replace('-', "_").as_str() {
+            "backlog" => Ok(Self::Backlog),
             "pending" => Ok(Self::Pending),
             "in_progress" | "inprogress" | "started" => Ok(Self::InProgress),
             "done" | "complete" | "completed" => Ok(Self::Done),
-            _ => Err(format!("Invalid status: {s}. Use: pending, in_progress, done")),
+            _ => Err(format!("Invalid status: {s}. Use: backlog, pending, in_progress, done")),
         }
     }
 }
@@ -145,20 +149,14 @@ impl Task {
         }
     }
 
-    /// Check if this task is ready to be worked on
-    /// A task is ready if it's pending and has no unfinished blockers
+    /// Check if this task is blocked by unfinished tasks
     #[must_use]
-    pub fn is_ready(&self, all_tasks: &[Self]) -> bool {
-        if self.status != TaskStatus::Pending {
-            return false;
-        }
-
-        // Check if all blockers are done
-        self.blocked_by.iter().all(|blocker_id| {
+    pub fn is_blocked(&self, all_tasks: &[Self]) -> bool {
+        self.blocked_by.iter().any(|blocker_id| {
             all_tasks
                 .iter()
                 .find(|t| t.id == *blocker_id)
-                .is_none_or(|t| t.status == TaskStatus::Done)
+                .is_some_and(|t| t.status != TaskStatus::Done)
         })
     }
 }

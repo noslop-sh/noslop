@@ -16,7 +16,11 @@ mod types;
 
 pub use error::ApiError;
 pub use handlers::{
-    complete_task, create_check, create_task, get_status, get_task, list_checks, list_tasks,
-    start_task,
+    add_blocker, backlog_task, complete_task, create_check, create_task, delete_task, get_config,
+    get_status, get_task, get_workspace, link_branch, list_checks, list_tasks, list_tasks_filtered,
+    remove_blocker, reset_task, start_task, update_config,
 };
-pub use types::{ApiResponse, CreateCheckRequest, CreateTaskRequest, EventsData};
+pub use types::{
+    ApiResponse, BlockerRequest, CreateCheckRequest, CreateTaskRequest, EventsData,
+    LinkBranchRequest, UpdateConfigRequest,
+};

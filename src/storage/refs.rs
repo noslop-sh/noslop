@@ -20,7 +20,7 @@ const REFS_DIR: &str = "refs/tasks";
 pub struct TaskRef {
     /// Task title
     pub title: String,
-    /// Current status: pending, `in_progress`, done
+    /// Current status: backlog, pending, `in_progress`, done
     pub status: String,
     /// Priority: p0, p1, p2, p3
     #[serde(default = "default_priority")]
@@ -36,6 +36,15 @@ pub struct TaskRef {
     /// Pending trailer action (set by pre-commit, cleared by post-commit)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_trailer: Option<String>,
+    /// Optional associated git branch
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// When work started (RFC3339)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<String>,
+    /// When completed (RFC3339)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub completed_at: Option<String>,
 }
 
 fn default_priority() -> String {
@@ -48,12 +57,15 @@ impl TaskRef {
     pub fn new(title: String) -> Self {
         Self {
             title,
-            status: "pending".to_string(),
+            status: "backlog".to_string(),
             priority: default_priority(),
             created_at: chrono::Utc::now().to_rfc3339(),
             notes: None,
             blocked_by: Vec::new(),
             pending_trailer: None,
+            branch: None,
+            started_at: None,
+            completed_at: None,
         }
     }
 
@@ -66,12 +78,6 @@ impl TaskRef {
                 .find(|(id, _)| id == blocker_id)
                 .is_some_and(|(_, task)| task.status != "done")
         })
-    }
-
-    /// Check if this task is ready to work on (pending and unblocked)
-    #[must_use]
-    pub fn is_ready(&self, all_tasks: &[(String, Self)]) -> bool {
-        self.status == "pending" && !self.is_blocked(all_tasks)
     }
 }
 
@@ -177,10 +183,95 @@ impl TaskRefs {
         Ok(())
     }
 
-    /// Update a task's status
+    /// Update a task's status (also sets timestamps)
     pub fn set_status(id: &str, status: &str) -> anyhow::Result<bool> {
         if let Some(mut task) = Self::get(id)? {
+            let now = chrono::Utc::now().to_rfc3339();
             task.status = status.to_string();
+
+            // Set timestamps based on status transition
+            if status == "in_progress" && task.started_at.is_none() {
+                task.started_at = Some(now);
+            } else if status == "done" && task.completed_at.is_none() {
+                task.completed_at = Some(now);
+            }
+
+            Self::write_task(id, &task)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Start a task: set to `in_progress`, make current, auto-link to branch if unlinked
+    /// This is the canonical way to start a task - use this instead of `set_status` + `set_current`
+    /// Returns `Ok(true)` if task was found and started, `Ok(false)` if task not found.
+    /// The optional branch name is returned separately via `get()` if needed.
+    pub fn start(id: &str) -> anyhow::Result<bool> {
+        let Some(task) = Self::get(id)? else {
+            return Ok(false);
+        };
+
+        // Set status and current
+        Self::set_status(id, "in_progress")?;
+        Self::set_current(id)?;
+
+        // Auto-link to current branch if task is unlinked
+        if task.branch.is_none()
+            && let Some(branch) = Self::get_current_git_branch()
+        {
+            Self::link_branch(id, Some(&branch))?;
+        }
+
+        Ok(true)
+    }
+
+    /// Move task to backlog: set status, unlink branch, clear current if needed
+    /// This is the canonical way to move to backlog
+    pub fn move_to_backlog(id: &str) -> anyhow::Result<bool> {
+        if Self::get(id)?.is_none() {
+            return Ok(false);
+        }
+
+        Self::set_status(id, "backlog")?;
+        Self::link_branch(id, None)?;
+
+        // Clear current if this was the current task
+        if Self::current()?.as_deref() == Some(id) {
+            Self::clear_current()?;
+        }
+
+        Ok(true)
+    }
+
+    /// Complete a task: set to done, clear current if needed
+    /// This is the canonical way to complete a task
+    pub fn complete(id: &str) -> anyhow::Result<bool> {
+        if Self::get(id)?.is_none() {
+            return Ok(false);
+        }
+
+        Self::set_status(id, "done")?;
+
+        // Clear current if this was the current task
+        if Self::current()?.as_deref() == Some(id) {
+            Self::clear_current()?;
+        }
+
+        Ok(true)
+    }
+
+    /// Get current git branch name
+    fn get_current_git_branch() -> Option<String> {
+        let repo = git2::Repository::discover(".").ok()?;
+        let head = repo.head().ok()?;
+        head.shorthand().map(String::from)
+    }
+
+    /// Link or unlink a task to a git branch
+    pub fn link_branch(id: &str, branch: Option<&str>) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            task.branch = branch.map(String::from);
             Self::write_task(id, &task)?;
             Ok(true)
         } else {
@@ -268,30 +359,37 @@ impl TaskRefs {
         Ok(())
     }
 
-    /// Get next ready task (pending, unblocked, sorted by priority then id)
-    pub fn next_ready() -> anyhow::Result<Option<(String, TaskRef)>> {
+    /// Get next pending unblocked task (sorted by priority then id)
+    pub fn next_pending_unblocked() -> anyhow::Result<Option<(String, TaskRef)>> {
         let tasks = Self::list()?;
 
-        // Find ready tasks (pending and not blocked)
-        let mut ready: Vec<_> =
-            tasks.iter().filter(|(_, task)| task.is_ready(&tasks)).cloned().collect();
+        // Find pending tasks that are not blocked
+        let mut candidates: Vec<_> = tasks
+            .iter()
+            .filter(|(_, task)| task.status == "pending" && !task.is_blocked(&tasks))
+            .cloned()
+            .collect();
 
-        if ready.is_empty() {
+        if candidates.is_empty() {
             return Ok(None);
         }
 
         // Sort by priority (p0 first), then by id
-        ready.sort_by(|(id_a, a), (id_b, b)| {
+        candidates.sort_by(|(id_a, a), (id_b, b)| {
             a.priority.cmp(&b.priority).then_with(|| id_a.cmp(id_b))
         });
 
-        Ok(ready.into_iter().next())
+        Ok(candidates.into_iter().next())
     }
 
-    /// List all ready tasks (pending, unblocked)
-    pub fn list_ready() -> anyhow::Result<Vec<(String, TaskRef)>> {
+    /// List all pending unblocked tasks
+    pub fn list_pending_unblocked() -> anyhow::Result<Vec<(String, TaskRef)>> {
         let tasks = Self::list()?;
-        Ok(tasks.iter().filter(|(_, task)| task.is_ready(&tasks)).cloned().collect())
+        Ok(tasks
+            .iter()
+            .filter(|(_, task)| task.status == "pending" && !task.is_blocked(&tasks))
+            .cloned()
+            .collect())
     }
 
     /// Add a blocker to a task
@@ -381,7 +479,7 @@ mod tests {
 
         let task = TaskRefs::get(&id).unwrap().unwrap();
         assert_eq!(task.title, "Test task");
-        assert_eq!(task.status, "pending");
+        assert_eq!(task.status, "backlog");
     }
 
     #[test]
@@ -417,5 +515,58 @@ mod tests {
         TaskRefs::clear_pending_trailer(&id).unwrap();
         let task = TaskRefs::get(&id).unwrap().unwrap();
         assert!(task.pending_trailer.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_link_branch() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("Test", None).unwrap();
+
+        // Initially no branch
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert!(task.branch.is_none());
+
+        // Link to branch
+        TaskRefs::link_branch(&id, Some("feature/foo")).unwrap();
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert_eq!(task.branch, Some("feature/foo".to_string()));
+
+        // Unlink (set to None)
+        TaskRefs::link_branch(&id, None).unwrap();
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert!(task.branch.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_status_timestamps() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("Test", None).unwrap();
+
+        // Initially no timestamps
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert!(task.started_at.is_none());
+        assert!(task.completed_at.is_none());
+
+        // Start task - sets started_at
+        TaskRefs::set_status(&id, "in_progress").unwrap();
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert!(task.started_at.is_some());
+        assert!(task.completed_at.is_none());
+        let started = task.started_at;
+
+        // Complete task - sets completed_at, keeps started_at
+        TaskRefs::set_status(&id, "done").unwrap();
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert_eq!(task.started_at, started); // unchanged
+        assert!(task.completed_at.is_some());
+
+        // Setting in_progress again doesn't change started_at
+        TaskRefs::set_status(&id, "in_progress").unwrap();
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert_eq!(task.started_at, started); // still unchanged
     }
 }

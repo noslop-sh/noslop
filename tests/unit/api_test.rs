@@ -139,6 +139,7 @@ mod status_handler_tests {
 
         let status = get_status().unwrap();
         assert_eq!(status.tasks.total, 0);
+        assert_eq!(status.tasks.backlog, 0);
         assert_eq!(status.tasks.pending, 0);
         assert_eq!(status.tasks.in_progress, 0);
         assert_eq!(status.tasks.done, 0);
@@ -150,7 +151,7 @@ mod status_handler_tests {
     fn test_get_status_with_tasks() {
         let _temp = setup();
 
-        // Create some tasks
+        // Create some tasks (they start in backlog)
         TaskRefs::create("Task 1", None).unwrap();
         let id2 = TaskRefs::create("Task 2", None).unwrap();
         TaskRefs::create("Task 3", None).unwrap();
@@ -161,7 +162,8 @@ mod status_handler_tests {
 
         let status = get_status().unwrap();
         assert_eq!(status.tasks.total, 3);
-        assert_eq!(status.tasks.pending, 2);
+        assert_eq!(status.tasks.backlog, 2); // Task 1 and 3 are in backlog
+        assert_eq!(status.tasks.pending, 0);
         assert_eq!(status.tasks.in_progress, 1);
         assert_eq!(status.current_task, Some(id2));
     }
@@ -174,7 +176,9 @@ mod status_handler_tests {
 mod task_handler_tests {
     use super::*;
     use noslop::api::{
-        CreateTaskRequest, complete_task, create_task, get_task, list_tasks, start_task,
+        BlockerRequest, CreateTaskRequest, LinkBranchRequest, add_blocker, backlog_task,
+        complete_task, create_task, delete_task, get_task, link_branch, list_tasks, remove_blocker,
+        reset_task, start_task,
     };
 
     #[test]
@@ -209,7 +213,7 @@ mod task_handler_tests {
         assert_eq!(task.id, id);
         assert_eq!(task.title, "My Task");
         assert_eq!(task.priority, "p1");
-        assert_eq!(task.status, "pending");
+        assert_eq!(task.status, "backlog");
     }
 
     #[test]
@@ -237,7 +241,7 @@ mod task_handler_tests {
         assert!(!task.id.is_empty());
         assert_eq!(task.title, "New Task");
         assert_eq!(task.priority, "p0");
-        assert_eq!(task.status, "pending");
+        assert_eq!(task.status, "backlog");
     }
 
     #[test]
@@ -306,6 +310,247 @@ mod task_handler_tests {
 
         // Current should be cleared
         assert!(TaskRefs::current().unwrap().is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_reset_task_success() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("Task", None).unwrap();
+        TaskRefs::set_status(&id, "in_progress").unwrap();
+        TaskRefs::set_current(&id).unwrap();
+
+        let result = reset_task(&id).unwrap();
+        assert_eq!(result.id, id);
+        assert_eq!(result.status, "pending");
+
+        // Current should be cleared
+        assert!(TaskRefs::current().unwrap().is_none());
+
+        // Status should be pending
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert_eq!(task.status, "pending");
+    }
+
+    #[test]
+    #[serial]
+    fn test_reset_task_not_found() {
+        let _temp = setup();
+
+        let result = reset_task("FAKE-999");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_backlog_task_success() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("Task", None).unwrap();
+        TaskRefs::set_status(&id, "pending").unwrap();
+        TaskRefs::link_branch(&id, Some("feature/test")).unwrap();
+        TaskRefs::set_current(&id).unwrap();
+
+        let result = backlog_task(&id).unwrap();
+        assert_eq!(result.id, id);
+        assert_eq!(result.status, "backlog");
+
+        // Branch should be unlinked
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert!(task.branch.is_none());
+
+        // Current should be cleared
+        assert!(TaskRefs::current().unwrap().is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_backlog_task_not_found() {
+        let _temp = setup();
+
+        let result = backlog_task("FAKE-999");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_link_branch_success() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("Task", None).unwrap();
+
+        let req = LinkBranchRequest {
+            branch: Some("feature/test".to_string()),
+        };
+        let result = link_branch(&id, &req).unwrap();
+        assert_eq!(result.id, id);
+
+        // Verify branch was linked
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert_eq!(task.branch, Some("feature/test".to_string()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_link_branch_unlink() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("Task", None).unwrap();
+        TaskRefs::link_branch(&id, Some("feature/test")).unwrap();
+
+        let req = LinkBranchRequest { branch: None };
+        link_branch(&id, &req).unwrap();
+
+        // Verify branch was unlinked
+        let task = TaskRefs::get(&id).unwrap().unwrap();
+        assert!(task.branch.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_link_branch_not_found() {
+        let _temp = setup();
+
+        let req = LinkBranchRequest {
+            branch: Some("feature/test".to_string()),
+        };
+        let result = link_branch("FAKE-999", &req);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_delete_task_success() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("Task to delete", None).unwrap();
+
+        let result = delete_task(&id).unwrap();
+        assert_eq!(result.id, id);
+        assert_eq!(result.status, "deleted");
+
+        // Verify task is gone
+        assert!(TaskRefs::get(&id).unwrap().is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_delete_task_clears_current() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("Task", None).unwrap();
+        TaskRefs::set_current(&id).unwrap();
+
+        delete_task(&id).unwrap();
+
+        // Current should be cleared
+        assert!(TaskRefs::current().unwrap().is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_delete_task_not_found() {
+        let _temp = setup();
+
+        let result = delete_task("FAKE-999");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_add_blocker_success() {
+        let _temp = setup();
+
+        let blocker_id = TaskRefs::create("Blocker task", None).unwrap();
+        let blocked_id = TaskRefs::create("Blocked task", None).unwrap();
+
+        let req = BlockerRequest {
+            blocker_id: blocker_id.clone(),
+        };
+        let result = add_blocker(&blocked_id, &req).unwrap();
+        assert_eq!(result.id, blocked_id);
+
+        // Verify blocker was added
+        let task = TaskRefs::get(&blocked_id).unwrap().unwrap();
+        assert!(task.blocked_by.contains(&blocker_id));
+    }
+
+    #[test]
+    #[serial]
+    fn test_add_blocker_task_not_found() {
+        let _temp = setup();
+
+        let blocker_id = TaskRefs::create("Blocker", None).unwrap();
+
+        let req = BlockerRequest {
+            blocker_id: blocker_id.clone(),
+        };
+        let result = add_blocker("FAKE-999", &req);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_add_blocker_blocker_not_found() {
+        let _temp = setup();
+
+        let task_id = TaskRefs::create("Task", None).unwrap();
+
+        let req = BlockerRequest {
+            blocker_id: "FAKE-999".to_string(),
+        };
+        let result = add_blocker(&task_id, &req);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_remove_blocker_success() {
+        let _temp = setup();
+
+        let blocker_id = TaskRefs::create("Blocker task", None).unwrap();
+        let blocked_id = TaskRefs::create("Blocked task", None).unwrap();
+        TaskRefs::add_blocker(&blocked_id, &blocker_id).unwrap();
+
+        let req = BlockerRequest {
+            blocker_id: blocker_id.clone(),
+        };
+        let result = remove_blocker(&blocked_id, &req).unwrap();
+        assert_eq!(result.id, blocked_id);
+
+        // Verify blocker was removed
+        let task = TaskRefs::get(&blocked_id).unwrap().unwrap();
+        assert!(!task.blocked_by.contains(&blocker_id));
+    }
+
+    #[test]
+    #[serial]
+    fn test_remove_blocker_task_not_found() {
+        let _temp = setup();
+
+        let req = BlockerRequest {
+            blocker_id: "TSK-1".to_string(),
+        };
+        let result = remove_blocker("FAKE-999", &req);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_complete_task_not_found() {
+        let _temp = setup();
+
+        let result = complete_task("FAKE-999");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
     }
 }
 
