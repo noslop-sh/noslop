@@ -62,6 +62,9 @@ pub struct CreateTaskRequest {
     /// Optional priority (p0, p1, p2, p3)
     #[serde(default)]
     pub priority: Option<String>,
+    /// Optional project to assign task to
+    #[serde(default)]
+    pub project: Option<String>,
 }
 
 /// Request body for creating a check
@@ -152,6 +155,9 @@ pub struct TaskItem {
     /// When completed (RFC3339)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    /// Project this task belongs to
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 /// Single task detail response
@@ -184,6 +190,9 @@ pub struct TaskDetailData {
     /// When completed (RFC3339)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    /// Project this task belongs to
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 /// Task mutation (start/done/create) response
@@ -336,4 +345,54 @@ pub struct UpdateConfigRequest {
 pub struct BlockerRequest {
     /// ID of the task that blocks
     pub blocker_id: String,
+}
+
+// =============================================================================
+// PROJECT TYPES
+// =============================================================================
+
+/// Project info
+#[derive(Debug, Serialize)]
+pub struct ProjectInfo {
+    /// Project ID
+    pub id: String,
+    /// Project name
+    pub name: String,
+    /// Number of tasks in project
+    pub task_count: usize,
+    /// When created (RFC3339)
+    pub created_at: String,
+}
+
+/// Projects list response
+#[derive(Debug, Serialize)]
+pub struct ProjectsData {
+    /// List of projects
+    pub projects: Vec<ProjectInfo>,
+    /// Currently selected project ID (None = view all)
+    pub current_project: Option<String>,
+}
+
+/// Create project request
+#[derive(Debug, Deserialize)]
+pub struct CreateProjectRequest {
+    /// Project name
+    pub name: String,
+}
+
+/// Create project response
+#[derive(Debug, Serialize)]
+pub struct ProjectCreateData {
+    /// Created project ID
+    pub id: String,
+    /// Project name
+    pub name: String,
+}
+
+/// Select project request
+#[derive(Debug, Deserialize)]
+pub struct SelectProjectRequest {
+    /// Project ID to select (None = view all)
+    #[serde(default)]
+    pub id: Option<String>,
 }

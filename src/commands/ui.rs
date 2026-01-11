@@ -251,6 +251,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 <div id="connection-status" class="connected">live</div>
             </div>
 
+            <!-- Project Tabs -->
+            <div class="project-tabs-container">
+                <div class="project-tabs" id="project-tabs">
+                    <button class="project-tab active" data-project="all" onclick="selectProject(null)">All</button>
+                </div>
+                <button class="btn-add-project" onclick="promptNewProject()">+</button>
+            </div>
+
+            <!-- Branches (scoped to current project) -->
             <div class="sidebar-section">
                 <h3>Branches</h3>
                 <div id="branch-tree">
@@ -287,9 +296,9 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <!-- Main Content -->
         <main class="main-content">
             <div class="toolbar">
-                <form id="new-task-form" hx-post="/api/v1/tasks" hx-swap="none"
-                      hx-on::after-request="handleTaskCreated(event)">
+                <form id="new-task-form" onsubmit="return handleTaskSubmit(event)">
                     <input type="text" name="title" placeholder="New task..." required>
+                    <input type="hidden" name="project" id="new-task-project">
                     <button type="submit">+ Add</button>
                 </form>
             </div>
@@ -398,6 +407,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         let workspaceData = null;
         let selectedBranches = new Set();
         let allTasks = [];
+        let allProjects = [];
+        let currentProject = null; // null means "All"
 
         // Unwrap API envelope
         function unwrap(response) {
@@ -419,14 +430,15 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 const envelope = await response.json();
                 workspaceData = unwrap(envelope);
                 if (workspaceData) {
-                    renderBranchTree(workspaceData);
+                    // Always render through updateBranchTreeForProject to respect project filter
+                    updateBranchTreeForProject();
                 }
             } catch (e) {
                 console.error('Failed to load workspace:', e);
             }
         }
 
-        function renderBranchTree(data) {
+        function renderBranchTree(data, activeBranches = null) {
             const container = document.getElementById('branch-tree');
             if (!data.repos || data.repos.length === 0) {
                 container.innerHTML = '<p class="empty">No git repos found</p>';
@@ -437,39 +449,54 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             selectedBranches.clear();
 
             let html = '';
+
             for (const repo of data.repos) {
+                // Filter branches to only show those with tasks (if activeBranches is provided)
+                const visibleBranches = repo.branches.filter(branch => {
+                    if (branch.hidden) return false;
+                    // If activeBranches is provided, only show branches in that set
+                    if (activeBranches !== null) {
+                        return activeBranches.has(branch.name);
+                    }
+                    return true;
+                });
+
+                // Always show the repo header with current branch info
                 html += `<div class="repo-item">
                     <div class="repo-header">
                         <span class="repo-icon">&#x25BC;</span>
                         <span class="repo-name">${repo.name}</span>
-                    </div>
-                    <div class="branch-list">`;
+                        <span class="repo-current-branch">on: ${repo.current_branch}</span>
+                    </div>`;
 
-                for (const branch of repo.branches) {
-                    if (branch.hidden) continue;
+                if (visibleBranches.length > 0) {
+                    html += `<div class="branch-list">`;
 
-                    const color = getBranchColor(branch.name, branch.color);
-                    const isCurrent = branch.name === repo.current_branch;
-                    const isSelected = branch.selected;
+                    for (const branch of visibleBranches) {
+                        const color = getBranchColor(branch.name, branch.color);
+                        const isCurrent = branch.name === repo.current_branch;
+                        const isSelected = branch.selected;
 
-                    if (isSelected) {
-                        selectedBranches.add(branch.name);
+                        if (isSelected) {
+                            selectedBranches.add(branch.name);
+                        }
+
+                        html += `
+                            <label class="branch-item ${isCurrent ? 'current' : ''}" style="--branch-color: ${color.bg}">
+                                <input type="checkbox"
+                                       data-repo="${repo.path}"
+                                       data-branch="${branch.name}"
+                                       ${isSelected ? 'checked' : ''}
+                                       onchange="toggleBranch(this, '${repo.path}', '${branch.name}')">
+                                <span class="branch-color" style="background: ${color.bg}"></span>
+                                <span class="branch-name">${branch.name}</span>
+                            </label>`;
                     }
 
-                    html += `
-                        <label class="branch-item ${isCurrent ? 'current' : ''}" style="--branch-color: ${color.bg}">
-                            <input type="checkbox"
-                                   data-repo="${repo.path}"
-                                   data-branch="${branch.name}"
-                                   ${isSelected ? 'checked' : ''}
-                                   onchange="toggleBranch(this, '${repo.path}', '${branch.name}')">
-                            <span class="branch-color" style="background: ${color.bg}"></span>
-                            <span class="branch-name">${branch.name}</span>
-                            ${isCurrent ? '<span class="current-badge">current</span>' : ''}
-                        </label>`;
+                    html += `</div>`;
                 }
 
-                html += `</div></div>`;
+                html += `</div>`;
             }
 
             container.innerHTML = html;
@@ -529,19 +556,120 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 if (data) {
                     allTasks = data.tasks || [];
                     renderKanban();
+                    updateBranchTreeForProject();
                 }
             } catch (e) {
                 console.error('Failed to load tasks:', e);
             }
         }
 
-        function filterTasksByBranch(tasks) {
-            // Always show unlinked tasks, only show linked tasks if their branch is selected
-            return tasks.filter(t => !t.branch || selectedBranches.has(t.branch));
+        // Load projects
+        async function loadProjects() {
+            try {
+                const response = await fetch('/api/v1/projects');
+                const envelope = await response.json();
+                const data = unwrap(envelope);
+                if (data) {
+                    allProjects = data.projects || [];
+                    currentProject = data.current_project || null;
+                    renderProjectTabs();
+                    // Update hidden project field for new task form
+                    document.getElementById('new-task-project').value = currentProject || '';
+                }
+            } catch (e) {
+                console.error('Failed to load projects:', e);
+            }
+        }
+
+        function renderProjectTabs() {
+            const container = document.getElementById('project-tabs');
+            let html = `<button class="project-tab ${!currentProject ? 'active' : ''}"
+                               data-project="all"
+                               onclick="selectProject(null)">All</button>`;
+
+            for (const project of allProjects) {
+                const isActive = currentProject === project.id;
+                html += `<button class="project-tab ${isActive ? 'active' : ''}"
+                                data-project="${project.id}"
+                                onclick="selectProject('${project.id}')"
+                                title="${project.name} (${project.task_count} tasks)">
+                            ${project.name}
+                        </button>`;
+            }
+
+            container.innerHTML = html;
+        }
+
+        async function selectProject(projectId) {
+            try {
+                await fetch('/api/v1/projects/select', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: projectId })
+                });
+                currentProject = projectId;
+                renderProjectTabs();
+                renderKanban();
+                updateBranchTreeForProject();
+                // Update hidden project field for new task form
+                document.getElementById('new-task-project').value = currentProject || '';
+            } catch (e) {
+                console.error('Failed to select project:', e);
+            }
+        }
+
+        async function promptNewProject() {
+            const name = prompt('Enter project name:');
+            if (!name || !name.trim()) return;
+
+            try {
+                const response = await fetch('/api/v1/projects', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: name.trim() })
+                });
+                const envelope = await response.json();
+                const data = unwrap(envelope);
+                if (data) {
+                    // Reload and select the new project
+                    await loadProjects();
+                    await selectProject(data.id);
+                }
+            } catch (e) {
+                console.error('Failed to create project:', e);
+            }
+        }
+
+        // Update branch tree to only show branches with tasks in current project
+        function updateBranchTreeForProject() {
+            if (!workspaceData) return;
+
+            // Get branches that have tasks in current project
+            const projectTasks = currentProject
+                ? allTasks.filter(t => t.project === currentProject)
+                : allTasks;
+
+            const activeBranches = new Set(
+                projectTasks
+                    .filter(t => t.branch)
+                    .map(t => t.branch)
+            );
+
+            renderBranchTree(workspaceData, activeBranches);
+        }
+
+        function filterTasks(tasks) {
+            return tasks.filter(t => {
+                // Project filter: if currentProject is set, only show tasks in that project
+                const projectMatch = !currentProject || t.project === currentProject;
+                // Branch filter: always show unlinked tasks, only show linked tasks if their branch is selected
+                const branchMatch = !t.branch || selectedBranches.has(t.branch);
+                return projectMatch && branchMatch;
+            });
         }
 
         function renderKanban() {
-            const filtered = filterTasksByBranch(allTasks);
+            const filtered = filterTasks(allTasks);
 
             // Sort done by completed_at descending (most recent first)
             const sortByCompletedDesc = (a, b) => {
@@ -1016,7 +1144,38 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             }
         }
 
+        // Handle task form submission with project
+        async function handleTaskSubmit(event) {
+            event.preventDefault();
+            const form = event.target;
+            const title = form.title.value.trim();
+            const project = form.project.value || null;
+
+            if (!title) return false;
+
+            try {
+                const response = await fetch('/api/v1/tasks', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, project })
+                });
+                const envelope = await response.json();
+                if (envelope.success) {
+                    form.reset();
+                    form.project.value = currentProject || '';
+                    loadTasks();
+                    loadStatus();
+                    loadProjects(); // Update task counts
+                }
+            } catch (e) {
+                console.error('Failed to create task:', e);
+            }
+
+            return false;
+        }
+
         // Initialize
+        loadProjects();
         loadWorkspace();
         loadStatus();
         loadTasks();
@@ -1105,6 +1264,62 @@ body {
     color: var(--text);
 }
 
+/* Project Tabs */
+.project-tabs-container {
+    display: flex;
+    align-items: center;
+    padding: 0.5rem;
+    border-bottom: 1px solid var(--primary);
+    gap: 0.25rem;
+    overflow-x: auto;
+}
+
+.project-tabs {
+    display: flex;
+    gap: 0.25rem;
+    flex: 1;
+    overflow-x: auto;
+}
+
+.project-tab {
+    background: transparent;
+    border: 1px solid var(--primary);
+    border-radius: 4px;
+    color: var(--text-dim);
+    padding: 0.35rem 0.6rem;
+    font-size: var(--font-xs);
+    cursor: pointer;
+    white-space: nowrap;
+    transition: all 0.15s;
+}
+
+.project-tab:hover {
+    background: var(--primary);
+    color: var(--text);
+}
+
+.project-tab.active {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: var(--text);
+}
+
+.btn-add-project {
+    background: transparent;
+    border: 1px dashed var(--text-dim);
+    border-radius: 4px;
+    color: var(--text-dim);
+    padding: 0.35rem 0.5rem;
+    font-size: var(--font-sm);
+    cursor: pointer;
+    transition: all 0.15s;
+}
+
+.btn-add-project:hover {
+    border-color: var(--accent);
+    color: var(--accent);
+}
+
 .sidebar-section {
     padding: 1rem;
     border-bottom: 1px solid var(--primary);
@@ -1152,6 +1367,13 @@ body {
 
 .repo-icon {
     font-size: var(--font-xs);
+}
+
+.repo-current-branch {
+    margin-left: auto;
+    font-size: var(--font-xs);
+    color: var(--text-muted);
+    font-style: italic;
 }
 
 .branch-list {

@@ -12,7 +12,8 @@ use crate::storage::TaskRefs;
 use super::error::ApiError;
 use super::types::{
     BlockerRequest, BranchInfo, BranchSelection, CheckCreateData, CheckItem, ChecksData,
-    ConfigData, CreateCheckRequest, CreateTaskRequest, LinkBranchRequest, RepoInfo, StatusData,
+    ConfigData, CreateCheckRequest, CreateProjectRequest, CreateTaskRequest, LinkBranchRequest,
+    ProjectCreateData, ProjectInfo, ProjectsData, RepoInfo, SelectProjectRequest, StatusData,
     TaskCounts, TaskCreateData, TaskDetailData, TaskItem, TaskMutationData, TasksData,
     UpdateConfigRequest, WorkspaceData,
 };
@@ -53,11 +54,14 @@ pub fn get_status() -> Result<StatusData, ApiError> {
 
 /// List all tasks, optionally filtered by branch
 pub fn list_tasks() -> Result<TasksData, ApiError> {
-    list_tasks_filtered(None)
+    list_tasks_filtered(None, None)
 }
 
-/// List tasks with optional branch filter
-pub fn list_tasks_filtered(branch_filter: Option<&str>) -> Result<TasksData, ApiError> {
+/// List tasks with optional project and/or branch filter
+pub fn list_tasks_filtered(
+    project_filter: Option<&str>,
+    branch_filter: Option<&str>,
+) -> Result<TasksData, ApiError> {
     let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
 
     let current = TaskRefs::current().ok().flatten();
@@ -65,8 +69,13 @@ pub fn list_tasks_filtered(branch_filter: Option<&str>) -> Result<TasksData, Api
     let task_items: Vec<TaskItem> = tasks
         .iter()
         .filter(|(_, t)| {
+            // If project filter is set, only include tasks with matching project
+            let project_match =
+                project_filter.is_none_or(|filter| t.project.as_deref() == Some(filter));
             // If branch filter is set, only include tasks with matching branch
-            branch_filter.is_none_or(|filter| t.branch.as_deref() == Some(filter))
+            let branch_match =
+                branch_filter.is_none_or(|filter| t.branch.as_deref() == Some(filter));
+            project_match && branch_match
         })
         .map(|(id, t)| TaskItem {
             id: id.clone(),
@@ -79,6 +88,7 @@ pub fn list_tasks_filtered(branch_filter: Option<&str>) -> Result<TasksData, Api
             branch: t.branch.clone(),
             started_at: t.started_at.clone(),
             completed_at: t.completed_at.clone(),
+            project: t.project.clone(),
         })
         .collect();
 
@@ -106,6 +116,7 @@ pub fn get_task(id: &str) -> Result<TaskDetailData, ApiError> {
                 branch: task.branch,
                 started_at: task.started_at,
                 completed_at: task.completed_at,
+                project: task.project,
             })
         },
         Ok(None) => Err(ApiError::not_found(format!("Task '{id}' not found"))),
@@ -120,8 +131,12 @@ pub fn create_task(req: &CreateTaskRequest) -> Result<TaskCreateData, ApiError> 
     }
 
     let priority = req.priority.as_deref();
-    let id =
-        TaskRefs::create(&req.title, priority).map_err(|e| ApiError::internal(e.to_string()))?;
+
+    // Use project from request (don't inherit - let UI handle that)
+    let project = req.project.as_deref();
+
+    let id = TaskRefs::create_with_project(&req.title, priority, project)
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     let task = TaskRefs::get(&id)
         .map_err(|e| ApiError::internal(e.to_string()))?
@@ -528,4 +543,87 @@ pub fn update_config(req: &UpdateConfigRequest) -> Result<ConfigData, ApiError> 
 
     // Return updated config
     get_config()
+}
+
+// =============================================================================
+// PROJECTS
+// =============================================================================
+
+/// List all projects in the workspace
+pub fn list_projects() -> Result<ProjectsData, ApiError> {
+    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
+    let config = GlobalConfig::load();
+    let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
+
+    let projects: Vec<ProjectInfo> = config
+        .list_projects(&cwd)
+        .into_iter()
+        .map(|p| {
+            let task_count =
+                tasks.iter().filter(|(_, t)| t.project.as_deref() == Some(&p.id)).count();
+            ProjectInfo {
+                id: p.id.clone(),
+                name: p.name.clone(),
+                task_count,
+                created_at: p.created_at.clone(),
+            }
+        })
+        .collect();
+
+    let current_project = config.current_project(&cwd).map(String::from);
+
+    Ok(ProjectsData {
+        projects,
+        current_project,
+    })
+}
+
+/// Create a new project
+pub fn create_project(req: &CreateProjectRequest) -> Result<ProjectCreateData, ApiError> {
+    if req.name.trim().is_empty() {
+        return Err(ApiError::bad_request("Project name cannot be empty"));
+    }
+
+    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
+    let mut config = GlobalConfig::load();
+
+    let id = config.create_project(&cwd, &req.name);
+    config.save().map_err(|e| ApiError::internal(e.to_string()))?;
+
+    Ok(ProjectCreateData {
+        id,
+        name: req.name.clone(),
+    })
+}
+
+/// Delete a project
+pub fn delete_project(id: &str) -> Result<(), ApiError> {
+    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
+    let mut config = GlobalConfig::load();
+
+    if !config.delete_project(&cwd, id) {
+        return Err(ApiError::not_found(format!("Project '{id}' not found")));
+    }
+
+    config.save().map_err(|e| ApiError::internal(e.to_string()))?;
+
+    Ok(())
+}
+
+/// Select the current project (or None for "view all")
+pub fn select_project(req: &SelectProjectRequest) -> Result<ProjectsData, ApiError> {
+    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
+    let mut config = GlobalConfig::load();
+
+    // Verify project exists if an ID is provided
+    if let Some(id) = &req.id
+        && config.get_project(&cwd, id).is_none()
+    {
+        return Err(ApiError::not_found(format!("Project '{id}' not found")));
+    }
+
+    config.set_current_project(&cwd, req.id.as_deref());
+    config.save().map_err(|e| ApiError::internal(e.to_string()))?;
+
+    list_projects()
 }

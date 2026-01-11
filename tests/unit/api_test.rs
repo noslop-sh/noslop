@@ -235,6 +235,7 @@ mod task_handler_tests {
         let req = CreateTaskRequest {
             title: "New Task".to_string(),
             priority: Some("p0".to_string()),
+            project: None,
         };
 
         let task = create_task(&req).unwrap();
@@ -252,6 +253,7 @@ mod task_handler_tests {
         let req = CreateTaskRequest {
             title: "   ".to_string(),
             priority: None,
+            project: None,
         };
 
         let result = create_task(&req);
@@ -666,5 +668,146 @@ severity = "warn"
         let result = create_check(&req);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status_code(), 400);
+    }
+}
+
+// =============================================================================
+// HANDLER TESTS - PROJECTS
+// =============================================================================
+
+mod project_handler_tests {
+    use super::*;
+    use noslop::api::{
+        CreateProjectRequest, SelectProjectRequest, create_project, delete_project, list_projects,
+        select_project,
+    };
+
+    #[test]
+    #[serial]
+    fn test_list_projects_empty() {
+        let _temp = setup();
+
+        let result = list_projects().unwrap();
+        assert!(result.projects.is_empty());
+        assert!(result.current_project.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_create_project_success() {
+        let _temp = setup();
+
+        let req = CreateProjectRequest {
+            name: "My Project".to_string(),
+        };
+        let result = create_project(&req).unwrap();
+        assert_eq!(result.id, "PROJ-1");
+        assert_eq!(result.name, "My Project");
+
+        // Verify it appears in list
+        let projects = list_projects().unwrap();
+        assert_eq!(projects.projects.len(), 1);
+        assert_eq!(projects.projects[0].name, "My Project");
+    }
+
+    #[test]
+    #[serial]
+    fn test_create_project_empty_name() {
+        let _temp = setup();
+
+        let req = CreateProjectRequest {
+            name: "   ".to_string(),
+        };
+        let result = create_project(&req);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 400);
+    }
+
+    #[test]
+    #[serial]
+    fn test_delete_project_success() {
+        let _temp = setup();
+
+        // Create a project first
+        let req = CreateProjectRequest {
+            name: "To Delete".to_string(),
+        };
+        let created = create_project(&req).unwrap();
+
+        // Delete it
+        let result = delete_project(&created.id);
+        assert!(result.is_ok());
+
+        // Verify it's gone
+        let projects = list_projects().unwrap();
+        assert!(projects.projects.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn test_delete_project_not_found() {
+        let _temp = setup();
+
+        let result = delete_project("PROJ-999");
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_select_project_success() {
+        let _temp = setup();
+
+        // Create a project
+        let req = CreateProjectRequest {
+            name: "Select Me".to_string(),
+        };
+        let created = create_project(&req).unwrap();
+
+        // Select it
+        let select_req = SelectProjectRequest {
+            id: Some(created.id.clone()),
+        };
+        let result = select_project(&select_req).unwrap();
+        assert_eq!(result.current_project, Some(created.id.clone()));
+
+        // Deselect (view all)
+        let deselect_req = SelectProjectRequest { id: None };
+        let result = select_project(&deselect_req).unwrap();
+        assert!(result.current_project.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_select_project_not_found() {
+        let _temp = setup();
+
+        let req = SelectProjectRequest {
+            id: Some("PROJ-999".to_string()),
+        };
+        let result = select_project(&req);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_project_task_count() {
+        let _temp = setup();
+
+        // Create a project
+        let req = CreateProjectRequest {
+            name: "Project with tasks".to_string(),
+        };
+        let created = create_project(&req).unwrap();
+
+        // Create tasks in the project
+        TaskRefs::create_with_project("Task 1", None, Some(&created.id)).unwrap();
+        TaskRefs::create_with_project("Task 2", None, Some(&created.id)).unwrap();
+
+        // Verify task count
+        let projects = list_projects().unwrap();
+        assert_eq!(projects.projects.len(), 1);
+        assert_eq!(projects.projects[0].task_count, 2);
     }
 }

@@ -23,7 +23,7 @@ fn test_help() {
         .arg("--help")
         .assert()
         .success()
-        .stdout(predicate::str::contains("Checks declare what must be verified"));
+        .stdout(predicate::str::contains("QUICK START (for AI agents)"));
 }
 
 #[test]

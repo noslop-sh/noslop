@@ -10,8 +10,8 @@ use serde::{Serialize, de::DeserializeOwned};
 use tiny_http::{Header, Method, Request, Response, StatusCode};
 
 use noslop::api::{
-    self, ApiError, ApiResponse, BlockerRequest, CreateCheckRequest, CreateTaskRequest,
-    LinkBranchRequest, UpdateConfigRequest,
+    self, ApiError, ApiResponse, BlockerRequest, CreateCheckRequest, CreateProjectRequest,
+    CreateTaskRequest, LinkBranchRequest, SelectProjectRequest, UpdateConfigRequest,
 };
 
 // =============================================================================
@@ -40,6 +40,7 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
         (&Method::Get, "/checks") => handle_result(api::list_checks()),
         (&Method::Get, "/workspace") => handle_result(api::get_workspace()),
         (&Method::Get, "/config") => handle_result(api::get_config()),
+        (&Method::Get, "/projects") => handle_result(api::list_projects()),
 
         // PATCH /config - update config
         (&Method::Patch, "/config") => match read_json_body::<UpdateConfigRequest>(request) {
@@ -57,6 +58,20 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
         (&Method::Post, "/checks") => match read_json_body::<CreateCheckRequest>(request) {
             Ok(req) => handle_result(api::create_check(&req)),
             Err(e) => error_response(&e),
+        },
+
+        // POST /projects - create project
+        (&Method::Post, "/projects") => match read_json_body::<CreateProjectRequest>(request) {
+            Ok(req) => handle_result(api::create_project(&req)),
+            Err(e) => error_response(&e),
+        },
+
+        // POST /projects/select - select current project
+        (&Method::Post, "/projects/select") => {
+            match read_json_body::<SelectProjectRequest>(request) {
+                Ok(req) => handle_result(api::select_project(&req)),
+                Err(e) => error_response(&e),
+            }
         },
 
         // Task detail: GET /tasks/{id}
@@ -164,6 +179,18 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
             // Make sure it's not a sub-action like /tasks/id/start
             if !id.contains('/') {
                 handle_result(api::delete_task(id))
+            } else {
+                not_found_response(&format!("API endpoint not found: {} {}", method, api_path))
+            }
+        },
+
+        // Project delete: DELETE /projects/{id}
+        _ if method == Method::Delete && api_path.starts_with("/projects/") => {
+            let id = api_path.strip_prefix("/projects/").unwrap_or("");
+            if !id.contains('/') {
+                handle_result(
+                    api::delete_project(id).map(|()| serde_json::json!({"deleted": true})),
+                )
             } else {
                 not_found_response(&format!("API endpoint not found: {} {}", method, api_path))
             }

@@ -57,6 +57,23 @@ pub struct WorkspaceConfig {
     /// Color assignments (keyed by "repo/branch")
     #[serde(default)]
     pub colors: HashMap<String, usize>,
+    /// Projects in this workspace
+    #[serde(default)]
+    pub projects: Vec<ProjectConfig>,
+    /// Currently selected project (None = view all)
+    #[serde(default)]
+    pub current_project: Option<String>,
+}
+
+/// Project configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProjectConfig {
+    /// Project ID (e.g., "PROJ-1")
+    pub id: String,
+    /// Project name
+    pub name: String,
+    /// When created (RFC3339)
+    pub created_at: String,
 }
 
 /// Branch visibility settings for a repo
@@ -198,6 +215,71 @@ impl GlobalConfig {
             .and_then(|ws| ws.branches.get(repo))
             .is_some_and(|settings| settings.hidden.contains(&branch.to_string()))
     }
+
+    // === Project operations ===
+
+    /// Create a new project, returns the project ID
+    pub fn create_project(&mut self, workspace: &Path, name: &str) -> String {
+        let ws = self.workspace_mut(workspace);
+
+        // Generate next ID
+        let max_num = ws
+            .projects
+            .iter()
+            .filter_map(|p| p.id.strip_prefix("PROJ-").and_then(|n| n.parse::<u32>().ok()))
+            .max()
+            .unwrap_or(0);
+
+        let id = format!("PROJ-{}", max_num + 1);
+
+        ws.projects.push(ProjectConfig {
+            id: id.clone(),
+            name: name.to_string(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+        });
+
+        id
+    }
+
+    /// List all projects in a workspace
+    #[must_use]
+    pub fn list_projects(&self, workspace: &Path) -> Vec<&ProjectConfig> {
+        self.workspace(workspace)
+            .map(|ws| ws.projects.iter().collect())
+            .unwrap_or_default()
+    }
+
+    /// Get a project by ID
+    #[must_use]
+    pub fn get_project(&self, workspace: &Path, id: &str) -> Option<&ProjectConfig> {
+        self.workspace(workspace).and_then(|ws| ws.projects.iter().find(|p| p.id == id))
+    }
+
+    /// Delete a project by ID, returns true if found and deleted
+    pub fn delete_project(&mut self, workspace: &Path, id: &str) -> bool {
+        let ws = self.workspace_mut(workspace);
+        let len_before = ws.projects.len();
+        ws.projects.retain(|p| p.id != id);
+
+        // Clear current_project if it was the deleted project
+        if ws.current_project.as_deref() == Some(id) {
+            ws.current_project = None;
+        }
+
+        ws.projects.len() < len_before
+    }
+
+    /// Set the current project (None = view all)
+    pub fn set_current_project(&mut self, workspace: &Path, id: Option<&str>) {
+        let ws = self.workspace_mut(workspace);
+        ws.current_project = id.map(String::from);
+    }
+
+    /// Get the current project ID
+    #[must_use]
+    pub fn current_project(&self, workspace: &Path) -> Option<&str> {
+        self.workspace(workspace).and_then(|ws| ws.current_project.as_deref())
+    }
 }
 
 #[cfg(test)]
@@ -307,5 +389,99 @@ mod tests {
         let loaded: GlobalConfig = toml::from_str(&loaded_content).unwrap();
 
         assert!(loaded.is_branch_selected(Path::new("/ws"), "repo", "main"));
+    }
+
+    // =============================================================================
+    // PROJECT TESTS
+    // =============================================================================
+
+    #[test]
+    fn test_create_project() {
+        let mut config = GlobalConfig::default();
+        let workspace = Path::new("/test/workspace");
+
+        let id1 = config.create_project(workspace, "Project One");
+        assert_eq!(id1, "PROJ-1");
+
+        let id2 = config.create_project(workspace, "Project Two");
+        assert_eq!(id2, "PROJ-2");
+
+        // Verify projects were added
+        let projects = config.list_projects(workspace);
+        assert_eq!(projects.len(), 2);
+        assert_eq!(projects[0].name, "Project One");
+        assert_eq!(projects[1].name, "Project Two");
+    }
+
+    #[test]
+    fn test_list_projects_empty() {
+        let config = GlobalConfig::default();
+        let workspace = Path::new("/test/workspace");
+
+        let projects = config.list_projects(workspace);
+        assert!(projects.is_empty());
+    }
+
+    #[test]
+    fn test_get_project() {
+        let mut config = GlobalConfig::default();
+        let workspace = Path::new("/test/workspace");
+
+        let id = config.create_project(workspace, "My Project");
+
+        let project = config.get_project(workspace, &id);
+        assert!(project.is_some());
+        assert_eq!(project.unwrap().name, "My Project");
+
+        // Non-existent project
+        let missing = config.get_project(workspace, "PROJ-999");
+        assert!(missing.is_none());
+    }
+
+    #[test]
+    fn test_delete_project() {
+        let mut config = GlobalConfig::default();
+        let workspace = Path::new("/test/workspace");
+
+        let id = config.create_project(workspace, "Project to delete");
+        assert!(config.get_project(workspace, &id).is_some());
+
+        let deleted = config.delete_project(workspace, &id);
+        assert!(deleted);
+        assert!(config.get_project(workspace, &id).is_none());
+
+        // Delete non-existent should return false
+        let deleted_again = config.delete_project(workspace, &id);
+        assert!(!deleted_again);
+    }
+
+    #[test]
+    fn test_delete_project_clears_current() {
+        let mut config = GlobalConfig::default();
+        let workspace = Path::new("/test/workspace");
+
+        let id = config.create_project(workspace, "Current project");
+        config.set_current_project(workspace, Some(&id));
+        assert_eq!(config.current_project(workspace), Some(id.as_str()));
+
+        config.delete_project(workspace, &id);
+        assert!(config.current_project(workspace).is_none());
+    }
+
+    #[test]
+    fn test_current_project() {
+        let mut config = GlobalConfig::default();
+        let workspace = Path::new("/test/workspace");
+
+        // Initially no current project
+        assert!(config.current_project(workspace).is_none());
+
+        let id = config.create_project(workspace, "Project");
+        config.set_current_project(workspace, Some(&id));
+        assert_eq!(config.current_project(workspace), Some(id.as_str()));
+
+        // Clear current project
+        config.set_current_project(workspace, None);
+        assert!(config.current_project(workspace).is_none());
     }
 }

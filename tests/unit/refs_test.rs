@@ -396,3 +396,94 @@ fn test_refs_move_to_backlog_not_found() {
     let moved = TaskRefs::move_to_backlog("FAKE-999").unwrap();
     assert!(!moved);
 }
+
+// =============================================================================
+// PROJECT OPERATIONS
+// =============================================================================
+
+#[test]
+#[serial]
+fn test_refs_set_project() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task with project", None).unwrap();
+
+    // Initially no project
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert!(task.project.is_none());
+
+    // Set project
+    let result = TaskRefs::set_project(&id, Some("PROJ-1")).unwrap();
+    assert!(result);
+
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.project, Some("PROJ-1".to_string()));
+
+    // Unset project
+    let result = TaskRefs::set_project(&id, None).unwrap();
+    assert!(result);
+
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert!(task.project.is_none());
+}
+
+#[test]
+#[serial]
+fn test_refs_set_project_not_found() {
+    let _temp = setup();
+
+    let result = TaskRefs::set_project("FAKE-999", Some("PROJ-1")).unwrap();
+    assert!(!result);
+}
+
+#[test]
+#[serial]
+fn test_refs_create_with_project() {
+    let _temp = setup();
+
+    let id = TaskRefs::create_with_project("Task in project", None, Some("PROJ-1")).unwrap();
+
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.project, Some("PROJ-1".to_string()));
+    assert_eq!(task.title, "Task in project");
+}
+
+#[test]
+#[serial]
+fn test_refs_create_with_project_none() {
+    let _temp = setup();
+
+    let id = TaskRefs::create_with_project("Task without project", None, None).unwrap();
+
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert!(task.project.is_none());
+}
+
+#[test]
+#[serial]
+fn test_refs_list_by_project() {
+    let _temp = setup();
+
+    // Create tasks in different projects
+    let id1 = TaskRefs::create_with_project("Task 1", None, Some("PROJ-1")).unwrap();
+    let id2 = TaskRefs::create_with_project("Task 2", None, Some("PROJ-1")).unwrap();
+    let id3 = TaskRefs::create_with_project("Task 3", None, Some("PROJ-2")).unwrap();
+    let id4 = TaskRefs::create("Task 4 (no project)", None).unwrap();
+
+    // List tasks in PROJ-1
+    let proj1_tasks = TaskRefs::list_by_project(Some("PROJ-1")).unwrap();
+    assert_eq!(proj1_tasks.len(), 2);
+    let proj1_ids: Vec<_> = proj1_tasks.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(proj1_ids.contains(&id1.as_str()));
+    assert!(proj1_ids.contains(&id2.as_str()));
+
+    // List tasks in PROJ-2
+    let proj2_tasks = TaskRefs::list_by_project(Some("PROJ-2")).unwrap();
+    assert_eq!(proj2_tasks.len(), 1);
+    assert_eq!(proj2_tasks[0].0, id3);
+
+    // List tasks with no project
+    let no_proj_tasks = TaskRefs::list_by_project(None).unwrap();
+    assert_eq!(no_proj_tasks.len(), 1);
+    assert_eq!(no_proj_tasks[0].0, id4);
+}

@@ -5,15 +5,34 @@ use clap::{Parser, Subcommand};
 use crate::commands;
 use noslop::output::OutputMode;
 
-/// noslop - Pre-commit checks with verification tracking
+/// noslop - Task management and pre-commit verification for AI agents and humans
 #[derive(Parser, Debug)]
 #[command(
     name = "noslop",
     version,
-    about = "Pre-commit checks with verification tracking",
-    long_about = "Enforce code review considerations via pre-commit hooks.\n\n\
-                  Checks declare what must be verified when files change.\n\
-                  Verifications prove the review happened before committing."
+    about = "Task management and pre-commit verification tracking",
+    long_about = "noslop tracks tasks and enforces code review considerations.\n\n\
+QUICK START (for AI agents):\n\
+  noslop status              Show current branch, tasks, and checks\n\
+  noslop task list           List all tasks\n\
+  noslop task next --start   Start the next prioritized task\n\
+  noslop task done           Complete current task\n\n\
+TASK WORKFLOW:\n\
+  1. Check status:    noslop status\n\
+  2. Pick a task:     noslop task next --start\n\
+  3. Do the work\n\
+  4. Mark complete:   noslop task done\n\n\
+ADDING TASKS:\n\
+  noslop task add \"Description\" --priority p1\n\
+  Priorities: p0 (critical), p1 (high), p2 (medium), p3 (low)\n\n\
+JSON OUTPUT (for parsing):\n\
+  noslop --json task list    or    NOSLOP_JSON=1 noslop task list\n\n\
+CHECK SYSTEM:\n\
+  Checks are review requirements tied to file patterns.\n\
+  When files matching a check's pattern change, verify before committing:\n\
+    noslop check list                    List checks\n\
+    noslop verify CHK-N -m \"Reviewed\"    Verify a check\n\n\
+Run 'noslop <command> --help' for detailed command help."
 )]
 pub struct Cli {
     /// Enable verbose output
@@ -69,6 +88,10 @@ pub enum Command {
     TaskPrompt,
 
     /// Manage tasks (track work to be done)
+    ///
+    /// Tasks have: ID (TSK-N), title, status (backlog/pending/in_progress/done),
+    /// priority (p0-p3), and optional blockers. Use 'task next --start' to
+    /// pick the highest priority unblocked task.
     Task {
         #[command(subcommand)]
         action: TaskAction,

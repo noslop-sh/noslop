@@ -45,6 +45,9 @@ pub struct TaskRef {
     /// When completed (RFC3339)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
+    /// Project this task belongs to
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub project: Option<String>,
 }
 
 fn default_priority() -> String {
@@ -66,6 +69,25 @@ impl TaskRef {
             branch: None,
             started_at: None,
             completed_at: None,
+            project: None,
+        }
+    }
+
+    /// Create a new task with a project
+    #[must_use]
+    pub fn with_project(title: String, project: Option<String>) -> Self {
+        Self {
+            title,
+            status: "backlog".to_string(),
+            priority: default_priority(),
+            created_at: chrono::Utc::now().to_rfc3339(),
+            notes: None,
+            blocked_by: Vec::new(),
+            pending_trailer: None,
+            branch: None,
+            started_at: None,
+            completed_at: None,
+            project,
         }
     }
 
@@ -149,12 +171,21 @@ impl TaskRefs {
 
     /// Create a new task, returns the ID
     pub fn create(title: &str, priority: Option<&str>) -> anyhow::Result<String> {
+        Self::create_with_project(title, priority, None)
+    }
+
+    /// Create a new task with an optional project, returns the ID
+    pub fn create_with_project(
+        title: &str,
+        priority: Option<&str>,
+        project: Option<&str>,
+    ) -> anyhow::Result<String> {
         Self::ensure_refs_dir()?;
 
         // Generate next ID
         let id = Self::next_id()?;
 
-        let mut task = TaskRef::new(title.to_string());
+        let mut task = TaskRef::with_project(title.to_string(), project.map(String::from));
         if let Some(p) = priority {
             task.priority = p.to_string();
         }
@@ -277,6 +308,26 @@ impl TaskRefs {
         } else {
             Ok(false)
         }
+    }
+
+    /// Set or unset a task's project
+    pub fn set_project(id: &str, project: Option<&str>) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            task.project = project.map(String::from);
+            Self::write_task(id, &task)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// List tasks filtered by project
+    pub fn list_by_project(project: Option<&str>) -> anyhow::Result<Vec<(String, TaskRef)>> {
+        let tasks = Self::list()?;
+        Ok(tasks
+            .into_iter()
+            .filter(|(_, task)| task.project.as_deref() == project)
+            .collect())
     }
 
     /// Set pending trailer action (for commit-msg hook)
