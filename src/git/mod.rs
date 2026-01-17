@@ -6,12 +6,13 @@
 //! - Repository information
 //! - Branch detection
 //! - Repository operations (init, checkout, commit)
+//! - Worktree support (main worktree detection)
 //! - Notes for verifications/intents (coming soon)
 
 // Some functions here are test utilities or may be used in future
 #![allow(dead_code)]
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 pub mod hooks;
@@ -164,4 +165,70 @@ pub fn get_branch_in(path: &Path) -> Option<String> {
         .and_then(|o| String::from_utf8(o.stdout).ok())
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty() && s != "HEAD")
+}
+
+// =============================================================================
+// WORKTREE SUPPORT
+// =============================================================================
+
+/// Get the main worktree root directory.
+///
+/// For regular repos, this is just the repo root.
+/// For worktrees, this returns the root of the MAIN worktree (not the linked one).
+///
+/// This is where `.noslop/` should live - shared across all worktrees.
+///
+/// Uses `git rev-parse --git-common-dir` which returns:
+/// - `/path/to/repo/.git` for main worktree
+/// - `/path/to/repo/.git` for linked worktrees (same path!)
+///
+/// The parent of this is the main worktree root.
+#[must_use]
+pub fn get_main_worktree() -> Option<PathBuf> {
+    let output = Command::new("git").args(["rev-parse", "--git-common-dir"]).output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let git_common = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+
+    // Handle both absolute and relative paths
+    // git rev-parse returns relative paths when inside the repo
+    let git_common = if git_common.is_absolute() {
+        git_common
+    } else {
+        std::env::current_dir().ok()?.join(&git_common)
+    };
+
+    // Canonicalize to resolve any .. or symlinks
+    let git_common = git_common.canonicalize().ok()?;
+
+    // The parent of .git is the main worktree root
+    git_common.parent().map(Path::to_path_buf)
+}
+
+/// Check if we're in a linked worktree (not the main worktree)
+#[must_use]
+pub fn is_linked_worktree() -> bool {
+    let Some(main_worktree) = get_main_worktree() else {
+        return false;
+    };
+
+    // Find the repo root of the current directory
+    let output = Command::new("git").args(["rev-parse", "--show-toplevel"]).output().ok();
+
+    let Some(output) = output else {
+        return false;
+    };
+
+    if !output.status.success() {
+        return false;
+    }
+
+    let current_root = PathBuf::from(String::from_utf8_lossy(&output.stdout).trim());
+    let current_root = current_root.canonicalize().unwrap_or(current_root);
+
+    // We're in a linked worktree if our root differs from main worktree
+    current_root != main_worktree
 }

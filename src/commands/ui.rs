@@ -10,7 +10,7 @@
 //! - **This Module**: CLI command, static files, file watcher
 
 use std::io::Cursor;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -93,7 +93,12 @@ fn not_found() -> Response<Cursor<Vec<u8>>> {
 // =============================================================================
 
 /// Start a file watcher that monitors .noslop/ and .git/HEAD for changes
+///
+/// For worktree support, watches the main worktree's .noslop/ directory
+/// so that changes are detected regardless of which worktree you're in.
 fn start_file_watcher() -> anyhow::Result<RecommendedWatcher> {
+    use noslop::git;
+
     let (tx, rx) = std::sync::mpsc::channel();
 
     let mut watcher = RecommendedWatcher::new(
@@ -108,19 +113,34 @@ fn start_file_watcher() -> anyhow::Result<RecommendedWatcher> {
         Config::default(),
     )?;
 
-    // Watch .noslop directory for task changes
-    if Path::new(".noslop").exists() {
-        watcher.watch(Path::new(".noslop"), RecursiveMode::Recursive)?;
+    // Get main worktree for .noslop/ and .noslop.toml paths
+    let main_worktree = git::get_main_worktree();
+
+    // Watch .noslop directory for task changes (in main worktree)
+    let noslop_dir = main_worktree
+        .as_ref()
+        .map(|root| root.join(".noslop"))
+        .unwrap_or_else(|| PathBuf::from(".noslop"));
+    if noslop_dir.exists() {
+        watcher.watch(&noslop_dir, RecursiveMode::Recursive)?;
     }
 
-    // Watch .git/HEAD for branch changes
+    // Watch .git/HEAD for branch changes (local to current worktree)
     if Path::new(".git/HEAD").exists() {
         watcher.watch(Path::new(".git/HEAD"), RecursiveMode::NonRecursive)?;
+    } else if Path::new(".git").exists() {
+        // In a worktree, .git is a file pointing to the real git dir
+        // Watch the HEAD in the current worktree's git dir
+        watcher.watch(Path::new(".git"), RecursiveMode::NonRecursive)?;
     }
 
-    // Watch .noslop.toml for check changes
-    if Path::new(".noslop.toml").exists() {
-        watcher.watch(Path::new(".noslop.toml"), RecursiveMode::NonRecursive)?;
+    // Watch .noslop.toml for check changes (in main worktree)
+    let noslop_toml = main_worktree
+        .as_ref()
+        .map(|root| root.join(".noslop.toml"))
+        .unwrap_or_else(|| PathBuf::from(".noslop.toml"));
+    if noslop_toml.exists() {
+        watcher.watch(&noslop_toml, RecursiveMode::NonRecursive)?;
     }
 
     // Background thread to debounce and increment counter
@@ -247,29 +267,34 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         <!-- Sidebar -->
         <aside class="sidebar">
             <div class="sidebar-header">
-                <h1>noslop</h1>
-                <div id="connection-status" class="connected">live</div>
-            </div>
-
-            <!-- Project Tabs -->
-            <div class="project-tabs-container">
-                <div class="project-tabs" id="project-tabs">
-                    <button class="project-tab active" data-project="all" onclick="selectProject(null)">All</button>
+                <div class="header-top">
+                    <h1>noslop</h1>
+                    <div id="connection-status" class="connected">live</div>
                 </div>
-                <button class="btn-add-project" onclick="promptNewProject()">+</button>
-            </div>
-
-            <!-- Branches (scoped to current project) -->
-            <div class="sidebar-section">
-                <h3>Branches</h3>
-                <div id="branch-tree">
-                    Loading...
+                <div class="header-context" id="branch-context">
+                    on: <span id="current-branch-name">...</span>
                 </div>
             </div>
 
-            <div class="sidebar-section">
-                <h3>Checks <span id="checks-count" class="badge">0</span></h3>
-                <div id="checks-list" class="collapsed-section">
+            <!-- Projects List (primary navigation) -->
+            <div class="projects-section">
+                <div class="projects-header">
+                    <span>Projects</span>
+                    <button class="btn-new-project" onclick="promptNewProject()" title="New Project">+</button>
+                </div>
+                <div class="projects-list" id="projects-list">
+                    <!-- Dynamic project list -->
+                </div>
+            </div>
+
+            <!-- Checks (collapsible, secondary) -->
+            <div class="checks-section">
+                <button class="checks-toggle" onclick="toggleChecksSection()">
+                    <span>Checks</span>
+                    <span id="checks-count" class="badge">0</span>
+                    <span class="toggle-icon" id="checks-toggle-icon">▸</span>
+                </button>
+                <div id="checks-content" class="checks-content collapsed">
                     <div id="checks" hx-get="/api/v1/checks" hx-trigger="load, refresh from:body" hx-swap="innerHTML">
                         Loading...
                     </div>
@@ -404,8 +429,6 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         let lastCounter = null;
         let polling = true;
         let currentBranch = null;
-        let workspaceData = null;
-        let selectedBranches = new Set();
         let allTasks = [];
         let allProjects = [];
         let currentProject = null; // null means "All"
@@ -419,119 +442,6 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             return response.data;
         }
 
-        function getBranchColor(branchName, colorIndex) {
-            return BRANCH_COLORS[colorIndex % BRANCH_COLORS.length];
-        }
-
-        // Load workspace data (repos/branches)
-        async function loadWorkspace() {
-            try {
-                const response = await fetch('/api/v1/workspace');
-                const envelope = await response.json();
-                workspaceData = unwrap(envelope);
-                if (workspaceData) {
-                    // Always render through updateBranchTreeForProject to respect project filter
-                    updateBranchTreeForProject();
-                }
-            } catch (e) {
-                console.error('Failed to load workspace:', e);
-            }
-        }
-
-        function renderBranchTree(data, activeBranches = null) {
-            const container = document.getElementById('branch-tree');
-            if (!data.repos || data.repos.length === 0) {
-                container.innerHTML = '<p class="empty">No git repos found</p>';
-                return;
-            }
-
-            // Clear and rebuild selected branches from server state
-            selectedBranches.clear();
-
-            let html = '';
-
-            for (const repo of data.repos) {
-                // Filter branches to only show those with tasks (if activeBranches is provided)
-                const visibleBranches = repo.branches.filter(branch => {
-                    if (branch.hidden) return false;
-                    // If activeBranches is provided, only show branches in that set
-                    if (activeBranches !== null) {
-                        return activeBranches.has(branch.name);
-                    }
-                    return true;
-                });
-
-                // Always show the repo header with current branch info
-                html += `<div class="repo-item">
-                    <div class="repo-header">
-                        <span class="repo-icon">&#x25BC;</span>
-                        <span class="repo-name">${repo.name}</span>
-                        <span class="repo-current-branch">on: ${repo.current_branch}</span>
-                    </div>`;
-
-                if (visibleBranches.length > 0) {
-                    html += `<div class="branch-list">`;
-
-                    for (const branch of visibleBranches) {
-                        const color = getBranchColor(branch.name, branch.color);
-                        const isCurrent = branch.name === repo.current_branch;
-                        const isSelected = branch.selected;
-
-                        if (isSelected) {
-                            selectedBranches.add(branch.name);
-                        }
-
-                        html += `
-                            <label class="branch-item ${isCurrent ? 'current' : ''}" style="--branch-color: ${color.bg}">
-                                <input type="checkbox"
-                                       data-repo="${repo.path}"
-                                       data-branch="${branch.name}"
-                                       ${isSelected ? 'checked' : ''}
-                                       onchange="toggleBranch(this, '${repo.path}', '${branch.name}')">
-                                <span class="branch-color" style="background: ${color.bg}"></span>
-                                <span class="branch-name">${branch.name}</span>
-                            </label>`;
-                    }
-
-                    html += `</div>`;
-                }
-
-                html += `</div>`;
-            }
-
-            container.innerHTML = html;
-
-            // After rendering, filter tasks by selected branches
-            renderKanban();
-        }
-
-        async function toggleBranch(checkbox, repoPath, branchName) {
-            const selected = checkbox.checked;
-
-            if (selected) {
-                selectedBranches.add(branchName);
-            } else {
-                selectedBranches.delete(branchName);
-            }
-
-            // Update server config
-            try {
-                await fetch('/api/v1/config', {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        branch: `${repoPath}/${branchName}`,
-                        selected: selected
-                    })
-                });
-            } catch (e) {
-                console.error('Failed to update config:', e);
-            }
-
-            // Re-render kanban with new filter
-            renderKanban();
-        }
-
         // Load status
         async function loadStatus() {
             try {
@@ -541,10 +451,20 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 if (data) {
                     currentBranch = data.branch;
                     document.getElementById('checks-count').textContent = data.checks;
+                    // Update branch context in header
+                    document.getElementById('current-branch-name').textContent = data.branch || 'unknown';
                 }
             } catch (e) {
                 console.error('Failed to load status:', e);
             }
+        }
+
+        // Toggle checks section
+        function toggleChecksSection() {
+            const content = document.getElementById('checks-content');
+            const icon = document.getElementById('checks-toggle-icon');
+            content.classList.toggle('collapsed');
+            icon.textContent = content.classList.contains('collapsed') ? '▸' : '▾';
         }
 
         // Load tasks
@@ -556,7 +476,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 if (data) {
                     allTasks = data.tasks || [];
                     renderKanban();
-                    updateBranchTreeForProject();
+                    renderProjectList(); // Update task counts
                 }
             } catch (e) {
                 console.error('Failed to load tasks:', e);
@@ -572,7 +492,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                 if (data) {
                     allProjects = data.projects || [];
                     currentProject = data.current_project || null;
-                    renderProjectTabs();
+                    renderProjectList();
                     // Update hidden project field for new task form
                     document.getElementById('new-task-project').value = currentProject || '';
                 }
@@ -581,20 +501,21 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             }
         }
 
-        function renderProjectTabs() {
-            const container = document.getElementById('project-tabs');
-            let html = `<button class="project-tab ${!currentProject ? 'active' : ''}"
-                               data-project="all"
-                               onclick="selectProject(null)">All</button>`;
+        function renderProjectList() {
+            const container = document.getElementById('projects-list');
+            let html = `<div class="project-item ${!currentProject ? 'active' : ''}"
+                             onclick="selectProject(null)">
+                            <span class="project-name">All Tasks</span>
+                            <span class="project-count">${allTasks.length}</span>
+                        </div>`;
 
             for (const project of allProjects) {
                 const isActive = currentProject === project.id;
-                html += `<button class="project-tab ${isActive ? 'active' : ''}"
-                                data-project="${project.id}"
-                                onclick="selectProject('${project.id}')"
-                                title="${project.name} (${project.task_count} tasks)">
-                            ${project.name}
-                        </button>`;
+                html += `<div class="project-item ${isActive ? 'active' : ''}"
+                              onclick="selectProject('${project.id}')">
+                            <span class="project-name">${project.name}</span>
+                            <span class="project-count">${project.task_count}</span>
+                        </div>`;
             }
 
             container.innerHTML = html;
@@ -608,9 +529,8 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     body: JSON.stringify({ id: projectId })
                 });
                 currentProject = projectId;
-                renderProjectTabs();
+                renderProjectList();
                 renderKanban();
-                updateBranchTreeForProject();
                 // Update hidden project field for new task form
                 document.getElementById('new-task-project').value = currentProject || '';
             } catch (e) {
@@ -640,31 +560,10 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
             }
         }
 
-        // Update branch tree to only show branches with tasks in current project
-        function updateBranchTreeForProject() {
-            if (!workspaceData) return;
-
-            // Get branches that have tasks in current project
-            const projectTasks = currentProject
-                ? allTasks.filter(t => t.project === currentProject)
-                : allTasks;
-
-            const activeBranches = new Set(
-                projectTasks
-                    .filter(t => t.branch)
-                    .map(t => t.branch)
-            );
-
-            renderBranchTree(workspaceData, activeBranches);
-        }
-
         function filterTasks(tasks) {
             return tasks.filter(t => {
                 // Project filter: if currentProject is set, only show tasks in that project
-                const projectMatch = !currentProject || t.project === currentProject;
-                // Branch filter: always show unlinked tasks, only show linked tasks if their branch is selected
-                const branchMatch = !t.branch || selectedBranches.has(t.branch);
-                return projectMatch && branchMatch;
+                return !currentProject || t.project === currentProject;
             });
         }
 
@@ -741,14 +640,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
         }
 
         function getBranchColorIndex(branchName) {
-            // Find the color index from workspace data
-            if (workspaceData && workspaceData.repos) {
-                for (const repo of workspaceData.repos) {
-                    const branch = repo.branches.find(b => b.name === branchName);
-                    if (branch) return branch.color;
-                }
-            }
-            // Fallback: hash the branch name
+            // Hash the branch name to get a consistent color
             let hash = 0;
             for (let i = 0; i < branchName.length; i++) {
                 hash = ((hash << 5) - hash) + branchName.charCodeAt(i);
@@ -1131,7 +1023,7 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
                     if (data && data.changed) {
                         loadTasks();
                         loadStatus();
-                        loadWorkspace();
+                        loadProjects();
                         htmx.trigger('#checks', 'load');
                     }
 
@@ -1176,7 +1068,6 @@ const INDEX_HTML: &str = r#"<!DOCTYPE html>
 
         // Initialize
         loadProjects();
-        loadWorkspace();
         loadStatus();
         loadTasks();
         poll();
@@ -1235,16 +1126,29 @@ body {
 }
 
 .sidebar-header {
+    padding: 1rem;
+    border-bottom: 1px solid var(--primary);
+}
+
+.header-top {
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 1rem;
-    border-bottom: 1px solid var(--primary);
 }
 
 .sidebar-header h1 {
     font-size: 1.25rem;
     color: var(--accent);
+}
+
+.header-context {
+    font-size: var(--font-xs);
+    color: var(--text-dim);
+    margin-top: 0.5rem;
+}
+
+#current-branch-name {
+    color: var(--text);
 }
 
 #connection-status {
@@ -1264,60 +1168,130 @@ body {
     color: var(--text);
 }
 
-/* Project Tabs */
-.project-tabs-container {
-    display: flex;
-    align-items: center;
-    padding: 0.5rem;
-    border-bottom: 1px solid var(--primary);
-    gap: 0.25rem;
-    overflow-x: auto;
-}
-
-.project-tabs {
-    display: flex;
-    gap: 0.25rem;
+/* Projects Section */
+.projects-section {
     flex: 1;
-    overflow-x: auto;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
-.project-tab {
-    background: transparent;
-    border: 1px solid var(--primary);
-    border-radius: 4px;
-    color: var(--text-dim);
-    padding: 0.35rem 0.6rem;
+.projects-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.75rem 1rem;
     font-size: var(--font-xs);
-    cursor: pointer;
-    white-space: nowrap;
-    transition: all 0.15s;
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    color: var(--text-dim);
 }
 
-.project-tab:hover {
-    background: var(--primary);
-    color: var(--text);
-}
-
-.project-tab.active {
-    background: var(--accent);
-    border-color: var(--accent);
-    color: var(--text);
-}
-
-.btn-add-project {
+.btn-new-project {
     background: transparent;
     border: 1px dashed var(--text-dim);
     border-radius: 4px;
     color: var(--text-dim);
-    padding: 0.35rem 0.5rem;
-    font-size: var(--font-sm);
+    width: 24px;
+    height: 24px;
+    font-size: var(--font-base);
     cursor: pointer;
     transition: all 0.15s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
-.btn-add-project:hover {
+.btn-new-project:hover {
     border-color: var(--accent);
     color: var(--accent);
+}
+
+.projects-list {
+    flex: 1;
+    overflow-y: auto;
+    padding: 0 0.5rem;
+}
+
+.project-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.6rem 0.75rem;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: var(--font-sm);
+    transition: background 0.15s;
+    margin-bottom: 0.25rem;
+}
+
+.project-item:hover {
+    background: var(--primary);
+}
+
+.project-item.active {
+    background: var(--accent);
+    color: var(--text);
+}
+
+.project-name {
+    flex: 1;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.project-count {
+    font-size: var(--font-xs);
+    background: rgba(0, 0, 0, 0.2);
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    margin-left: 0.5rem;
+}
+
+.project-item.active .project-count {
+    background: rgba(255, 255, 255, 0.2);
+}
+
+/* Checks Section */
+.checks-section {
+    border-top: 1px solid var(--primary);
+}
+
+.checks-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-size: var(--font-xs);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    text-align: left;
+}
+
+.checks-toggle:hover {
+    background: var(--primary);
+}
+
+.checks-toggle .badge {
+    margin-left: auto;
+}
+
+.toggle-icon {
+    font-size: var(--font-xs);
+}
+
+.checks-content {
+    padding: 0 1rem 1rem;
+}
+
+.checks-content.collapsed {
+    display: none;
 }
 
 .sidebar-section {
@@ -1349,82 +1323,6 @@ body {
     text-align: center;
     color: var(--text-dim);
     font-size: var(--font-sm);
-}
-
-/* Branch tree */
-.repo-item {
-    margin-bottom: 0.5rem;
-}
-
-.repo-header {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.25rem 0;
-    color: var(--text-dim);
-    font-size: var(--font-sm);
-}
-
-.repo-icon {
-    font-size: var(--font-xs);
-}
-
-.repo-current-branch {
-    margin-left: auto;
-    font-size: var(--font-xs);
-    color: var(--text-muted);
-    font-style: italic;
-}
-
-.branch-list {
-    margin-left: 1rem;
-}
-
-.branch-item {
-    display: flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.35rem 0.5rem;
-    border-radius: 4px;
-    cursor: pointer;
-    font-size: var(--font-sm);
-    transition: background 0.15s;
-}
-
-.branch-item:hover {
-    background: var(--primary);
-}
-
-.branch-item input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    accent-color: var(--branch-color, var(--accent));
-}
-
-.branch-color {
-    width: 8px;
-    height: 8px;
-    border-radius: 50%;
-    flex-shrink: 0;
-}
-
-.branch-name {
-    flex: 1;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-}
-
-.current-badge {
-    font-size: var(--font-xs);
-    background: var(--accent);
-    color: var(--text);
-    padding: 0.1rem 0.3rem;
-    border-radius: 3px;
-}
-
-.branch-item.current {
-    background: rgba(233, 69, 96, 0.1);
 }
 
 /* Checks in sidebar */

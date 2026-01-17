@@ -5,11 +5,18 @@
 //! - .noslop/refs/tasks/TSK-1 - task data
 //!
 //! Simple, atomic, no complex parsing.
+//!
+//! WORKTREE SUPPORT:
+//! When running from a git worktree, .noslop/ is always resolved
+//! relative to the MAIN worktree, not the linked one. This ensures
+//! all worktrees share the same task state.
 
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
+
+use crate::git;
 
 const NOSLOP_DIR: &str = ".noslop";
 const HEAD_FILE: &str = "HEAD";
@@ -109,8 +116,12 @@ pub struct TaskRefs;
 
 impl TaskRefs {
     /// Get path to .noslop directory
+    ///
+    /// Returns the .noslop directory in the main worktree.
+    /// This ensures all worktrees share the same task state.
     fn noslop_dir() -> PathBuf {
-        PathBuf::from(NOSLOP_DIR)
+        git::get_main_worktree()
+            .map_or_else(|| PathBuf::from(NOSLOP_DIR), |root| root.join(NOSLOP_DIR))
     }
 
     /// Get path to HEAD file
@@ -487,10 +498,14 @@ impl TaskRefs {
     }
 
     /// Get project prefix from .noslop.toml
+    ///
+    /// Looks for .noslop.toml in the main worktree to ensure
+    /// consistent prefixes across all worktrees.
     fn get_prefix() -> anyhow::Result<String> {
-        let path = Path::new(".noslop.toml");
+        let path = git::get_main_worktree()
+            .map_or_else(|| PathBuf::from(".noslop.toml"), |root| root.join(".noslop.toml"));
         if path.exists() {
-            let content = fs::read_to_string(path)?;
+            let content = fs::read_to_string(&path)?;
             // Simple extraction - look for prefix = "..."
             for line in content.lines() {
                 let line = line.trim();

@@ -6,6 +6,7 @@
 
 use std::path::Path;
 
+use noslop::git;
 use noslop::storage::TaskRefs;
 
 /// Clear staged verifications and pending task trailers
@@ -16,7 +17,9 @@ use noslop::storage::TaskRefs;
 ///
 /// This runs after the commit has been created with all trailers.
 pub fn clear_staged() -> anyhow::Result<()> {
-    clear_staged_in(Path::new("."))?;
+    // Use main worktree for .noslop/ lookups
+    let base_dir = git::get_main_worktree().unwrap_or_else(|| Path::new(".").to_path_buf());
+    clear_staged_in(&base_dir)?;
 
     // Clear pending task trailers
     TaskRefs::clear_all_pending_trailers()?;

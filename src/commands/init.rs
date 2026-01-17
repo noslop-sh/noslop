@@ -10,6 +10,20 @@ use noslop::noslop_file;
 
 /// Initialize noslop in the current repository
 pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
+    // Warn if running from a linked worktree
+    if git::is_linked_worktree()
+        && let Some(main_worktree) = git::get_main_worktree()
+    {
+        println!("Warning: You're in a git worktree.");
+        println!("  noslop should be initialized in the main worktree:");
+        println!("  {}", main_worktree.display());
+        println!();
+        println!("  Run `noslop init` from there, or continue here with --force");
+        if !force {
+            return Ok(());
+        }
+    }
+
     let noslop_path = Path::new(".noslop.toml");
     let _noslop_dir = Path::new(".noslop");
 
