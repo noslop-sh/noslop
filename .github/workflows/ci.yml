@@ -39,8 +39,8 @@ jobs:
       - name: Check formatting
         run: cargo fmt --all -- --check
 
-  ui:
-    name: UI Checks
+  prettier:
+    name: Prettier
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -52,18 +52,42 @@ jobs:
           node-version: '20'
           cache: 'npm'
           cache-dependency-path: ui/package-lock.json
-      - name: Install dependencies
-        run: npm ci
-      - name: Lint
-        run: npm run lint
-      - name: Format check
-        run: npm run format:check
-      - name: Type check
-        run: npm run check
-      - name: Test
-        run: npm run test
-      - name: Build
-        run: npm run build
+      - run: npm ci
+      - run: npm run format:check
+
+  eslint:
+    name: ESLint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run check
+
+  vitest:
+    name: Vitest
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - run: npm run test
+      - run: npm run build
 
   clippy:
     name: Clippy Lint
@@ -98,7 +122,7 @@ jobs:
   build:
     name: Build
     runs-on: ubuntu-latest
-    needs: [fmt, clippy, test, ui]
+    needs: [fmt, clippy, test, prettier, eslint, vitest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
