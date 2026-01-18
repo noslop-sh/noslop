@@ -11,10 +11,12 @@
 	let detailOpen = $state(false);
 
 	// Compute columns from filtered tasks
+	// Statuses: backlog -> pending -> in_progress -> done
+	// Blocked is an overlay (task has unfinished blockers), not a separate status
 	const columns = $derived({
+		backlog: $filteredTasks.filter((t) => t.status === 'backlog'),
+		pending: $filteredTasks.filter((t) => t.status === 'pending'),
 		inProgress: $filteredTasks.filter((t) => t.status === 'in_progress'),
-		pending: $filteredTasks.filter((t) => t.status === 'pending' && !t.blocked),
-		blocked: $filteredTasks.filter((t) => t.blocked && t.status !== 'done'),
 		done: $filteredTasks
 			.filter((t) => t.status === 'done')
 			.sort((a, b) => {
@@ -46,6 +48,8 @@
 				await api.startTask(taskId);
 			} else if (newStatus === 'pending') {
 				await api.resetTask(taskId);
+			} else if (newStatus === 'backlog') {
+				await api.backlogTask(taskId);
 			} else if (newStatus === 'done') {
 				await api.completeTask(taskId);
 			}
@@ -61,10 +65,10 @@
 
 	<main class="flex flex-1 gap-3 overflow-x-auto p-4">
 		<KanbanColumn
-			title="In Progress"
-			tasks={columns.inProgress}
-			status="in_progress"
-			color="#5e6ad2"
+			title="Backlog"
+			tasks={columns.backlog}
+			status="backlog"
+			color="#8b8b8b"
 			onTaskDetail={handleTaskDetail}
 			onDrop={handleDrop}
 		/>
@@ -79,11 +83,12 @@
 		/>
 
 		<KanbanColumn
-			title="Blocked"
-			tasks={columns.blocked}
-			status="blocked"
-			color="#e5484d"
+			title="In Progress"
+			tasks={columns.inProgress}
+			status="in_progress"
+			color="#5e6ad2"
 			onTaskDetail={handleTaskDetail}
+			onDrop={handleDrop}
 		/>
 
 		<KanbanColumn
