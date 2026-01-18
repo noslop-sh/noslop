@@ -150,7 +150,7 @@ mod status_handler_tests {
     use noslop::api::get_status;
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_get_status_empty() {
         let _temp = setup();
 
@@ -164,7 +164,7 @@ mod status_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_get_status_with_tasks() {
         let _temp = setup();
 
@@ -199,7 +199,7 @@ mod task_handler_tests {
     };
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_list_tasks_empty() {
         let _temp = setup();
 
@@ -208,7 +208,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_list_tasks_with_data() {
         let _temp = setup();
 
@@ -220,7 +220,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_get_task_found() {
         let _temp = setup();
 
@@ -234,7 +234,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_get_task_not_found() {
         let _temp = setup();
 
@@ -245,7 +245,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_task_success() {
         let _temp = setup();
 
@@ -264,7 +264,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_task_with_description() {
         let _temp = setup();
 
@@ -285,7 +285,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_task_empty_title() {
         let _temp = setup();
 
@@ -302,7 +302,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_start_task_success() {
         let _temp = setup();
 
@@ -318,7 +318,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_start_task_not_found() {
         let _temp = setup();
 
@@ -328,7 +328,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_complete_task_success() {
         let _temp = setup();
 
@@ -340,7 +340,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_complete_task_clears_current() {
         let _temp = setup();
 
@@ -355,7 +355,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_reset_task_success() {
         let _temp = setup();
 
@@ -376,7 +376,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_reset_task_not_found() {
         let _temp = setup();
 
@@ -386,7 +386,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_backlog_task_success() {
         let _temp = setup();
 
@@ -408,7 +408,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_backlog_task_not_found() {
         let _temp = setup();
 
@@ -418,7 +418,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_link_branch_success() {
         let _temp = setup();
 
@@ -436,7 +436,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_link_branch_unlink() {
         let _temp = setup();
 
@@ -452,7 +452,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_link_branch_not_found() {
         let _temp = setup();
 
@@ -465,7 +465,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_delete_task_success() {
         let _temp = setup();
 
@@ -480,7 +480,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_delete_task_clears_current() {
         let _temp = setup();
 
@@ -494,7 +494,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_delete_task_not_found() {
         let _temp = setup();
 
@@ -504,7 +504,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_add_blocker_success() {
         let _temp = setup();
 
@@ -523,7 +523,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_add_blocker_task_not_found() {
         let _temp = setup();
 
@@ -538,7 +538,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_add_blocker_blocker_not_found() {
         let _temp = setup();
 
@@ -553,7 +553,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_remove_blocker_success() {
         let _temp = setup();
 
@@ -573,7 +573,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_remove_blocker_task_not_found() {
         let _temp = setup();
 
@@ -586,7 +586,7 @@ mod task_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_complete_task_not_found() {
         let _temp = setup();
 
@@ -605,7 +605,7 @@ mod check_handler_tests {
     use noslop::api::{CreateCheckRequest, create_check, list_checks};
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_list_checks_no_file() {
         let _temp = setup();
 
@@ -614,7 +614,7 @@ mod check_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_list_checks_with_data() {
         let _temp = setup();
 
@@ -642,7 +642,7 @@ severity = "warn"
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_check_success() {
         let _temp = setup();
 
@@ -663,7 +663,7 @@ severity = "warn"
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_check_empty_scope() {
         let _temp = setup();
 
@@ -679,7 +679,7 @@ severity = "warn"
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_check_empty_message() {
         let _temp = setup();
 
@@ -695,7 +695,7 @@ severity = "warn"
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_check_invalid_severity() {
         let _temp = setup();
 
@@ -723,7 +723,7 @@ mod concept_handler_tests {
     };
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_list_concepts_empty() {
         let _temp = setup();
 
@@ -733,7 +733,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_concept_success() {
         let _temp = setup();
 
@@ -753,7 +753,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_concept_with_description() {
         let _temp = setup();
 
@@ -775,7 +775,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_update_concept_description() {
         let _temp = setup();
 
@@ -800,7 +800,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_update_concept_not_found() {
         let _temp = setup();
 
@@ -813,7 +813,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_concept_empty_name() {
         let _temp = setup();
 
@@ -827,7 +827,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_delete_concept_success() {
         let _temp = setup();
 
@@ -848,7 +848,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_delete_concept_not_found() {
         let _temp = setup();
 
@@ -858,7 +858,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_select_concept_success() {
         let _temp = setup();
 
@@ -883,7 +883,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_select_concept_not_found() {
         let _temp = setup();
 
@@ -896,7 +896,7 @@ mod concept_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_concept_task_count() {
         let _temp = setup();
 
@@ -927,7 +927,7 @@ mod task_checks_handler_tests {
     use noslop::api::get_task;
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_task_with_no_scope_has_no_checks() {
         let _temp = setup();
 
@@ -955,7 +955,7 @@ severity = "block"
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_task_with_matching_scope_has_checks() {
         let _temp = setup();
 
@@ -992,7 +992,7 @@ severity = "warn"
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_task_checks_all_unverified_initially() {
         let _temp = setup();
 
@@ -1025,7 +1025,7 @@ severity = "warn"
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_task_check_count_and_verified_count_in_response() {
         let _temp = setup();
 
@@ -1072,7 +1072,7 @@ mod task_update_handler_tests {
     use noslop::api::{UpdateTaskRequest, get_task, update_task};
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_update_task_description() {
         let _temp = setup();
 
@@ -1092,7 +1092,7 @@ mod task_update_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_update_task_no_change_when_description_none() {
         let _temp = setup();
 
@@ -1111,7 +1111,7 @@ mod task_update_handler_tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_update_task_not_found() {
         let _temp = setup();
 

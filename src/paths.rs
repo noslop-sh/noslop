@@ -118,29 +118,36 @@ pub fn staged_verifications() -> PathBuf {
 // Global paths (user-level)
 // =============================================================================
 
-/// Global config directory name under XDG config
-const GLOBAL_CONFIG_DIR: &str = "noslop";
+/// Global config directory name
+const GLOBAL_DIR: &str = ".noslop";
 
 /// Global config filename
 const GLOBAL_CONFIG_FILE: &str = "config.toml";
 
-/// Get the global config directory.
+/// Get the global noslop directory.
 ///
-/// Returns `~/.config/noslop/` (XDG standard).
+/// Returns `~/.noslop/`.
 #[must_use]
 pub fn global_config_dir() -> PathBuf {
-    dirs::config_dir()
-        .unwrap_or_else(|| PathBuf::from("~/.config"))
-        .join(GLOBAL_CONFIG_DIR)
+    dirs::home_dir().unwrap_or_else(|| PathBuf::from("~")).join(GLOBAL_DIR)
 }
 
 /// Get the global config file path.
 ///
-/// Returns `~/.config/noslop/config.toml`.
-/// Contains user preferences and workspace state.
+/// Returns `~/.noslop/config.toml`.
+/// Contains user preferences (UI theme, branch visibility).
 #[must_use]
 pub fn global_config() -> PathBuf {
     global_config_dir().join(GLOBAL_CONFIG_FILE)
+}
+
+/// Get the current concept file path.
+///
+/// Returns `.noslop/current-concept` (local, gitignored).
+/// Contains the ID of the currently selected concept.
+#[must_use]
+pub fn current_concept_file() -> PathBuf {
+    noslop_dir().join("current-concept")
 }
 
 #[cfg(test)]

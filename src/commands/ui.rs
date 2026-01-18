@@ -294,7 +294,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_file_watcher_detects_task_changes() {
         let _temp = setup();
 

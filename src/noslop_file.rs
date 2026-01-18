@@ -6,13 +6,13 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::models::{Check, Severity};
 use crate::paths;
 
 /// A .noslop.toml file structure
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Default, Deserialize, Serialize)]
 pub struct NoslopFile {
     /// Project configuration
     #[serde(default)]
@@ -21,6 +21,10 @@ pub struct NoslopFile {
     /// Checks defined in this file via [[check]] sections
     #[serde(default, rename = "check")]
     pub checks: Vec<CheckEntry>,
+
+    /// Concepts defined in this file via [[concept]] sections
+    #[serde(default, rename = "concept")]
+    pub concepts: Vec<ConceptEntry>,
 }
 
 impl NoslopFile {
@@ -28,10 +32,26 @@ impl NoslopFile {
     pub fn all_checks(&self) -> impl Iterator<Item = &CheckEntry> {
         self.checks.iter()
     }
+
+    /// Get all concepts
+    pub fn all_concepts(&self) -> impl Iterator<Item = &ConceptEntry> {
+        self.concepts.iter()
+    }
+
+    /// Get a concept by ID
+    #[must_use]
+    pub fn get_concept(&self, id: &str) -> Option<&ConceptEntry> {
+        self.concepts.iter().find(|c| c.id == id)
+    }
+
+    /// Get a mutable concept by ID
+    pub fn get_concept_mut(&mut self, id: &str) -> Option<&mut ConceptEntry> {
+        self.concepts.iter_mut().find(|c| c.id == id)
+    }
 }
 
 /// Project-level configuration
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 #[serde(default)]
 pub struct ProjectConfig {
     /// 3-letter prefix for check IDs (e.g., "NOS" for NOS-123)
@@ -52,7 +72,7 @@ impl Default for ProjectConfig {
 }
 
 /// A check entry in .noslop.toml
-#[derive(Debug, Clone, Deserialize)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct CheckEntry {
     /// Optional custom ID (if not provided, will be auto-generated as PREFIX-N)
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -67,12 +87,29 @@ pub struct CheckEntry {
     #[serde(default = "default_severity")]
     pub severity: String,
     /// Optional tags
-    #[serde(default)]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
 }
 
 fn default_severity() -> String {
     "block".to_string()
+}
+
+/// A concept entry in .noslop.toml
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ConceptEntry {
+    /// Concept ID (e.g., "CON-1")
+    pub id: String,
+    /// Concept name
+    pub name: String,
+    /// Description providing context for LLMs
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Scope patterns (files/directories this concept applies to)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
+    /// When created (RFC3339)
+    pub created_at: String,
 }
 
 /// Find all .noslop.toml files from path up to repo root
@@ -212,6 +249,25 @@ fn matches_scope(scope: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bool
     file_rel == scope || file_rel.starts_with(scope) || file.contains(scope)
 }
 
+/// Load the noslop file or create a default one
+#[must_use]
+pub fn load_or_default() -> NoslopFile {
+    let path = paths::noslop_toml();
+    if path.exists() {
+        load_file(&path).unwrap_or_default()
+    } else {
+        NoslopFile::default()
+    }
+}
+
+/// Save the noslop file
+pub fn save_file(file: &NoslopFile) -> anyhow::Result<()> {
+    let path = paths::noslop_toml();
+    let content = format_noslop_file(file);
+    fs::write(&path, content)?;
+    Ok(())
+}
+
 /// Create or update a .noslop.toml file with a new check
 pub fn add_check(scope: &str, message: &str, severity: &str) -> anyhow::Result<String> {
     let path = paths::noslop_toml();
@@ -219,10 +275,7 @@ pub fn add_check(scope: &str, message: &str, severity: &str) -> anyhow::Result<S
     let mut file = if path.exists() {
         load_file(&path)?
     } else {
-        NoslopFile {
-            project: ProjectConfig::default(),
-            checks: Vec::new(),
-        }
+        NoslopFile::default()
     };
 
     // Calculate next ID number (max existing ID + 1)
@@ -256,12 +309,12 @@ pub fn add_check(scope: &str, message: &str, severity: &str) -> anyhow::Result<S
     Ok(generated_id)
 }
 
-/// Format a `NoslopFile` as TOML (using new [[check]] format)
+/// Format a `NoslopFile` as TOML
 fn format_noslop_file(file: &NoslopFile) -> String {
     use std::fmt::Write as _;
 
     let mut out = String::new();
-    out.push_str("# noslop checks\n\n");
+    out.push_str("# noslop configuration\n\n");
 
     // Add project config if prefix is not default
     if file.project.prefix != "NOS" {
@@ -270,6 +323,7 @@ fn format_noslop_file(file: &NoslopFile) -> String {
         out.push('\n');
     }
 
+    // Write checks
     for entry in file.all_checks() {
         out.push_str("[[check]]\n");
         if let Some(id) = &entry.id {
@@ -284,7 +338,113 @@ fn format_noslop_file(file: &NoslopFile) -> String {
         out.push('\n');
     }
 
+    // Write concepts
+    for entry in file.all_concepts() {
+        out.push_str("[[concept]]\n");
+        let _ = writeln!(out, "id = \"{}\"", entry.id);
+        let _ = writeln!(out, "name = \"{}\"", entry.name);
+        if let Some(desc) = &entry.description {
+            let _ = writeln!(out, "description = \"{desc}\"");
+        }
+        if !entry.scope.is_empty() {
+            let _ = writeln!(out, "scope = {:?}", entry.scope);
+        }
+        let _ = writeln!(out, "created_at = \"{}\"", entry.created_at);
+        out.push('\n');
+    }
+
     out
+}
+
+// =============================================================================
+// CONCEPT OPERATIONS
+// =============================================================================
+
+/// Create a new concept, returns the concept ID
+pub fn create_concept(name: &str, description: Option<&str>) -> anyhow::Result<String> {
+    let mut file = load_or_default();
+
+    // Generate next ID
+    let max_num = file
+        .concepts
+        .iter()
+        .filter_map(|c| c.id.strip_prefix("CON-").and_then(|n| n.parse::<u32>().ok()))
+        .max()
+        .unwrap_or(0);
+
+    let id = format!("CON-{}", max_num + 1);
+
+    file.concepts.push(ConceptEntry {
+        id: id.clone(),
+        name: name.to_string(),
+        description: description.map(String::from),
+        scope: Vec::new(),
+        created_at: chrono::Utc::now().to_rfc3339(),
+    });
+
+    save_file(&file)?;
+    Ok(id)
+}
+
+/// Update a concept's description
+pub fn update_concept_description(id: &str, description: Option<&str>) -> anyhow::Result<bool> {
+    let mut file = load_or_default();
+    if let Some(concept) = file.get_concept_mut(id) {
+        concept.description = description.map(String::from);
+        save_file(&file)?;
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+/// Delete a concept by ID, returns true if found and deleted
+pub fn delete_concept(id: &str) -> anyhow::Result<bool> {
+    let mut file = load_or_default();
+    let len_before = file.concepts.len();
+    file.concepts.retain(|c| c.id != id);
+
+    if file.concepts.len() < len_before {
+        save_file(&file)?;
+
+        // Clear current concept if it was the deleted one
+        if current_concept()?.as_deref() == Some(id) {
+            set_current_concept(None)?;
+        }
+        Ok(true)
+    } else {
+        Ok(false)
+    }
+}
+
+/// Get the current concept ID (from .noslop/current-concept)
+pub fn current_concept() -> anyhow::Result<Option<String>> {
+    let path = paths::current_concept_file();
+    if !path.exists() {
+        return Ok(None);
+    }
+    let content = fs::read_to_string(&path)?;
+    let id = content.trim();
+    if id.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(id.to_string()))
+    }
+}
+
+/// Set the current concept (None to clear)
+pub fn set_current_concept(id: Option<&str>) -> anyhow::Result<()> {
+    let path = paths::current_concept_file();
+    if let Some(id) = id {
+        // Ensure parent dir exists
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::write(&path, format!("{id}\n"))?;
+    } else if path.exists() {
+        fs::remove_file(&path)?;
+    }
+    Ok(())
 }
 
 /// Generate a 3-letter prefix from git repository name

@@ -698,7 +698,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_create_and_get_task() {
         let _temp = setup();
 
@@ -711,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_head_operations() {
         let _temp = setup();
 
@@ -728,7 +728,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_pending_trailer() {
         let _temp = setup();
 
@@ -746,7 +746,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_link_branch() {
         let _temp = setup();
 
@@ -768,7 +768,7 @@ mod tests {
     }
 
     #[test]
-    #[serial]
+    #[serial(cwd)]
     fn test_status_timestamps() {
         let _temp = setup();
 

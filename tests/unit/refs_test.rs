@@ -15,7 +15,7 @@ fn setup() -> TempDir {
 // =============================================================================
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_create_and_list() {
     let _temp = setup();
 
@@ -43,7 +43,7 @@ fn test_refs_create_and_list() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_delete_task() {
     let _temp = setup();
 
@@ -62,7 +62,7 @@ fn test_refs_delete_task() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_delete_clears_current() {
     let _temp = setup();
 
@@ -82,7 +82,7 @@ fn test_refs_delete_clears_current() {
 // =============================================================================
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_set_status() {
     let _temp = setup();
 
@@ -117,7 +117,7 @@ fn test_refs_set_status() {
 // =============================================================================
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_next_pending_unblocked_empty() {
     let _temp = setup();
 
@@ -131,7 +131,7 @@ fn test_refs_next_pending_unblocked_empty() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_next_pending_unblocked_with_priority() {
     let _temp = setup();
 
@@ -162,7 +162,7 @@ fn test_refs_next_pending_unblocked_with_priority() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_list_pending_unblocked() {
     let _temp = setup();
 
@@ -190,7 +190,7 @@ fn test_refs_list_pending_unblocked() {
 // =============================================================================
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_add_remove_blocker() {
     let _temp = setup();
 
@@ -218,7 +218,7 @@ fn test_refs_add_remove_blocker() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_task_is_blocked() {
     let _temp = setup();
 
@@ -253,7 +253,7 @@ fn test_refs_task_is_blocked() {
 // =============================================================================
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_next_id_generation() {
     let _temp = setup();
 
@@ -275,7 +275,7 @@ fn test_refs_next_id_generation() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_prefix_from_config() {
     let _temp = setup();
 
@@ -301,7 +301,7 @@ message = "Test check"
 // =============================================================================
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_start_sets_status_and_current() {
     let _temp = setup();
 
@@ -325,7 +325,7 @@ fn test_refs_start_sets_status_and_current() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_start_not_found() {
     let _temp = setup();
 
@@ -334,7 +334,7 @@ fn test_refs_start_not_found() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_complete_sets_status_and_clears_current() {
     let _temp = setup();
 
@@ -355,7 +355,7 @@ fn test_refs_complete_sets_status_and_clears_current() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_complete_not_found() {
     let _temp = setup();
 
@@ -364,7 +364,7 @@ fn test_refs_complete_not_found() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_move_to_backlog_unlinks_branch() {
     let _temp = setup();
 
@@ -389,7 +389,7 @@ fn test_refs_move_to_backlog_unlinks_branch() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_move_to_backlog_not_found() {
     let _temp = setup();
 
@@ -402,7 +402,7 @@ fn test_refs_move_to_backlog_not_found() {
 // =============================================================================
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_set_concepts() {
     let _temp = setup();
 
@@ -428,7 +428,7 @@ fn test_refs_set_concepts() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_add_remove_concept() {
     let _temp = setup();
 
@@ -458,7 +458,7 @@ fn test_refs_add_remove_concept() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_set_concepts_not_found() {
     let _temp = setup();
 
@@ -467,7 +467,7 @@ fn test_refs_set_concepts_not_found() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_create_with_concepts() {
     let _temp = setup();
 
@@ -480,7 +480,7 @@ fn test_refs_create_with_concepts() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_create_with_empty_concepts() {
     let _temp = setup();
 
@@ -491,7 +491,7 @@ fn test_refs_create_with_empty_concepts() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_list_by_concept() {
     let _temp = setup();
 
@@ -524,7 +524,7 @@ fn test_refs_list_by_concept() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_has_concept() {
     let _temp = setup();
 
@@ -539,7 +539,7 @@ fn test_refs_has_concept() {
 }
 
 #[test]
-#[serial]
+#[serial(cwd)]
 fn test_refs_primary_concept() {
     let _temp = setup();
 

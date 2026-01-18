@@ -41,3 +41,6 @@ mod api_test;
 #[cfg(feature = "ui")]
 #[path = "unit/config_test.rs"]
 mod config_test;
+
+#[path = "unit/worktree_test.rs"]
+mod worktree_test;
