@@ -137,14 +137,15 @@
 			<div class="mb-6 rounded-md border border-border bg-card p-4">
 				<form onsubmit={handleSubmit} class="space-y-4">
 					<div>
-						<label class="mb-1 block text-sm text-muted-foreground">Name</label>
-						<Input bind:value={name} placeholder="Authentication" />
+						<label for="concept-name" class="mb-1 block text-sm text-muted-foreground">Name</label>
+						<Input id="concept-name" bind:value={name} placeholder="Authentication" />
 					</div>
 					<div>
-						<label class="mb-1 block text-sm text-muted-foreground"
+						<label for="concept-description" class="mb-1 block text-sm text-muted-foreground"
 							>Description (for LLM context)</label
 						>
 						<textarea
+							id="concept-description"
 							class="w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
 							rows="3"
 							bind:value={description}

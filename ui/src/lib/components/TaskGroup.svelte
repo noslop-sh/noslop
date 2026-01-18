@@ -12,7 +12,12 @@
 
 	let { title, tasks, collapsed = false, onTaskSelect, onTaskDetail }: Props = $props();
 
-	let isCollapsed = $state(collapsed);
+	let isCollapsed = $state(false);
+
+	// Sync with prop when it changes
+	$effect(() => {
+		isCollapsed = collapsed;
+	});
 </script>
 
 <section class="mb-6">

@@ -68,17 +68,23 @@
 			<div class="mb-6 rounded-md border border-border bg-card p-4">
 				<form onsubmit={handleSubmit} class="space-y-4">
 					<div>
-						<label class="mb-1 block text-sm text-muted-foreground">Scope (file or pattern)</label>
-						<Input bind:value={scope} placeholder="src/**/*.rs" />
+						<label for="check-scope" class="mb-1 block text-sm text-muted-foreground"
+							>Scope (file or pattern)</label
+						>
+						<Input id="check-scope" bind:value={scope} placeholder="src/**/*.rs" />
 					</div>
 					<div>
-						<label class="mb-1 block text-sm text-muted-foreground">Message</label>
-						<Input bind:value={message} placeholder="What must be verified..." />
+						<label for="check-message" class="mb-1 block text-sm text-muted-foreground"
+							>Message</label
+						>
+						<Input id="check-message" bind:value={message} placeholder="What must be verified..." />
 					</div>
 					<div>
-						<label class="mb-1 block text-sm text-muted-foreground">Severity</label>
+						<label for="check-severity" class="mb-1 block text-sm text-muted-foreground"
+							>Severity</label
+						>
 						<Select.Root type="single" value={severity} onValueChange={(v) => v && (severity = v)}>
-							<Select.Trigger class="w-full">
+							<Select.Trigger id="check-severity" class="w-full">
 								{severity}
 							</Select.Trigger>
 							<Select.Content>

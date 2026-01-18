@@ -42,9 +42,9 @@
 <div
 	class="mb-1.5 cursor-pointer rounded-md border border-border bg-card p-2.5 transition-all hover:border-muted-foreground/50"
 	class:opacity-40={isDragging}
+	class:border-l-2={task.current || task.blocked}
 	class:border-l-primary={task.current}
-	class:border-l-2={task.current}
-	class:opacity-50={task.blocked}
+	class:border-l-destructive={task.blocked && !task.current}
 	draggable="true"
 	ondragstart={handleDragStart}
 	ondragend={handleDragEnd}
@@ -60,22 +60,42 @@
 	<div class="flex items-center gap-2 text-xs">
 		<span class="text-muted-foreground">{task.id}</span>
 
-		{#if task.current}
-			<span class="flex items-center gap-1 text-primary">
-				<span class="h-1.5 w-1.5 rounded-full bg-primary"></span>
-				Active
-			</span>
-		{/if}
-
 		{#if task.blocked && task.status !== 'done'}
 			<span class="text-destructive">Blocked</span>
 		{/if}
 
 		{#if task.check_count > 0}
+			{@const progress = task.checks_verified / task.check_count}
+			{@const circumference = 2 * Math.PI * 5}
+			{@const strokeColor = progress === 1 ? '#46a758' : progress >= 0.5 ? '#f5a623' : '#e5484d'}
 			<span
-				class={task.checks_verified === task.check_count ? 'text-success' : 'text-muted-foreground'}
+				class="flex items-center gap-1"
+				title="{task.checks_verified}/{task.check_count} checks verified"
 			>
-				{task.checks_verified}/{task.check_count} checks
+				<svg width="14" height="14" viewBox="0 0 14 14">
+					<!-- Background circle (gray) -->
+					<circle
+						cx="7"
+						cy="7"
+						r="5"
+						fill="var(--color-muted)"
+						stroke="var(--color-border)"
+						stroke-width="1.5"
+					/>
+					<!-- Progress arc -->
+					<circle
+						cx="7"
+						cy="7"
+						r="5"
+						fill="none"
+						stroke={strokeColor}
+						stroke-width="1.5"
+						stroke-dasharray={circumference}
+						stroke-dashoffset={circumference * (1 - progress)}
+						transform="rotate(-90 7 7)"
+						stroke-linecap="round"
+					/>
+				</svg>
 			</span>
 		{/if}
 
