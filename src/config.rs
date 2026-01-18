@@ -54,29 +54,6 @@ pub struct WorkspaceConfig {
     /// Color assignments (keyed by "repo/branch")
     #[serde(default)]
     pub colors: HashMap<String, usize>,
-    /// Concepts in this workspace
-    #[serde(default)]
-    pub concepts: Vec<ConceptConfig>,
-    /// Currently selected concept (None = view all)
-    #[serde(default)]
-    pub current_concept: Option<String>,
-}
-
-/// Concept configuration
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ConceptConfig {
-    /// Concept ID (e.g., "CON-1")
-    pub id: String,
-    /// Concept name
-    pub name: String,
-    /// Description providing context for LLMs
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub description: Option<String>,
-    /// Scope patterns (files/directories this concept applies to)
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub scope: Vec<String>,
-    /// When created (RFC3339)
-    pub created_at: String,
 }
 
 /// Branch visibility settings for a repo
@@ -215,93 +192,5 @@ impl GlobalConfig {
         self.workspace(workspace)
             .and_then(|ws| ws.branches.get(repo))
             .is_some_and(|settings| settings.hidden.contains(&branch.to_string()))
-    }
-
-    // === Concept operations ===
-
-    /// Create a new concept, returns the concept ID
-    pub fn create_concept(
-        &mut self,
-        workspace: &Path,
-        name: &str,
-        description: Option<&str>,
-    ) -> String {
-        let ws = self.workspace_mut(workspace);
-
-        // Generate next ID
-        let max_num = ws
-            .concepts
-            .iter()
-            .filter_map(|c| c.id.strip_prefix("CON-").and_then(|n| n.parse::<u32>().ok()))
-            .max()
-            .unwrap_or(0);
-
-        let id = format!("CON-{}", max_num + 1);
-
-        ws.concepts.push(ConceptConfig {
-            id: id.clone(),
-            name: name.to_string(),
-            description: description.map(String::from),
-            scope: Vec::new(),
-            created_at: chrono::Utc::now().to_rfc3339(),
-        });
-
-        id
-    }
-
-    /// Update a concept's description
-    pub fn update_concept_description(
-        &mut self,
-        workspace: &Path,
-        id: &str,
-        description: Option<&str>,
-    ) -> bool {
-        let ws = self.workspace_mut(workspace);
-        if let Some(concept) = ws.concepts.iter_mut().find(|c| c.id == id) {
-            concept.description = description.map(String::from);
-            true
-        } else {
-            false
-        }
-    }
-
-    /// List all concepts in a workspace
-    #[must_use]
-    pub fn list_concepts(&self, workspace: &Path) -> Vec<&ConceptConfig> {
-        self.workspace(workspace)
-            .map(|ws| ws.concepts.iter().collect())
-            .unwrap_or_default()
-    }
-
-    /// Get a concept by ID
-    #[must_use]
-    pub fn get_concept(&self, workspace: &Path, id: &str) -> Option<&ConceptConfig> {
-        self.workspace(workspace).and_then(|ws| ws.concepts.iter().find(|c| c.id == id))
-    }
-
-    /// Delete a concept by ID, returns true if found and deleted
-    pub fn delete_concept(&mut self, workspace: &Path, id: &str) -> bool {
-        let ws = self.workspace_mut(workspace);
-        let len_before = ws.concepts.len();
-        ws.concepts.retain(|c| c.id != id);
-
-        // Clear current_concept if it was the deleted concept
-        if ws.current_concept.as_deref() == Some(id) {
-            ws.current_concept = None;
-        }
-
-        ws.concepts.len() < len_before
-    }
-
-    /// Set the current concept (None = view all)
-    pub fn set_current_concept(&mut self, workspace: &Path, id: Option<&str>) {
-        let ws = self.workspace_mut(workspace);
-        ws.current_concept = id.map(String::from);
-    }
-
-    /// Get the current concept ID
-    #[must_use]
-    pub fn current_concept(&self, workspace: &Path) -> Option<&str> {
-        self.workspace(workspace).and_then(|ws| ws.current_concept.as_deref())
     }
 }

@@ -1,6 +1,6 @@
 //! Task command - manage tasks using git-like refs storage
 
-use noslop::config::GlobalConfig;
+use noslop::noslop_file;
 use noslop::output::OutputMode;
 use noslop::storage::TaskRefs;
 
@@ -411,16 +411,11 @@ fn get_concepts_info(concept_ids: &[String]) -> Vec<(String, String, Option<Stri
     if concept_ids.is_empty() {
         return Vec::new();
     }
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(_) => return Vec::new(),
-    };
-    let config = GlobalConfig::load();
+    let file = noslop_file::load_or_default();
     concept_ids
         .iter()
         .filter_map(|id| {
-            config
-                .get_concept(&cwd, id)
+            file.get_concept(id)
                 .map(|c| (c.id.clone(), c.name.clone(), c.description.clone()))
         })
         .collect()

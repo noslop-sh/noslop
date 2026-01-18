@@ -69,10 +69,6 @@ pub fn list_tasks_filtered(
     let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
     let current = TaskRefs::current().ok().flatten();
 
-    // Load config and cwd for check computation
-    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
-    let config = GlobalConfig::load();
-
     let task_items: Vec<TaskItem> = tasks
         .iter()
         .filter(|(_, t)| {
@@ -85,8 +81,7 @@ pub fn list_tasks_filtered(
         })
         .map(|(id, t)| {
             // Compute checks for this task
-            let checks =
-                compute_task_checks(&t.scope, &t.concepts, t.branch.as_deref(), &config, &cwd);
+            let checks = compute_task_checks(&t.scope, &t.concepts, t.branch.as_deref());
             let check_count = checks.len();
             let checks_verified = checks.iter().filter(|c| c.verified).count();
 
@@ -122,18 +117,8 @@ pub fn get_task(id: &str) -> Result<TaskDetailData, ApiError> {
             let current = TaskRefs::current().ok().flatten();
             let blocked = task.is_blocked(&tasks);
 
-            // Load config and cwd for check computation
-            let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
-            let config = GlobalConfig::load();
-
             // Compute checks for this task
-            let checks = compute_task_checks(
-                &task.scope,
-                &task.concepts,
-                task.branch.as_deref(),
-                &config,
-                &cwd,
-            );
+            let checks = compute_task_checks(&task.scope, &task.concepts, task.branch.as_deref());
             let check_count = checks.len();
             let checks_verified = checks.iter().filter(|c| c.verified).count();
 
@@ -399,18 +384,9 @@ fn compute_task_checks(
     task_scope: &[String],
     task_concepts: &[String],
     task_branch: Option<&str>,
-    config: &GlobalConfig,
-    cwd: &Path,
 ) -> Vec<TaskCheckItem> {
-    // Load checks from .noslop.toml
-    let path = paths::noslop_toml();
-    if !path.exists() {
-        return Vec::new();
-    }
-
-    let Ok(file) = noslop_file::load_file(&path) else {
-        return Vec::new();
-    };
+    // Load checks and concepts from .noslop.toml
+    let file = noslop_file::load_or_default();
 
     if file.checks.is_empty() {
         return Vec::new();
@@ -424,7 +400,7 @@ fn compute_task_checks(
 
     // Add scope patterns from attached concepts
     for concept_id in task_concepts {
-        if let Some(concept) = config.get_concept(cwd, concept_id) {
+        if let Some(concept) = file.get_concept(concept_id) {
             for pattern in &concept.scope {
                 effective_scope.push(pattern);
             }
@@ -731,13 +707,11 @@ pub fn update_config(req: &UpdateConfigRequest) -> Result<ConfigData, ApiError> 
 
 /// List all concepts in the workspace
 pub fn list_concepts() -> Result<ConceptsData, ApiError> {
-    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
-    let config = GlobalConfig::load();
+    let file = noslop_file::load_or_default();
     let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
 
-    let concepts: Vec<ConceptInfo> = config
-        .list_concepts(&cwd)
-        .into_iter()
+    let concepts: Vec<ConceptInfo> = file
+        .all_concepts()
         .map(|c| {
             let task_count = tasks.iter().filter(|(_, t)| t.has_concept(&c.id)).count();
             ConceptInfo {
@@ -751,7 +725,8 @@ pub fn list_concepts() -> Result<ConceptsData, ApiError> {
         })
         .collect();
 
-    let current_concept = config.current_concept(&cwd).map(String::from);
+    let current_concept =
+        noslop_file::current_concept().map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(ConceptsData {
         concepts,
@@ -765,11 +740,8 @@ pub fn create_concept(req: &CreateConceptRequest) -> Result<ConceptCreateData, A
         return Err(ApiError::bad_request("Concept name cannot be empty"));
     }
 
-    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
-    let mut config = GlobalConfig::load();
-
-    let id = config.create_concept(&cwd, &req.name, req.description.as_deref());
-    config.save().map_err(|e| ApiError::internal(e.to_string()))?;
+    let id = noslop_file::create_concept(&req.name, req.description.as_deref())
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(ConceptCreateData {
         id,
@@ -779,50 +751,44 @@ pub fn create_concept(req: &CreateConceptRequest) -> Result<ConceptCreateData, A
 
 /// Delete a concept
 pub fn delete_concept(id: &str) -> Result<(), ApiError> {
-    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
-    let mut config = GlobalConfig::load();
+    let deleted = noslop_file::delete_concept(id).map_err(|e| ApiError::internal(e.to_string()))?;
 
-    if !config.delete_concept(&cwd, id) {
+    if !deleted {
         return Err(ApiError::not_found(format!("Concept '{id}' not found")));
     }
-
-    config.save().map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(())
 }
 
 /// Select the current concept (or None for "view all")
 pub fn select_concept(req: &SelectConceptRequest) -> Result<ConceptsData, ApiError> {
-    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
-    let mut config = GlobalConfig::load();
-
     // Verify concept exists if an ID is provided
-    if let Some(id) = &req.id
-        && config.get_concept(&cwd, id).is_none()
-    {
-        return Err(ApiError::not_found(format!("Concept '{id}' not found")));
+    if let Some(id) = &req.id {
+        let file = noslop_file::load_or_default();
+        if file.get_concept(id).is_none() {
+            return Err(ApiError::not_found(format!("Concept '{id}' not found")));
+        }
     }
 
-    config.set_current_concept(&cwd, req.id.as_deref());
-    config.save().map_err(|e| ApiError::internal(e.to_string()))?;
+    noslop_file::set_current_concept(req.id.as_deref())
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
     list_concepts()
 }
 
 /// Update a concept's description
 pub fn update_concept(id: &str, req: &UpdateConceptRequest) -> Result<ConceptInfo, ApiError> {
-    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
-    let mut config = GlobalConfig::load();
+    let updated = noslop_file::update_concept_description(id, req.description.as_deref())
+        .map_err(|e| ApiError::internal(e.to_string()))?;
 
-    if !config.update_concept_description(&cwd, id, req.description.as_deref()) {
+    if !updated {
         return Err(ApiError::not_found(format!("Concept '{id}' not found")));
     }
 
-    config.save().map_err(|e| ApiError::internal(e.to_string()))?;
-
     // Return updated concept
-    let concept = config
-        .get_concept(&cwd, id)
+    let file = noslop_file::load_or_default();
+    let concept = file
+        .get_concept(id)
         .ok_or_else(|| ApiError::internal("Concept updated but could not be read back"))?;
 
     let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
