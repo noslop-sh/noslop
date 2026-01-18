@@ -27,6 +27,7 @@ serde_json = "1.0.145"
 thiserror = "2.0.17"
 tiny_http = { version = "0.12", optional = true }
 notify = { version = "8.2", optional = true }
+include_dir = { version = "0.7", optional = true }
 tokio = { version = "1.48.0", features = ["full"], optional = true }
 toml = "0.9.8"
 walkdir = "2.5.0"
@@ -36,7 +37,8 @@ default = []
 llm = ["tokio", "reqwest"]
 tokio = ["dep:tokio"]
 reqwest = ["dep:reqwest"]
-ui = ["tiny_http", "notify"]
+ui = ["tiny_http", "notify", "include_dir"]
+include_dir = ["dep:include_dir"]
 
 [[bin]]
 name = "noslop"

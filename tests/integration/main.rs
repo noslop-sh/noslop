@@ -587,16 +587,16 @@ fn test_check_add_with_severity() {
     assert!(content.contains("warn"));
 }
 
-/// Test check list filters by target
+/// Test check list filters by scope
 #[test]
-fn test_check_list_filter_by_target() {
+fn test_check_list_filter_by_scope() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
     // Setup
     init_git_repo(repo_path);
 
-    // Create .noslop.toml with multiple checks
+    // Create .noslop.toml with multiple checks (using legacy "target" for backwards compat)
     fs::write(
         repo_path.join(".noslop.toml"),
         r#"[[check]]
@@ -627,9 +627,9 @@ severity = "warn"
         .stdout(predicate::str::contains("Python check"))
         .stdout(predicate::str::contains("Another Rust check"));
 
-    // List filtered by target
+    // List filtered by scope
     noslop()
-        .args(["check", "list", "-t", "*.rs"])
+        .args(["check", "list", "-s", "*.rs"])
         .current_dir(repo_path)
         .assert()
         .success()

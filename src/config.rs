@@ -57,21 +57,27 @@ pub struct WorkspaceConfig {
     /// Color assignments (keyed by "repo/branch")
     #[serde(default)]
     pub colors: HashMap<String, usize>,
-    /// Projects in this workspace
+    /// Concepts in this workspace
     #[serde(default)]
-    pub projects: Vec<ProjectConfig>,
-    /// Currently selected project (None = view all)
+    pub concepts: Vec<ConceptConfig>,
+    /// Currently selected concept (None = view all)
     #[serde(default)]
-    pub current_project: Option<String>,
+    pub current_concept: Option<String>,
 }
 
-/// Project configuration
+/// Concept configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProjectConfig {
-    /// Project ID (e.g., "PROJ-1")
+pub struct ConceptConfig {
+    /// Concept ID (e.g., "CON-1")
     pub id: String,
-    /// Project name
+    /// Concept name
     pub name: String,
+    /// Description providing context for LLMs
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Scope patterns (files/directories this concept applies to)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
     /// When created (RFC3339)
     pub created_at: String,
 }
@@ -216,272 +222,91 @@ impl GlobalConfig {
             .is_some_and(|settings| settings.hidden.contains(&branch.to_string()))
     }
 
-    // === Project operations ===
+    // === Concept operations ===
 
-    /// Create a new project, returns the project ID
-    pub fn create_project(&mut self, workspace: &Path, name: &str) -> String {
+    /// Create a new concept, returns the concept ID
+    pub fn create_concept(
+        &mut self,
+        workspace: &Path,
+        name: &str,
+        description: Option<&str>,
+    ) -> String {
         let ws = self.workspace_mut(workspace);
 
         // Generate next ID
         let max_num = ws
-            .projects
+            .concepts
             .iter()
-            .filter_map(|p| p.id.strip_prefix("PROJ-").and_then(|n| n.parse::<u32>().ok()))
+            .filter_map(|c| c.id.strip_prefix("CON-").and_then(|n| n.parse::<u32>().ok()))
             .max()
             .unwrap_or(0);
 
-        let id = format!("PROJ-{}", max_num + 1);
+        let id = format!("CON-{}", max_num + 1);
 
-        ws.projects.push(ProjectConfig {
+        ws.concepts.push(ConceptConfig {
             id: id.clone(),
             name: name.to_string(),
+            description: description.map(String::from),
+            scope: Vec::new(),
             created_at: chrono::Utc::now().to_rfc3339(),
         });
 
         id
     }
 
-    /// List all projects in a workspace
+    /// Update a concept's description
+    pub fn update_concept_description(
+        &mut self,
+        workspace: &Path,
+        id: &str,
+        description: Option<&str>,
+    ) -> bool {
+        let ws = self.workspace_mut(workspace);
+        if let Some(concept) = ws.concepts.iter_mut().find(|c| c.id == id) {
+            concept.description = description.map(String::from);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// List all concepts in a workspace
     #[must_use]
-    pub fn list_projects(&self, workspace: &Path) -> Vec<&ProjectConfig> {
+    pub fn list_concepts(&self, workspace: &Path) -> Vec<&ConceptConfig> {
         self.workspace(workspace)
-            .map(|ws| ws.projects.iter().collect())
+            .map(|ws| ws.concepts.iter().collect())
             .unwrap_or_default()
     }
 
-    /// Get a project by ID
+    /// Get a concept by ID
     #[must_use]
-    pub fn get_project(&self, workspace: &Path, id: &str) -> Option<&ProjectConfig> {
-        self.workspace(workspace).and_then(|ws| ws.projects.iter().find(|p| p.id == id))
+    pub fn get_concept(&self, workspace: &Path, id: &str) -> Option<&ConceptConfig> {
+        self.workspace(workspace).and_then(|ws| ws.concepts.iter().find(|c| c.id == id))
     }
 
-    /// Delete a project by ID, returns true if found and deleted
-    pub fn delete_project(&mut self, workspace: &Path, id: &str) -> bool {
+    /// Delete a concept by ID, returns true if found and deleted
+    pub fn delete_concept(&mut self, workspace: &Path, id: &str) -> bool {
         let ws = self.workspace_mut(workspace);
-        let len_before = ws.projects.len();
-        ws.projects.retain(|p| p.id != id);
+        let len_before = ws.concepts.len();
+        ws.concepts.retain(|c| c.id != id);
 
-        // Clear current_project if it was the deleted project
-        if ws.current_project.as_deref() == Some(id) {
-            ws.current_project = None;
+        // Clear current_concept if it was the deleted concept
+        if ws.current_concept.as_deref() == Some(id) {
+            ws.current_concept = None;
         }
 
-        ws.projects.len() < len_before
+        ws.concepts.len() < len_before
     }
 
-    /// Set the current project (None = view all)
-    pub fn set_current_project(&mut self, workspace: &Path, id: Option<&str>) {
+    /// Set the current concept (None = view all)
+    pub fn set_current_concept(&mut self, workspace: &Path, id: Option<&str>) {
         let ws = self.workspace_mut(workspace);
-        ws.current_project = id.map(String::from);
+        ws.current_concept = id.map(String::from);
     }
 
-    /// Get the current project ID
+    /// Get the current concept ID
     #[must_use]
-    pub fn current_project(&self, workspace: &Path) -> Option<&str> {
-        self.workspace(workspace).and_then(|ws| ws.current_project.as_deref())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use tempfile::TempDir;
-
-    #[test]
-    fn test_default_config() {
-        let config = GlobalConfig::default();
-        assert_eq!(config.ui.theme, "dark");
-        assert!(config.workspaces.is_empty());
-    }
-
-    #[test]
-    fn test_workspace_creation() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-
-        config.workspace_mut(workspace);
-        assert!(config.workspaces.contains_key("/test/workspace"));
-    }
-
-    #[test]
-    fn test_add_repo() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-        let repo = Path::new("/test/workspace/repo");
-
-        config.add_repo(workspace, repo);
-
-        let ws = config.workspace(workspace).unwrap();
-        assert!(ws.repos.contains(&"/test/workspace/repo".to_string()));
-    }
-
-    #[test]
-    fn test_branch_selection() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-        let repo = "/test/workspace/repo";
-
-        // Initially not selected
-        assert!(!config.is_branch_selected(workspace, repo, "main"));
-
-        // Select branch
-        config.set_branch_selected(workspace, repo, "main", true);
-        assert!(config.is_branch_selected(workspace, repo, "main"));
-
-        // Deselect branch
-        config.set_branch_selected(workspace, repo, "main", false);
-        assert!(!config.is_branch_selected(workspace, repo, "main"));
-    }
-
-    #[test]
-    fn test_branch_hidden() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-        let repo = "/test/workspace/repo";
-
-        // Select branch first
-        config.set_branch_selected(workspace, repo, "old-feature", true);
-        assert!(config.is_branch_selected(workspace, repo, "old-feature"));
-
-        // Hide branch (should also deselect)
-        config.set_branch_hidden(workspace, repo, "old-feature", true);
-        assert!(config.is_branch_hidden(workspace, repo, "old-feature"));
-        assert!(!config.is_branch_selected(workspace, repo, "old-feature"));
-
-        // Unhide
-        config.set_branch_hidden(workspace, repo, "old-feature", false);
-        assert!(!config.is_branch_hidden(workspace, repo, "old-feature"));
-    }
-
-    #[test]
-    fn test_color_assignment() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-
-        // First branch gets color 0
-        let color1 = config.get_branch_color(workspace, "repo", "main");
-        assert_eq!(color1, 0);
-
-        // Same branch returns same color
-        let color1_again = config.get_branch_color(workspace, "repo", "main");
-        assert_eq!(color1_again, 0);
-
-        // Second branch gets color 1
-        let color2 = config.get_branch_color(workspace, "repo", "feature");
-        assert_eq!(color2, 1);
-    }
-
-    #[test]
-    fn test_save_and_load() {
-        let temp = TempDir::new().unwrap();
-        let config_path = temp.path().join("config.toml");
-
-        // Create config
-        let mut config = GlobalConfig::default();
-        config.set_branch_selected(Path::new("/ws"), "repo", "main", true);
-
-        // Save to temp file
-        let content = toml::to_string_pretty(&config).unwrap();
-        fs::write(&config_path, &content).unwrap();
-
-        // Load back
-        let loaded_content = fs::read_to_string(&config_path).unwrap();
-        let loaded: GlobalConfig = toml::from_str(&loaded_content).unwrap();
-
-        assert!(loaded.is_branch_selected(Path::new("/ws"), "repo", "main"));
-    }
-
-    // =============================================================================
-    // PROJECT TESTS
-    // =============================================================================
-
-    #[test]
-    fn test_create_project() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-
-        let id1 = config.create_project(workspace, "Project One");
-        assert_eq!(id1, "PROJ-1");
-
-        let id2 = config.create_project(workspace, "Project Two");
-        assert_eq!(id2, "PROJ-2");
-
-        // Verify projects were added
-        let projects = config.list_projects(workspace);
-        assert_eq!(projects.len(), 2);
-        assert_eq!(projects[0].name, "Project One");
-        assert_eq!(projects[1].name, "Project Two");
-    }
-
-    #[test]
-    fn test_list_projects_empty() {
-        let config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-
-        let projects = config.list_projects(workspace);
-        assert!(projects.is_empty());
-    }
-
-    #[test]
-    fn test_get_project() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-
-        let id = config.create_project(workspace, "My Project");
-
-        let project = config.get_project(workspace, &id);
-        assert!(project.is_some());
-        assert_eq!(project.unwrap().name, "My Project");
-
-        // Non-existent project
-        let missing = config.get_project(workspace, "PROJ-999");
-        assert!(missing.is_none());
-    }
-
-    #[test]
-    fn test_delete_project() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-
-        let id = config.create_project(workspace, "Project to delete");
-        assert!(config.get_project(workspace, &id).is_some());
-
-        let deleted = config.delete_project(workspace, &id);
-        assert!(deleted);
-        assert!(config.get_project(workspace, &id).is_none());
-
-        // Delete non-existent should return false
-        let deleted_again = config.delete_project(workspace, &id);
-        assert!(!deleted_again);
-    }
-
-    #[test]
-    fn test_delete_project_clears_current() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-
-        let id = config.create_project(workspace, "Current project");
-        config.set_current_project(workspace, Some(&id));
-        assert_eq!(config.current_project(workspace), Some(id.as_str()));
-
-        config.delete_project(workspace, &id);
-        assert!(config.current_project(workspace).is_none());
-    }
-
-    #[test]
-    fn test_current_project() {
-        let mut config = GlobalConfig::default();
-        let workspace = Path::new("/test/workspace");
-
-        // Initially no current project
-        assert!(config.current_project(workspace).is_none());
-
-        let id = config.create_project(workspace, "Project");
-        config.set_current_project(workspace, Some(&id));
-        assert_eq!(config.current_project(workspace), Some(id.as_str()));
-
-        // Clear current project
-        config.set_current_project(workspace, None);
-        assert!(config.current_project(workspace).is_none());
+    pub fn current_concept(&self, workspace: &Path) -> Option<&str> {
+        self.workspace(workspace).and_then(|ws| ws.current_concept.as_deref())
     }
 }

@@ -11,8 +11,8 @@ pub struct Check {
     /// Unique identifier (generated)
     pub id: String,
 
-    /// Target path or pattern (e.g., "src/auth.rs" or "src/**/*.rs")
-    pub target: String,
+    /// Scope path or pattern (e.g., "src/auth.rs" or "src/**/*.rs")
+    pub scope: String,
 
     /// The check message - what must be verified
     pub message: String,
@@ -64,10 +64,10 @@ impl std::str::FromStr for Severity {
 
 impl Check {
     /// Create a new check with optional custom ID (from TOML)
-    pub fn new(id: Option<String>, target: String, message: String, severity: Severity) -> Self {
+    pub fn new(id: Option<String>, scope: String, message: String, severity: Severity) -> Self {
         Self {
             id: id.unwrap_or_else(generate_id),
-            target,
+            scope,
             message,
             severity,
             introduced_by: None,
@@ -77,11 +77,11 @@ impl Check {
 
     /// Check if this check applies to a given file path
     #[must_use]
-    #[allow(dead_code)] // Used in tests, will be wired up when Target integration is complete
+    #[allow(dead_code)] // Used in tests, will be wired up when Scope integration is complete
     pub fn applies_to(&self, path: &str) -> bool {
         // Simple matching for now - exact or prefix
-        // TODO: Support glob patterns
-        path == self.target || path.starts_with(&self.target) || self.target.contains(path)
+        // TODO: Support glob patterns via Scope::parse
+        path == self.scope || path.starts_with(&self.scope) || self.scope.contains(path)
     }
 }
 

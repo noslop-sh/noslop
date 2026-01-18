@@ -59,19 +59,23 @@ impl ApiResponse<()> {
 pub struct CreateTaskRequest {
     /// Task title
     pub title: String,
+    /// Optional task description
+    #[serde(default)]
+    pub description: Option<String>,
     /// Optional priority (p0, p1, p2, p3)
     #[serde(default)]
     pub priority: Option<String>,
-    /// Optional project to assign task to
+    /// Concepts to assign task to
     #[serde(default)]
-    pub project: Option<String>,
+    pub concepts: Vec<String>,
 }
 
 /// Request body for creating a check
 #[derive(Debug, Deserialize)]
 pub struct CreateCheckRequest {
-    /// Target file/pattern
-    pub target: String,
+    /// Scope file/pattern
+    #[serde(alias = "target")]
+    pub scope: String,
     /// Check message
     pub message: String,
     /// Severity (block, warn, info)
@@ -136,6 +140,9 @@ pub struct TaskItem {
     pub id: String,
     /// Task title
     pub title: String,
+    /// Task description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Status (pending, `in_progress`, done)
     pub status: String,
     /// Priority (p0, p1, p2, p3)
@@ -155,9 +162,16 @@ pub struct TaskItem {
     /// When completed (RFC3339)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
-    /// Project this task belongs to
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
+    /// Concepts this task belongs to
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub concepts: Vec<String>,
+    /// Scope patterns (files this task touches)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
+    /// Total number of checks that apply to this task (derived from scope overlap)
+    pub check_count: usize,
+    /// Number of verified checks
+    pub checks_verified: usize,
 }
 
 /// Single task detail response
@@ -167,6 +181,9 @@ pub struct TaskDetailData {
     pub id: String,
     /// Task title
     pub title: String,
+    /// Task description
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Status
     pub status: String,
     /// Priority
@@ -190,9 +207,31 @@ pub struct TaskDetailData {
     /// When completed (RFC3339)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
-    /// Project this task belongs to
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
+    /// Concepts this task belongs to
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub concepts: Vec<String>,
+    /// Scope patterns (files this task touches)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
+    /// Total number of checks that apply to this task (derived from scope overlap)
+    pub check_count: usize,
+    /// Number of verified checks
+    pub checks_verified: usize,
+    /// Actual checks that apply to this task
+    pub checks: Vec<TaskCheckItem>,
+}
+
+/// A check as it relates to a specific task
+#[derive(Debug, Serialize)]
+pub struct TaskCheckItem {
+    /// Check ID
+    pub id: String,
+    /// Check message
+    pub message: String,
+    /// Severity
+    pub severity: String,
+    /// Whether verified for this task
+    pub verified: bool,
 }
 
 /// Task mutation (start/done/create) response
@@ -229,8 +268,8 @@ pub struct ChecksData {
 pub struct CheckItem {
     /// Check ID
     pub id: String,
-    /// Target file/pattern
-    pub target: String,
+    /// Scope file/pattern
+    pub scope: String,
     /// Check message
     pub message: String,
     /// Severity
@@ -242,8 +281,8 @@ pub struct CheckItem {
 pub struct CheckCreateData {
     /// Created check ID
     pub id: String,
-    /// Target
-    pub target: String,
+    /// Scope
+    pub scope: String,
     /// Message
     pub message: String,
     /// Severity
@@ -348,51 +387,79 @@ pub struct BlockerRequest {
 }
 
 // =============================================================================
-// PROJECT TYPES
+// CONCEPT TYPES
 // =============================================================================
 
-/// Project info
+/// Concept info
 #[derive(Debug, Serialize)]
-pub struct ProjectInfo {
-    /// Project ID
+pub struct ConceptInfo {
+    /// Concept ID
     pub id: String,
-    /// Project name
+    /// Concept name
     pub name: String,
-    /// Number of tasks in project
+    /// Concept description (context for LLMs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// Scope patterns for this concept
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
+    /// Number of tasks in concept
     pub task_count: usize,
     /// When created (RFC3339)
     pub created_at: String,
 }
 
-/// Projects list response
+/// Concepts list response
 #[derive(Debug, Serialize)]
-pub struct ProjectsData {
-    /// List of projects
-    pub projects: Vec<ProjectInfo>,
-    /// Currently selected project ID (None = view all)
-    pub current_project: Option<String>,
+pub struct ConceptsData {
+    /// List of concepts
+    pub concepts: Vec<ConceptInfo>,
+    /// Currently selected concept ID (None = view all)
+    pub current_concept: Option<String>,
 }
 
-/// Create project request
+/// Create concept request
 #[derive(Debug, Deserialize)]
-pub struct CreateProjectRequest {
-    /// Project name
+pub struct CreateConceptRequest {
+    /// Concept name
     pub name: String,
+    /// Optional description
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
-/// Create project response
+/// Create concept response
 #[derive(Debug, Serialize)]
-pub struct ProjectCreateData {
-    /// Created project ID
+pub struct ConceptCreateData {
+    /// Created concept ID
     pub id: String,
-    /// Project name
+    /// Concept name
     pub name: String,
 }
 
-/// Select project request
+/// Select concept request
 #[derive(Debug, Deserialize)]
-pub struct SelectProjectRequest {
-    /// Project ID to select (None = view all)
+pub struct SelectConceptRequest {
+    /// Concept ID to select (None = view all)
     #[serde(default)]
     pub id: Option<String>,
+}
+
+/// Update concept request
+#[derive(Debug, Deserialize)]
+pub struct UpdateConceptRequest {
+    /// New description (None to clear)
+    #[serde(default)]
+    pub description: Option<String>,
+}
+
+/// Update task request
+#[derive(Debug, Deserialize)]
+pub struct UpdateTaskRequest {
+    /// New description (None to clear)
+    #[serde(default)]
+    pub description: Option<String>,
+    /// New concepts list (None means no change)
+    #[serde(default)]
+    pub concepts: Option<Vec<String>>,
 }

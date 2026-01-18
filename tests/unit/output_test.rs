@@ -30,7 +30,7 @@ fn check_result_serialization() {
         verified: vec![CheckMatch {
             id: "TEST-1".to_string(),
             file: "src/auth.rs".to_string(),
-            target: "*.rs".to_string(),
+            scope: "*.rs".to_string(),
             message: "Check auth".to_string(),
             severity: "block".to_string(),
             verified: true,
@@ -51,7 +51,7 @@ fn check_result_blocking() {
         blocking: vec![CheckMatch {
             id: "TEST-2".to_string(),
             file: "src/api.rs".to_string(),
-            target: "src/api/".to_string(),
+            scope: "src/api/".to_string(),
             message: "Review API changes".to_string(),
             severity: "block".to_string(),
             verified: false,
@@ -74,7 +74,7 @@ fn check_result_with_warnings() {
         warnings: vec![CheckMatch {
             id: "TEST-3".to_string(),
             file: "src/utils.rs".to_string(),
-            target: "src/utils/".to_string(),
+            scope: "src/utils/".to_string(),
             message: "Consider reviewing utility changes".to_string(),
             severity: "warn".to_string(),
             verified: false,
@@ -96,7 +96,7 @@ fn check_match_serialization() {
     let m = CheckMatch {
         id: "TEST-4".to_string(),
         file: "test.rs".to_string(),
-        target: "*.rs".to_string(),
+        scope: "*.rs".to_string(),
         message: "Test message".to_string(),
         severity: "warn".to_string(),
         verified: true,
@@ -117,7 +117,7 @@ fn check_list_result_serialization() {
     let result = CheckListResult {
         checks: vec![CheckInfo {
             id: ".noslop.toml:0".to_string(),
-            target: "src/**/*.rs".to_string(),
+            scope: "src/**/*.rs".to_string(),
             message: "Check Rust files".to_string(),
             severity: "block".to_string(),
             source_file: ".noslop.toml".to_string(),

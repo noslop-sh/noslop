@@ -11,22 +11,22 @@ use noslop::noslop_file;
 pub fn check_cmd(action: CheckAction, _mode: OutputMode) -> anyhow::Result<()> {
     match action {
         CheckAction::Add {
-            target,
+            scope,
             message,
             severity,
-        } => add(&target, &message, &severity),
-        CheckAction::List { target } => list(target.as_deref()),
+        } => add(&scope, &message, &severity),
+        CheckAction::List { scope } => list(scope.as_deref()),
         CheckAction::Remove { id } => remove(&id),
         // Run is handled directly in cli.rs before reaching here
         CheckAction::Run { .. } => unreachable!("Run is handled directly in cli.rs"),
     }
 }
 
-fn add(target: &str, message: &str, severity: &str) -> anyhow::Result<()> {
-    let id = noslop_file::add_check(target, message, severity)?;
+fn add(scope: &str, message: &str, severity: &str) -> anyhow::Result<()> {
+    let id = noslop_file::add_check(scope, message, severity)?;
 
     println!("Added check to .noslop.toml");
-    println!("  target: {}", target);
+    println!("  scope: {}", scope);
     println!("  message: {}", message);
     println!("  severity: {}", severity);
     println!("  id: {}", id);
@@ -34,15 +34,15 @@ fn add(target: &str, message: &str, severity: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn list(target: Option<&str>) -> anyhow::Result<()> {
+fn list(scope: Option<&str>) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
-    let search_path = target.map(|t| cwd.join(t)).unwrap_or_else(|| cwd.clone());
+    let search_path = scope.map(|s| cwd.join(s)).unwrap_or_else(|| cwd.clone());
 
     let noslop_files = noslop_file::find_noslop_files(&search_path);
 
     if noslop_files.is_empty() {
         println!("No .noslop.toml files found.");
-        println!("Add a check with: noslop check add <target> -m \"message\"");
+        println!("Add a check with: noslop check add <scope> -m \"message\"");
         return Ok(());
     }
 
@@ -56,7 +56,7 @@ fn list(target: Option<&str>) -> anyhow::Result<()> {
 
         println!("{}:", path.display());
         for c in &checks {
-            println!("  [{}] {} -> {}", c.severity.to_uppercase(), c.target, c.message);
+            println!("  [{}] {} -> {}", c.severity.to_uppercase(), c.scope, c.message);
             total += 1;
         }
         println!();
@@ -124,7 +124,7 @@ fn format_noslop_file(prefix: &str, checks: &[noslop_file::CheckEntry]) -> Strin
         if let Some(id) = &entry.id {
             out.push_str(&format!("id = \"{}\"\n", id));
         }
-        out.push_str(&format!("target = \"{}\"\n", entry.target));
+        out.push_str(&format!("scope = \"{}\"\n", entry.scope));
         out.push_str(&format!("message = \"{}\"\n", entry.message));
         out.push_str(&format!("severity = \"{}\"\n", entry.severity));
         if !entry.tags.is_empty() {

@@ -1,4 +1,4 @@
-.PHONY: help build test lint fmt check clean install-hooks install uninstall
+.PHONY: help build test lint fmt check clean install-hooks install uninstall dev backend frontend setup
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -105,3 +105,27 @@ coverage-open: coverage ## Generate and open coverage report in browser
 coverage-check: ## Check if coverage meets minimum thresholds (80% line, 75% branch)
 	@echo "Checking coverage thresholds..."
 	@./scripts/coverage-check.sh
+
+# Development targets
+
+setup: ## Install all dependencies (npm + cargo)
+	cd ui && npm install
+	cargo build --features ui
+
+dev: ## Run both backend and frontend dev servers
+	@echo "Starting dev servers..."
+	@echo "Backend API: http://localhost:9999"
+	@echo "Frontend: http://localhost:5173 (use this one)"
+	@echo ""
+	@trap 'kill $$(jobs -p) 2>/dev/null' EXIT; \
+	cargo watch -x 'run --features ui -- ui' & \
+	cd ui && npm run dev
+
+backend: ## Run backend with auto-reload on changes
+	cargo watch -x 'run --features ui -- ui'
+
+frontend: ## Run frontend dev server with hot-reload
+	cd ui && npm run dev
+
+install-watch: ## Install cargo-watch for auto-reload
+	cargo install cargo-watch

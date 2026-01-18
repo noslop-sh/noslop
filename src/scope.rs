@@ -1,7 +1,7 @@
-//! Target parsing and matching
+//! Scope parsing and matching
 //!
-//! A Target represents a reference to code in the repository.
-//! Targets support:
+//! A Scope represents a reference to code in the repository.
+//! Scopes support:
 //! - Exact paths: `src/auth.rs`
 //! - Glob patterns: `src/**/*.rs`, `*.rs`
 //! - Fragment identifiers: `src/auth.rs#L42`, `src/auth.rs#Session`
@@ -9,20 +9,20 @@
 //! # Examples
 //!
 //! ```
-//! use noslop::target::{Target, Fragment};
+//! use noslop::scope::{Scope, Fragment};
 //!
 //! // Exact file
-//! let t = Target::parse("src/auth.rs").unwrap();
-//! assert!(t.matches("src/auth.rs"));
+//! let s = Scope::parse("src/auth.rs").unwrap();
+//! assert!(s.matches("src/auth.rs"));
 //!
 //! // Glob pattern
-//! let t = Target::parse("src/**/*.rs").unwrap();
-//! assert!(t.matches("src/auth/login.rs"));
+//! let s = Scope::parse("src/**/*.rs").unwrap();
+//! assert!(s.matches("src/auth/login.rs"));
 //!
 //! // With line fragment
-//! let t = Target::parse("src/auth.rs#L42").unwrap();
-//! assert!(t.matches("src/auth.rs"));
-//! assert_eq!(t.fragment(), Some(&Fragment::Line(42)));
+//! let s = Scope::parse("src/auth.rs#L42").unwrap();
+//! assert!(s.matches("src/auth.rs"));
+//! assert_eq!(s.fragment(), Some(&Fragment::Line(42)));
 //! ```
 
 use std::path::Path;
@@ -30,11 +30,11 @@ use std::path::Path;
 use regex::Regex;
 use thiserror::Error;
 
-/// Errors that can occur when parsing a target
+/// Errors that can occur when parsing a scope
 #[derive(Debug, Error)]
 pub enum ParseError {
-    /// Target string was empty
-    #[error("empty target")]
+    /// Scope string was empty
+    #[error("empty scope")]
     Empty,
 
     /// Invalid line number in fragment
@@ -50,10 +50,10 @@ pub enum ParseError {
     InvalidGlob(String),
 }
 
-/// A parsed target reference
+/// A parsed scope reference
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Target {
-    /// The original target string
+pub struct Scope {
+    /// The original scope string
     raw: String,
 
     /// The path/pattern portion (before #)
@@ -63,7 +63,7 @@ pub struct Target {
     fragment: Option<Fragment>,
 }
 
-/// The path specification portion of a target
+/// The path specification portion of a scope
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum PathSpec {
     /// Exact file path: `src/auth.rs`
@@ -105,8 +105,8 @@ pub enum Fragment {
     Symbol(String),
 }
 
-impl Target {
-    /// Parse a target string into a Target
+impl Scope {
+    /// Parse a scope string into a Scope
     ///
     /// # Format
     ///
@@ -148,7 +148,7 @@ impl Target {
         })
     }
 
-    /// Get the original target string
+    /// Get the original scope string
     #[must_use]
     pub fn raw(&self) -> &str {
         &self.raw
@@ -166,20 +166,20 @@ impl Target {
         self.fragment.as_ref()
     }
 
-    /// Check if this target matches a given file path
+    /// Check if this scope matches a given file path
     ///
     /// This only checks the path portion - fragments are handled by the Resolver
     pub fn matches(&self, path: impl AsRef<Path>) -> bool {
         self.path_spec.matches(path)
     }
 
-    /// Check if this target has a fragment
+    /// Check if this scope has a fragment
     #[must_use]
     pub const fn has_fragment(&self) -> bool {
         self.fragment.is_some()
     }
 
-    /// Check if this target is a glob pattern
+    /// Check if this scope is a glob pattern
     #[must_use]
     pub const fn is_glob(&self) -> bool {
         matches!(self.path_spec, PathSpec::Glob(_))
@@ -388,7 +388,7 @@ impl Fragment {
     }
 }
 
-impl std::fmt::Display for Target {
+impl std::fmt::Display for Scope {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.raw)
     }

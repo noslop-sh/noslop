@@ -1,5 +1,6 @@
 //! Task command - manage tasks using git-like refs storage
 
+use noslop::config::GlobalConfig;
 use noslop::output::OutputMode;
 use noslop::storage::TaskRefs;
 
@@ -83,14 +84,24 @@ fn list(status_filter: Option<&str>, unblocked_only: bool, mode: OutputMode) -> 
         let json_tasks: Vec<_> = filtered
             .iter()
             .map(|(id, t)| {
+                let concepts_info = get_concepts_info(&t.concepts);
                 serde_json::json!({
                     "id": id,
                     "title": t.title,
+                    "description": t.description,
                     "status": t.status,
                     "priority": t.priority,
                     "blocked_by": t.blocked_by,
                     "current": current.as_ref() == Some(id),
                     "blocked": t.is_blocked(&tasks),
+                    "concepts": concepts_info.iter().map(|(cid, name, desc)| {
+                        serde_json::json!({
+                            "id": cid,
+                            "name": name,
+                            "description": desc,
+                        })
+                    }).collect::<Vec<_>>(),
+                    "scope": t.scope,
                 })
             })
             .collect();
@@ -137,12 +148,14 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
 
     if mode == OutputMode::Json {
         if let Some(t) = task {
+            let concepts_info = get_concepts_info(&t.concepts);
             println!(
                 "{}",
                 serde_json::json!({
                     "found": true,
                     "id": id,
                     "title": t.title,
+                    "description": t.description,
                     "status": t.status,
                     "priority": t.priority,
                     "blocked_by": t.blocked_by,
@@ -150,6 +163,14 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
                     "current": current.as_deref() == Some(id),
                     "created_at": t.created_at,
                     "notes": t.notes,
+                    "concepts": concepts_info.iter().map(|(cid, name, desc)| {
+                        serde_json::json!({
+                            "id": cid,
+                            "name": name,
+                            "description": desc,
+                        })
+                    }).collect::<Vec<_>>(),
+                    "scope": t.scope,
                 })
             );
         } else {
@@ -172,6 +193,33 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
         println!("  Created:  {}", t.created_at);
         if let Some(notes) = &t.notes {
             println!("  Notes:    {}", notes);
+        }
+        // Show description if present
+        if let Some(desc) = &t.description {
+            println!();
+            println!("Description:");
+            for line in desc.lines() {
+                println!("  {}", line);
+            }
+        }
+        // Show concepts info if present
+        let concepts_info = get_concepts_info(&t.concepts);
+        for (concept_id, concept_name, concept_desc) in concepts_info {
+            println!();
+            println!("Concept: {} ({})", concept_name, concept_id);
+            if let Some(desc) = concept_desc {
+                for line in desc.lines() {
+                    println!("  {}", line);
+                }
+            }
+        }
+        // Show scope if present
+        if !t.scope.is_empty() {
+            println!();
+            println!("Scope:");
+            for pattern in &t.scope {
+                println!("  {}", pattern);
+            }
         }
     } else {
         println!("Task not found: {}", id);
@@ -215,14 +263,21 @@ fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
 
     match result {
         Some((id, task)) => {
-            let linked_branch = if start {
+            let (linked_branch, task_desc) = if start {
                 // Use centralized start logic
                 TaskRefs::start(&id)?;
-                // Re-fetch task to get linked branch
-                TaskRefs::get(&id)?.and_then(|t| t.branch)
+                // Re-fetch task to get linked branch and updated info
+                let updated = TaskRefs::get(&id)?;
+                (
+                    updated.as_ref().and_then(|t| t.branch.clone()),
+                    updated.as_ref().and_then(|t| t.description.clone()),
+                )
             } else {
-                task.branch.clone()
+                (task.branch.clone(), task.description.clone())
             };
+
+            // Get concepts info if task has concepts
+            let concepts_info = get_concepts_info(&task.concepts);
 
             if mode == OutputMode::Json {
                 println!(
@@ -231,10 +286,18 @@ fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
                         "found": true,
                         "id": id,
                         "title": task.title,
+                        "description": task_desc,
                         "priority": task.priority,
                         "notes": task.notes,
                         "started": start,
                         "branch": linked_branch,
+                        "concepts": concepts_info.iter().map(|(cid, name, desc)| {
+                            serde_json::json!({
+                                "id": cid,
+                                "name": name,
+                                "description": desc,
+                            })
+                        }).collect::<Vec<_>>(),
                     })
                 );
             } else if start {
@@ -242,6 +305,24 @@ fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
                 println!("  {}", task.title);
                 if let Some(branch) = linked_branch {
                     println!("  Linked to: {}", branch);
+                }
+                // Show task description if present
+                if let Some(desc) = &task_desc {
+                    println!();
+                    println!("Task context:");
+                    for line in desc.lines() {
+                        println!("  {}", line);
+                    }
+                }
+                // Show concepts context if present
+                for (concept_id, concept_name, concept_desc) in &concepts_info {
+                    println!();
+                    println!("Concept: {} ({})", concept_name, concept_id);
+                    if let Some(desc) = concept_desc {
+                        for line in desc.lines() {
+                            println!("  {}", line);
+                        }
+                    }
                 }
             } else {
                 println!("Next: {} - {}", id, task.title);
@@ -267,7 +348,10 @@ fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
     if TaskRefs::start(id)? {
         // Re-fetch task to get linked branch
         let task = TaskRefs::get(id)?.unwrap();
-        let branch = task.branch;
+        let branch = task.branch.clone();
+
+        // Get concepts info if task has concepts
+        let concepts_info = get_concepts_info(&task.concepts);
 
         if mode == OutputMode::Json {
             println!(
@@ -275,8 +359,17 @@ fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
                 serde_json::json!({
                     "success": true,
                     "id": id,
+                    "title": task.title,
+                    "description": task.description,
                     "status": "in_progress",
                     "branch": branch,
+                    "concepts": concepts_info.iter().map(|(cid, name, desc)| {
+                        serde_json::json!({
+                            "id": cid,
+                            "name": name,
+                            "description": desc,
+                        })
+                    }).collect::<Vec<_>>(),
                 })
             );
         } else {
@@ -284,6 +377,24 @@ fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
             println!("  {}", task.title);
             if let Some(branch) = branch {
                 println!("  Linked to: {}", branch);
+            }
+            // Show task description if present
+            if let Some(desc) = &task.description {
+                println!();
+                println!("Task context:");
+                for line in desc.lines() {
+                    println!("  {}", line);
+                }
+            }
+            // Show concepts context if present
+            for (concept_id, concept_name, concept_desc) in &concepts_info {
+                println!();
+                println!("Concept: {} ({})", concept_name, concept_id);
+                if let Some(desc) = concept_desc {
+                    for line in desc.lines() {
+                        println!("  {}", line);
+                    }
+                }
             }
         }
     } else if mode == OutputMode::Json {
@@ -293,6 +404,26 @@ fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+/// Get concept info (id, name, description) for multiple concept IDs
+fn get_concepts_info(concept_ids: &[String]) -> Vec<(String, String, Option<String>)> {
+    if concept_ids.is_empty() {
+        return Vec::new();
+    }
+    let cwd = match std::env::current_dir() {
+        Ok(p) => p,
+        Err(_) => return Vec::new(),
+    };
+    let config = GlobalConfig::load();
+    concept_ids
+        .iter()
+        .filter_map(|id| {
+            config
+                .get_concept(&cwd, id)
+                .map(|c| (c.id.clone(), c.name.clone(), c.description.clone()))
+        })
+        .collect()
 }
 
 fn done(mode: OutputMode) -> anyhow::Result<()> {

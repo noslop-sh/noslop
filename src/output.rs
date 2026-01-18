@@ -37,8 +37,8 @@ pub struct CheckMatch {
     pub id: String,
     /// The file that matched
     pub file: String,
-    /// The check target pattern
-    pub target: String,
+    /// The check scope pattern
+    pub scope: String,
     /// The check message
     pub message: String,
     /// Severity level
@@ -59,8 +59,8 @@ pub struct CheckListResult {
 pub struct CheckInfo {
     /// Check ID (<file:index> format)
     pub id: String,
-    /// Target pattern
-    pub target: String,
+    /// Scope pattern
+    pub scope: String,
     /// Check message
     pub message: String,
     /// Severity level
@@ -158,7 +158,7 @@ impl CheckListResult {
 
         println!("Checks:\n");
         for c in &self.checks {
-            println!("  [{}] {}", c.severity.to_uppercase(), c.target);
+            println!("  [{}] {}", c.severity.to_uppercase(), c.scope);
             println!("  ID: {}", c.id);
             println!("  {}\n", c.message);
         }

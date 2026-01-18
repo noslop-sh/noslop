@@ -57,8 +57,9 @@ pub struct CheckEntry {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
 
-    /// Target pattern (glob or path)
-    pub target: String,
+    /// Scope pattern (glob or path) - accepts both "scope" and legacy "target" in TOML
+    #[serde(alias = "target")]
+    pub scope: String,
     /// The check message
     pub message: String,
     /// Severity: info, warn, block
@@ -128,10 +129,10 @@ pub fn load_checks_for_files(files: &[String]) -> anyhow::Result<Vec<(Check, Str
             let noslop_dir = noslop_path.parent().unwrap_or(&cwd);
 
             for entry in noslop_file.all_checks() {
-                if matches_target(&entry.target, file, noslop_dir, &cwd) {
+                if matches_scope(&entry.scope, file, noslop_dir, &cwd) {
                     let check = Check::new(
                         entry.id.clone(),
-                        entry.target.clone(),
+                        entry.scope.clone(),
                         entry.message.clone(),
                         entry.severity.parse().unwrap_or(Severity::Block),
                     );
@@ -148,8 +149,8 @@ pub fn load_checks_for_files(files: &[String]) -> anyhow::Result<Vec<(Check, Str
     Ok(result)
 }
 
-/// Check if a target pattern matches a file
-fn matches_target(target: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bool {
+/// Check if a scope pattern matches a file
+fn matches_scope(scope: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bool {
     // Get relative path from noslop_dir
     let file_abs = cwd.join(file);
     let file_rel = file_abs
@@ -157,20 +158,20 @@ fn matches_target(target: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bo
         .map_or_else(|_| file.to_string(), |p| p.to_string_lossy().to_string());
 
     // Simple matching for now
-    if target == "*" {
+    if scope == "*" {
         return true;
     }
 
     // Glob-style: *.rs matches any .rs file
-    if target.starts_with("*.") {
-        let ext = &target[1..]; // ".rs"
+    if scope.starts_with("*.") {
+        let ext = &scope[1..]; // ".rs"
         return file_rel.ends_with(ext);
     }
 
     // Glob-style: dir/*.ext matches files in dir with extension
-    if let Some(star_pos) = target.find("/*") {
-        let prefix = &target[..=star_pos]; // "src/"
-        let suffix = &target[star_pos + 2..]; // ".rs" or ""
+    if let Some(star_pos) = scope.find("/*") {
+        let prefix = &scope[..=star_pos]; // "src/"
+        let suffix = &scope[star_pos + 2..]; // ".rs" or ""
 
         // File must start with prefix
         if !file_rel.starts_with(prefix) && !file.starts_with(prefix) {
@@ -196,9 +197,9 @@ fn matches_target(target: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bo
     }
 
     // Glob-style: dir/**/*.ext matches all files recursively
-    if let Some(doublestar_pos) = target.find("/**") {
-        let prefix = &target[..=doublestar_pos]; // "src/"
-        let suffix = target.strip_suffix(".rs").map_or("", |_| ".rs");
+    if let Some(doublestar_pos) = scope.find("/**") {
+        let prefix = &scope[..=doublestar_pos]; // "src/"
+        let suffix = scope.strip_suffix(".rs").map_or("", |_| ".rs");
 
         if (file_rel.starts_with(prefix) || file.starts_with(prefix)) && file_rel.ends_with(suffix)
         {
@@ -207,11 +208,11 @@ fn matches_target(target: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bo
     }
 
     // Exact or prefix match
-    file_rel == target || file_rel.starts_with(target) || file.contains(target)
+    file_rel == scope || file_rel.starts_with(scope) || file.contains(scope)
 }
 
 /// Create or update a .noslop.toml file with a new check
-pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<String> {
+pub fn add_check(scope: &str, message: &str, severity: &str) -> anyhow::Result<String> {
     let path = Path::new(".noslop.toml");
 
     let mut file = if path.exists() {
@@ -239,7 +240,7 @@ pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<
 
     let entry = CheckEntry {
         id: Some(generated_id.clone()),
-        target: target.to_string(),
+        scope: scope.to_string(),
         message: message.to_string(),
         severity: severity.to_string(),
         tags: Vec::new(),
@@ -273,7 +274,7 @@ fn format_noslop_file(file: &NoslopFile) -> String {
         if let Some(id) = &entry.id {
             let _ = writeln!(out, "id = \"{id}\"");
         }
-        let _ = writeln!(out, "target = \"{}\"", entry.target);
+        let _ = writeln!(out, "scope = \"{}\"", entry.scope);
         let _ = writeln!(out, "message = \"{}\"", entry.message);
         let _ = writeln!(out, "severity = \"{}\"", entry.severity);
         if !entry.tags.is_empty() {

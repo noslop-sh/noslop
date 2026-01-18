@@ -7,15 +7,17 @@ use std::path::Path;
 
 use crate::config::GlobalConfig;
 use crate::noslop_file;
+use crate::scope::Scope;
 use crate::storage::TaskRefs;
 
 use super::error::ApiError;
 use super::types::{
     BlockerRequest, BranchInfo, BranchSelection, CheckCreateData, CheckItem, ChecksData,
-    ConfigData, CreateCheckRequest, CreateProjectRequest, CreateTaskRequest, LinkBranchRequest,
-    ProjectCreateData, ProjectInfo, ProjectsData, RepoInfo, SelectProjectRequest, StatusData,
-    TaskCounts, TaskCreateData, TaskDetailData, TaskItem, TaskMutationData, TasksData,
-    UpdateConfigRequest, WorkspaceData,
+    ConceptCreateData, ConceptInfo, ConceptsData, ConfigData, CreateCheckRequest,
+    CreateConceptRequest, CreateTaskRequest, LinkBranchRequest, RepoInfo, SelectConceptRequest,
+    StatusData, TaskCheckItem, TaskCounts, TaskCreateData, TaskDetailData, TaskItem,
+    TaskMutationData, TasksData, UpdateConceptRequest, UpdateConfigRequest, UpdateTaskRequest,
+    WorkspaceData,
 };
 
 // =============================================================================
@@ -57,38 +59,51 @@ pub fn list_tasks() -> Result<TasksData, ApiError> {
     list_tasks_filtered(None, None)
 }
 
-/// List tasks with optional project and/or branch filter
+/// List tasks with optional concept and/or branch filter
 pub fn list_tasks_filtered(
-    project_filter: Option<&str>,
+    concept_filter: Option<&str>,
     branch_filter: Option<&str>,
 ) -> Result<TasksData, ApiError> {
     let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
-
     let current = TaskRefs::current().ok().flatten();
+
+    // Load config and cwd for check computation
+    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
+    let config = GlobalConfig::load();
 
     let task_items: Vec<TaskItem> = tasks
         .iter()
         .filter(|(_, t)| {
-            // If project filter is set, only include tasks with matching project
-            let project_match =
-                project_filter.is_none_or(|filter| t.project.as_deref() == Some(filter));
+            // If concept filter is set, only include tasks that have the concept
+            let concept_match = concept_filter.is_none_or(|filter| t.has_concept(filter));
             // If branch filter is set, only include tasks with matching branch
             let branch_match =
                 branch_filter.is_none_or(|filter| t.branch.as_deref() == Some(filter));
-            project_match && branch_match
+            concept_match && branch_match
         })
-        .map(|(id, t)| TaskItem {
-            id: id.clone(),
-            title: t.title.clone(),
-            status: t.status.clone(),
-            priority: t.priority.clone(),
-            blocked_by: t.blocked_by.clone(),
-            current: current.as_ref() == Some(id),
-            blocked: t.is_blocked(&tasks),
-            branch: t.branch.clone(),
-            started_at: t.started_at.clone(),
-            completed_at: t.completed_at.clone(),
-            project: t.project.clone(),
+        .map(|(id, t)| {
+            // Compute checks for this task
+            let checks = compute_task_checks(&t.scope, &t.concepts, &config, &cwd);
+            let check_count = checks.len();
+            let checks_verified = checks.iter().filter(|c| c.verified).count();
+
+            TaskItem {
+                id: id.clone(),
+                title: t.title.clone(),
+                description: t.description.clone(),
+                status: t.status.clone(),
+                priority: t.priority.clone(),
+                blocked_by: t.blocked_by.clone(),
+                current: current.as_ref() == Some(id),
+                blocked: t.is_blocked(&tasks),
+                branch: t.branch.clone(),
+                started_at: t.started_at.clone(),
+                completed_at: t.completed_at.clone(),
+                concepts: t.concepts.clone(),
+                scope: t.scope.clone(),
+                check_count,
+                checks_verified,
+            }
         })
         .collect();
 
@@ -103,9 +118,20 @@ pub fn get_task(id: &str) -> Result<TaskDetailData, ApiError> {
         Ok(Some(task)) => {
             let current = TaskRefs::current().ok().flatten();
             let blocked = task.is_blocked(&tasks);
+
+            // Load config and cwd for check computation
+            let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
+            let config = GlobalConfig::load();
+
+            // Compute checks for this task
+            let checks = compute_task_checks(&task.scope, &task.concepts, &config, &cwd);
+            let check_count = checks.len();
+            let checks_verified = checks.iter().filter(|c| c.verified).count();
+
             Ok(TaskDetailData {
                 id: id.to_string(),
                 title: task.title,
+                description: task.description,
                 status: task.status,
                 priority: task.priority,
                 blocked_by: task.blocked_by,
@@ -116,7 +142,11 @@ pub fn get_task(id: &str) -> Result<TaskDetailData, ApiError> {
                 branch: task.branch,
                 started_at: task.started_at,
                 completed_at: task.completed_at,
-                project: task.project,
+                concepts: task.concepts,
+                scope: task.scope,
+                check_count,
+                checks_verified,
+                checks,
             })
         },
         Ok(None) => Err(ApiError::not_found(format!("Task '{id}' not found"))),
@@ -132,11 +162,14 @@ pub fn create_task(req: &CreateTaskRequest) -> Result<TaskCreateData, ApiError> 
 
     let priority = req.priority.as_deref();
 
-    // Use project from request (don't inherit - let UI handle that)
-    let project = req.project.as_deref();
-
-    let id = TaskRefs::create_with_project(&req.title, priority, project)
+    let id = TaskRefs::create_with_concepts(&req.title, priority, &req.concepts)
         .map_err(|e| ApiError::internal(e.to_string()))?;
+
+    // Set description if provided
+    if let Some(desc) = &req.description {
+        TaskRefs::set_description(&id, Some(desc))
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+    }
 
     let task = TaskRefs::get(&id)
         .map_err(|e| ApiError::internal(e.to_string()))?
@@ -294,7 +327,7 @@ pub fn list_checks() -> Result<ChecksData, ApiError> {
                 .enumerate()
                 .map(|(i, c)| CheckItem {
                     id: c.id.clone().unwrap_or_else(|| format!("CHK-{}", i + 1)),
-                    target: c.target.clone(),
+                    scope: c.scope.clone(),
                     message: c.message.clone(),
                     severity: c.severity.clone(),
                 })
@@ -307,8 +340,8 @@ pub fn list_checks() -> Result<ChecksData, ApiError> {
 
 /// Create a new check
 pub fn create_check(req: &CreateCheckRequest) -> Result<CheckCreateData, ApiError> {
-    if req.target.trim().is_empty() {
-        return Err(ApiError::bad_request("Check target cannot be empty"));
+    if req.scope.trim().is_empty() {
+        return Err(ApiError::bad_request("Check scope cannot be empty"));
     }
     if req.message.trim().is_empty() {
         return Err(ApiError::bad_request("Check message cannot be empty"));
@@ -320,12 +353,12 @@ pub fn create_check(req: &CreateCheckRequest) -> Result<CheckCreateData, ApiErro
         _ => return Err(ApiError::bad_request("Severity must be 'block', 'warn', or 'info'")),
     };
 
-    let id = noslop_file::add_check(&req.target, &req.message, &severity)
+    let id = noslop_file::add_check(&req.scope, &req.message, &severity)
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
     Ok(CheckCreateData {
         id,
-        target: req.target.clone(),
+        scope: req.scope.clone(),
         message: req.message.clone(),
         severity,
     })
@@ -347,6 +380,83 @@ fn load_check_count() -> usize {
         return 0;
     }
     noslop_file::load_file(path).map(|f| f.checks.len()).unwrap_or(0)
+}
+
+/// Compute checks that apply to a task based on aggregated scope overlap
+///
+/// Effective scope = task.scope ∪ concepts[*].scope
+/// A check applies if check.scope overlaps with the effective scope
+fn compute_task_checks(
+    task_scope: &[String],
+    task_concepts: &[String],
+    config: &GlobalConfig,
+    cwd: &Path,
+) -> Vec<TaskCheckItem> {
+    // Load checks from .noslop.toml
+    let path = Path::new(".noslop.toml");
+    if !path.exists() {
+        return Vec::new();
+    }
+
+    let Ok(file) = noslop_file::load_file(path) else {
+        return Vec::new();
+    };
+
+    if file.checks.is_empty() {
+        return Vec::new();
+    }
+
+    // Build effective scope: task.scope ∪ concepts[*].scope
+    let mut effective_scope: Vec<&str> = task_scope.iter().map(String::as_str).collect();
+
+    // Add scope patterns from attached concepts
+    for concept_id in task_concepts {
+        if let Some(concept) = config.get_concept(cwd, concept_id) {
+            for pattern in &concept.scope {
+                effective_scope.push(pattern);
+            }
+        }
+    }
+
+    if effective_scope.is_empty() {
+        return Vec::new();
+    }
+
+    // Parse effective scope patterns
+    let parsed_effective: Vec<Scope> =
+        effective_scope.iter().filter_map(|s| Scope::parse(s).ok()).collect();
+
+    // Check each check against the effective scope
+    let mut result = Vec::new();
+    for (i, check) in file.checks.iter().enumerate() {
+        let Ok(check_scope) = Scope::parse(&check.scope) else {
+            continue;
+        };
+
+        // Check if any effective scope pattern overlaps with check scope
+        let applies = parsed_effective.iter().any(|eff| {
+            // Check both directions: check applies to effective, or effective applies to check
+            // This handles cases like:
+            //   - check scope: src/auth/** (pattern), effective: src/auth/login.rs (file)
+            //   - check scope: src/auth.rs (file), effective: src/** (pattern)
+            let check_pattern = check_scope.path_pattern();
+            let eff_pattern = eff.path_pattern();
+
+            // Direct match check
+            check_scope.matches(eff_pattern) || eff.matches(check_pattern)
+        });
+
+        if applies {
+            result.push(TaskCheckItem {
+                id: check.id.clone().unwrap_or_else(|| format!("CHK-{}", i + 1)),
+                message: check.message.clone(),
+                severity: check.severity.clone(),
+                verified: false, // TODO: Wire up verification status
+            });
+        }
+    }
+
+    result
 }
 
 // =============================================================================
@@ -546,63 +656,64 @@ pub fn update_config(req: &UpdateConfigRequest) -> Result<ConfigData, ApiError> 
 }
 
 // =============================================================================
-// PROJECTS
+// CONCEPTS
 // =============================================================================
 
-/// List all projects in the workspace
-pub fn list_projects() -> Result<ProjectsData, ApiError> {
+/// List all concepts in the workspace
+pub fn list_concepts() -> Result<ConceptsData, ApiError> {
     let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
     let config = GlobalConfig::load();
     let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
 
-    let projects: Vec<ProjectInfo> = config
-        .list_projects(&cwd)
+    let concepts: Vec<ConceptInfo> = config
+        .list_concepts(&cwd)
         .into_iter()
-        .map(|p| {
-            let task_count =
-                tasks.iter().filter(|(_, t)| t.project.as_deref() == Some(&p.id)).count();
-            ProjectInfo {
-                id: p.id.clone(),
-                name: p.name.clone(),
+        .map(|c| {
+            let task_count = tasks.iter().filter(|(_, t)| t.has_concept(&c.id)).count();
+            ConceptInfo {
+                id: c.id.clone(),
+                name: c.name.clone(),
+                description: c.description.clone(),
+                scope: c.scope.clone(),
                 task_count,
-                created_at: p.created_at.clone(),
+                created_at: c.created_at.clone(),
             }
         })
         .collect();
 
-    let current_project = config.current_project(&cwd).map(String::from);
+    let current_concept = config.current_concept(&cwd).map(String::from);
 
-    Ok(ProjectsData {
-        projects,
-        current_project,
+    Ok(ConceptsData {
+        concepts,
+        current_concept,
     })
 }
 
-/// Create a new project
-pub fn create_project(req: &CreateProjectRequest) -> Result<ProjectCreateData, ApiError> {
+/// Create a new concept
+pub fn create_concept(req: &CreateConceptRequest) -> Result<ConceptCreateData, ApiError> {
     if req.name.trim().is_empty() {
-        return Err(ApiError::bad_request("Project name cannot be empty"));
+        return Err(ApiError::bad_request("Concept name cannot be empty"));
     }
 
     let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
     let mut config = GlobalConfig::load();
 
-    let id = config.create_project(&cwd, &req.name);
+    let id = config.create_concept(&cwd, &req.name, req.description.as_deref());
     config.save().map_err(|e| ApiError::internal(e.to_string()))?;
 
-    Ok(ProjectCreateData {
+    Ok(ConceptCreateData {
         id,
         name: req.name.clone(),
     })
 }
 
-/// Delete a project
-pub fn delete_project(id: &str) -> Result<(), ApiError> {
+/// Delete a concept
+pub fn delete_concept(id: &str) -> Result<(), ApiError> {
     let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
     let mut config = GlobalConfig::load();
 
-    if !config.delete_project(&cwd, id) {
-        return Err(ApiError::not_found(format!("Project '{id}' not found")));
+    if !config.delete_concept(&cwd, id) {
+        return Err(ApiError::not_found(format!("Concept '{id}' not found")));
     }
 
     config.save().map_err(|e| ApiError::internal(e.to_string()))?;
@@ -610,20 +721,72 @@ pub fn delete_project(id: &str) -> Result<(), ApiError> {
     Ok(())
 }
 
-/// Select the current project (or None for "view all")
-pub fn select_project(req: &SelectProjectRequest) -> Result<ProjectsData, ApiError> {
+/// Select the current concept (or None for "view all")
+pub fn select_concept(req: &SelectConceptRequest) -> Result<ConceptsData, ApiError> {
     let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
     let mut config = GlobalConfig::load();
 
-    // Verify project exists if an ID is provided
+    // Verify concept exists if an ID is provided
     if let Some(id) = &req.id
-        && config.get_project(&cwd, id).is_none()
+        && config.get_concept(&cwd, id).is_none()
     {
-        return Err(ApiError::not_found(format!("Project '{id}' not found")));
+        return Err(ApiError::not_found(format!("Concept '{id}' not found")));
     }
 
-    config.set_current_project(&cwd, req.id.as_deref());
+    config.set_current_concept(&cwd, req.id.as_deref());
     config.save().map_err(|e| ApiError::internal(e.to_string()))?;
 
-    list_projects()
+    list_concepts()
+}
+
+/// Update a concept's description
+pub fn update_concept(id: &str, req: &UpdateConceptRequest) -> Result<ConceptInfo, ApiError> {
+    let cwd = std::env::current_dir().map_err(|e| ApiError::internal(e.to_string()))?;
+    let mut config = GlobalConfig::load();
+
+    if !config.update_concept_description(&cwd, id, req.description.as_deref()) {
+        return Err(ApiError::not_found(format!("Concept '{id}' not found")));
+    }
+
+    config.save().map_err(|e| ApiError::internal(e.to_string()))?;
+
+    // Return updated concept
+    let concept = config
+        .get_concept(&cwd, id)
+        .ok_or_else(|| ApiError::internal("Concept updated but could not be read back"))?;
+
+    let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
+    let task_count = tasks.iter().filter(|(_, t)| t.has_concept(id)).count();
+
+    Ok(ConceptInfo {
+        id: concept.id.clone(),
+        name: concept.name.clone(),
+        description: concept.description.clone(),
+        scope: concept.scope.clone(),
+        task_count,
+        created_at: concept.created_at.clone(),
+    })
+}
+
+/// Update a task's description and/or concepts
+pub fn update_task(id: &str, req: &UpdateTaskRequest) -> Result<TaskDetailData, ApiError> {
+    // Verify task exists
+    if TaskRefs::get(id).map_err(|e| ApiError::internal(e.to_string()))?.is_none() {
+        return Err(ApiError::not_found(format!("Task '{id}' not found")));
+    }
+
+    // Update description if provided
+    if req.description.is_some() {
+        TaskRefs::set_description(id, req.description.as_deref())
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+    }
+
+    // Update concepts if provided
+    if let Some(concepts) = &req.concepts {
+        let concept_refs: Vec<&str> = concepts.iter().map(String::as_str).collect();
+        TaskRefs::set_concepts(id, &concept_refs).map_err(|e| ApiError::internal(e.to_string()))?;
+    }
+
+    // Return updated task
+    get_task(id)
 }

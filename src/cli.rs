@@ -128,7 +128,7 @@ pub enum CheckAction {
     /// Add a check
     Add {
         /// File or pattern this check applies to
-        target: String,
+        scope: String,
 
         /// The check message
         #[arg(short, long)]
@@ -143,7 +143,7 @@ pub enum CheckAction {
     List {
         /// Filter by file
         #[arg(short, long)]
-        target: Option<String>,
+        scope: Option<String>,
     },
 
     /// Remove a check

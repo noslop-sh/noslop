@@ -10,8 +10,9 @@ use serde::{Serialize, de::DeserializeOwned};
 use tiny_http::{Header, Method, Request, Response, StatusCode};
 
 use noslop::api::{
-    self, ApiError, ApiResponse, BlockerRequest, CreateCheckRequest, CreateProjectRequest,
-    CreateTaskRequest, LinkBranchRequest, SelectProjectRequest, UpdateConfigRequest,
+    self, ApiError, ApiResponse, BlockerRequest, CreateCheckRequest, CreateConceptRequest,
+    CreateTaskRequest, LinkBranchRequest, SelectConceptRequest, UpdateConceptRequest,
+    UpdateConfigRequest, UpdateTaskRequest,
 };
 
 // =============================================================================
@@ -40,7 +41,7 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
         (&Method::Get, "/checks") => handle_result(api::list_checks()),
         (&Method::Get, "/workspace") => handle_result(api::get_workspace()),
         (&Method::Get, "/config") => handle_result(api::get_config()),
-        (&Method::Get, "/projects") => handle_result(api::list_projects()),
+        (&Method::Get, "/concepts") => handle_result(api::list_concepts()),
 
         // PATCH /config - update config
         (&Method::Patch, "/config") => match read_json_body::<UpdateConfigRequest>(request) {
@@ -60,16 +61,16 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
             Err(e) => error_response(&e),
         },
 
-        // POST /projects - create project
-        (&Method::Post, "/projects") => match read_json_body::<CreateProjectRequest>(request) {
-            Ok(req) => handle_result(api::create_project(&req)),
+        // POST /concepts - create concept
+        (&Method::Post, "/concepts") => match read_json_body::<CreateConceptRequest>(request) {
+            Ok(req) => handle_result(api::create_concept(&req)),
             Err(e) => error_response(&e),
         },
 
-        // POST /projects/select - select current project
-        (&Method::Post, "/projects/select") => {
-            match read_json_body::<SelectProjectRequest>(request) {
-                Ok(req) => handle_result(api::select_project(&req)),
+        // POST /concepts/select - select current concept
+        (&Method::Post, "/concepts/select") => {
+            match read_json_body::<SelectConceptRequest>(request) {
+                Ok(req) => handle_result(api::select_concept(&req)),
                 Err(e) => error_response(&e),
             }
         },
@@ -173,6 +174,34 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
             }
         },
 
+        // Task update: PATCH /tasks/{id}
+        _ if method == Method::Patch && api_path.starts_with("/tasks/") => {
+            let id = api_path.strip_prefix("/tasks/").unwrap_or("");
+            // Make sure it's not a sub-action like /tasks/id/something
+            if !id.contains('/') {
+                match read_json_body::<UpdateTaskRequest>(request) {
+                    Ok(req) => handle_result(api::update_task(id, &req)),
+                    Err(e) => error_response(&e),
+                }
+            } else {
+                not_found_response(&format!("API endpoint not found: {} {}", method, api_path))
+            }
+        },
+
+        // Concept update: PATCH /concepts/{id}
+        _ if method == Method::Patch && api_path.starts_with("/concepts/") => {
+            let id = api_path.strip_prefix("/concepts/").unwrap_or("");
+            // Make sure it's not a sub-action like /concepts/id/something
+            if !id.contains('/') {
+                match read_json_body::<UpdateConceptRequest>(request) {
+                    Ok(req) => handle_result(api::update_concept(id, &req)),
+                    Err(e) => error_response(&e),
+                }
+            } else {
+                not_found_response(&format!("API endpoint not found: {} {}", method, api_path))
+            }
+        },
+
         // Task delete: DELETE /tasks/{id}
         _ if method == Method::Delete && api_path.starts_with("/tasks/") => {
             let id = api_path.strip_prefix("/tasks/").unwrap_or("");
@@ -184,12 +213,12 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
             }
         },
 
-        // Project delete: DELETE /projects/{id}
-        _ if method == Method::Delete && api_path.starts_with("/projects/") => {
-            let id = api_path.strip_prefix("/projects/").unwrap_or("");
+        // Concept delete: DELETE /concepts/{id}
+        _ if method == Method::Delete && api_path.starts_with("/concepts/") => {
+            let id = api_path.strip_prefix("/concepts/").unwrap_or("");
             if !id.contains('/') {
                 handle_result(
-                    api::delete_project(id).map(|()| serde_json::json!({"deleted": true})),
+                    api::delete_concept(id).map(|()| serde_json::json!({"deleted": true})),
                 )
             } else {
                 not_found_response(&format!("API endpoint not found: {} {}", method, api_path))

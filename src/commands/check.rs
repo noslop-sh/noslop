@@ -50,16 +50,16 @@ pub fn check_run(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
 
     for (check, file) in &applicable {
         let is_verified = verifications.iter().any(|v| {
-            // Priority matching: ID first, then message, then target
+            // Priority matching: ID first, then message, then scope
             v.check_id == check.id
                 || v.check_id.contains(&check.message)
-                || v.check_id == check.target
+                || v.check_id == check.scope
         });
 
         let check_match = CheckMatch {
             id: check.id.clone(),
             file: file.clone(),
-            target: check.target.clone(),
+            scope: check.scope.clone(),
             message: check.message.clone(),
             severity: check.severity.to_string(),
             verified: is_verified,

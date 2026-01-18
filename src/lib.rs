@@ -37,5 +37,5 @@ pub mod noslop_file;
 pub mod output;
 pub mod parser;
 pub mod resolver;
+pub mod scope;
 pub mod storage;
-pub mod target;

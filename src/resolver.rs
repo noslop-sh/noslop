@@ -1,17 +1,17 @@
-//! Resolver - resolves Targets to actual file content
+//! Resolver - resolves Scopes to actual file content
 //!
-//! The Resolver takes a `Target` and returns matching files from the repository,
+//! The Resolver takes a `Scope` and returns matching files from the repository,
 //! optionally extracting specific content (lines, symbols).
 //!
 //! # Examples
 //!
 //! ```no_run
-//! use noslop::target::Target;
+//! use noslop::scope::Scope;
 //! use noslop::resolver::Resolver;
 //!
 //! let resolver = Resolver::new(".").unwrap();
-//! let target = Target::parse("src/**/*.rs").unwrap();
-//! let files = resolver.resolve(&target).unwrap();
+//! let scope = Scope::parse("src/**/*.rs").unwrap();
+//! let files = resolver.resolve(&scope).unwrap();
 //! ```
 
 use std::fs;
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use walkdir::WalkDir;
 
-use crate::target::{Fragment, Target};
+use crate::scope::{Fragment, Scope};
 
 /// Errors that can occur during resolution
 #[derive(Debug, Error)]
@@ -133,8 +133,8 @@ impl Resolver {
         &self.root
     }
 
-    /// Find all files matching a target (without content extraction)
-    pub fn find_files(&self, target: &Target) -> Result<Vec<PathBuf>, ResolveError> {
+    /// Find all files matching a scope (without content extraction)
+    pub fn find_files(&self, scope: &Scope) -> Result<Vec<PathBuf>, ResolveError> {
         let mut matches = Vec::new();
         let root = &self.root;
 
@@ -153,7 +153,7 @@ impl Resolver {
             let path = entry.path();
             let relative = path.strip_prefix(root).unwrap_or(path).to_path_buf();
 
-            if target.matches(&relative) {
+            if scope.matches(&relative) {
                 matches.push(relative);
             }
         }
@@ -163,14 +163,14 @@ impl Resolver {
         Ok(matches)
     }
 
-    /// Resolve a target to files with content extraction
-    pub fn resolve(&self, target: &Target) -> Result<Vec<ResolvedFile>, ResolveError> {
-        let files = self.find_files(target)?;
+    /// Resolve a scope to files with content extraction
+    pub fn resolve(&self, scope: &Scope) -> Result<Vec<ResolvedFile>, ResolveError> {
+        let files = self.find_files(scope)?;
         let mut resolved = Vec::with_capacity(files.len());
 
         for path in files {
             let absolute_path = self.root.join(&path);
-            let content = match target.fragment() {
+            let content = match scope.fragment() {
                 Some(fragment) => Some(self.extract_content(&absolute_path, fragment)?),
                 None => None,
             };
@@ -185,14 +185,14 @@ impl Resolver {
         Ok(resolved)
     }
 
-    /// Resolve a target and return just file paths (convenience method)
-    pub fn resolve_paths(&self, target: &Target) -> Result<Vec<PathBuf>, ResolveError> {
-        self.find_files(target)
+    /// Resolve a scope and return just file paths (convenience method)
+    pub fn resolve_paths(&self, scope: &Scope) -> Result<Vec<PathBuf>, ResolveError> {
+        self.find_files(scope)
     }
 
-    /// Check if a single path matches a target
-    pub fn matches(&self, target: &Target, path: impl AsRef<Path>) -> bool {
-        target.matches(path)
+    /// Check if a single path matches a scope
+    pub fn matches(&self, scope: &Scope, path: impl AsRef<Path>) -> bool {
+        scope.matches(path)
     }
 
     /// Extract content based on fragment

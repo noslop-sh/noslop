@@ -1,12 +1,12 @@
 //! Tests for the Resolver module
 //!
-//! Resolver finds files matching Target specifications and extracts content
+//! Resolver finds files matching Scope specifications and extracts content
 //! based on fragment identifiers.
 
 use std::path::PathBuf;
 
 use noslop::resolver::{ResolveError, Resolver};
-use noslop::target::Target;
+use noslop::scope::Scope;
 
 use crate::common::TestRepo;
 
@@ -35,8 +35,8 @@ fn resolver_invalid_path() {
 fn find_exact_file() {
     let repo = TestRepo::new();
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("src/auth/login.rs").unwrap();
-    let files = resolver.find_files(&target).unwrap();
+    let scope = Scope::parse("src/auth/login.rs").unwrap();
+    let files = resolver.find_files(&scope).unwrap();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0], PathBuf::from("src/auth/login.rs"));
 }
@@ -45,8 +45,8 @@ fn find_exact_file() {
 fn find_glob_pattern() {
     let repo = TestRepo::new();
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("src/**/*.rs").unwrap();
-    let files = resolver.find_files(&target).unwrap();
+    let scope = Scope::parse("src/**/*.rs").unwrap();
+    let files = resolver.find_files(&scope).unwrap();
     assert_eq!(files.len(), 3);
     assert!(files.contains(&PathBuf::from("src/auth/login.rs")));
     assert!(files.contains(&PathBuf::from("src/auth/session.rs")));
@@ -57,8 +57,8 @@ fn find_glob_pattern() {
 fn find_extension_glob() {
     let repo = TestRepo::new();
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("*.md").unwrap();
-    let files = resolver.find_files(&target).unwrap();
+    let scope = Scope::parse("*.md").unwrap();
+    let files = resolver.find_files(&scope).unwrap();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0], PathBuf::from("README.md"));
 }
@@ -70,8 +70,8 @@ fn hidden_files_excluded() {
     repo.add_hidden_dir(".hidden_dir", "file.rs", "hidden");
 
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("*").unwrap();
-    let files = resolver.find_files(&target).unwrap();
+    let scope = Scope::parse("*").unwrap();
+    let files = resolver.find_files(&scope).unwrap();
 
     // Should not include hidden files
     assert!(!files.contains(&PathBuf::from(".hidden")));
@@ -85,8 +85,8 @@ fn hidden_files_excluded() {
 fn resolve_with_line_fragment() {
     let repo = TestRepo::new();
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("src/auth/login.rs#L2").unwrap();
-    let files = resolver.resolve(&target).unwrap();
+    let scope = Scope::parse("src/auth/login.rs#L2").unwrap();
+    let files = resolver.resolve(&scope).unwrap();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].content_str(), Some("    // line 2"));
 }
@@ -95,8 +95,8 @@ fn resolve_with_line_fragment() {
 fn resolve_with_line_range() {
     let repo = TestRepo::new();
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("src/auth/login.rs#L2-L3").unwrap();
-    let files = resolver.resolve(&target).unwrap();
+    let scope = Scope::parse("src/auth/login.rs#L2-L3").unwrap();
+    let files = resolver.resolve(&scope).unwrap();
     assert_eq!(files.len(), 1);
     assert_eq!(files[0].content_str(), Some("    // line 2\n    // line 3"));
 }
@@ -105,8 +105,8 @@ fn resolve_with_line_range() {
 fn resolve_line_out_of_range() {
     let repo = TestRepo::new();
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("src/auth/login.rs#L100").unwrap();
-    let result = resolver.resolve(&target);
+    let scope = Scope::parse("src/auth/login.rs#L100").unwrap();
+    let result = resolver.resolve(&scope);
     assert!(matches!(result, Err(ResolveError::LineOutOfRange(100, _))));
 }
 
@@ -115,8 +115,8 @@ fn resolve_without_fragment_no_content() {
     // Resolver only extracts content when there's a fragment
     let repo = TestRepo::new();
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("README.md").unwrap();
-    let files = resolver.resolve(&target).unwrap();
+    let scope = Scope::parse("README.md").unwrap();
+    let files = resolver.resolve(&scope).unwrap();
     assert_eq!(files.len(), 1);
     assert!(!files[0].has_content()); // No fragment means no content extraction
 }
@@ -137,8 +137,8 @@ fn read_file_returns_content() {
 fn resolve_nonexistent_file() {
     let repo = TestRepo::new();
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("nonexistent.rs").unwrap();
-    let files = resolver.find_files(&target).unwrap();
+    let scope = Scope::parse("nonexistent.rs").unwrap();
+    let files = resolver.find_files(&scope).unwrap();
     assert!(files.is_empty());
 }
 
@@ -148,7 +148,7 @@ fn resolve_empty_directory() {
     std::fs::create_dir_all(repo.path().join("empty")).unwrap();
 
     let resolver = Resolver::new(repo.path()).unwrap();
-    let target = Target::parse("empty/*").unwrap();
-    let files = resolver.find_files(&target).unwrap();
+    let scope = Scope::parse("empty/*").unwrap();
+    let files = resolver.find_files(&scope).unwrap();
     assert!(files.is_empty());
 }

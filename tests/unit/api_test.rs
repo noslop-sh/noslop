@@ -97,6 +97,7 @@ mod request_tests {
         let req: CreateTaskRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.title, "My Task");
         assert!(req.priority.is_none());
+        assert!(req.description.is_none());
     }
 
     #[test]
@@ -108,17 +109,33 @@ mod request_tests {
     }
 
     #[test]
+    fn test_create_task_request_with_description() {
+        let json = r#"{"title": "My Task", "description": "This is a detailed description"}"#;
+        let req: CreateTaskRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.title, "My Task");
+        assert_eq!(req.description, Some("This is a detailed description".to_string()));
+    }
+
+    #[test]
     fn test_create_check_request_deserialize() {
-        let json = r#"{"target": "*.rs", "message": "Review code"}"#;
+        let json = r#"{"scope": "*.rs", "message": "Review code"}"#;
         let req: CreateCheckRequest = serde_json::from_str(json).unwrap();
-        assert_eq!(req.target, "*.rs");
+        assert_eq!(req.scope, "*.rs");
         assert_eq!(req.message, "Review code");
         assert_eq!(req.severity, "block"); // default
     }
 
     #[test]
+    fn test_create_check_request_with_legacy_target() {
+        // Test backwards compatibility with "target" field
+        let json = r#"{"target": "*.rs", "message": "Review code"}"#;
+        let req: CreateCheckRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.scope, "*.rs");
+    }
+
+    #[test]
     fn test_create_check_request_with_severity() {
-        let json = r#"{"target": "*.rs", "message": "Review code", "severity": "warn"}"#;
+        let json = r#"{"scope": "*.rs", "message": "Review code", "severity": "warn"}"#;
         let req: CreateCheckRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.severity, "warn");
     }
@@ -234,8 +251,9 @@ mod task_handler_tests {
 
         let req = CreateTaskRequest {
             title: "New Task".to_string(),
+            description: None,
             priority: Some("p0".to_string()),
-            project: None,
+            concepts: vec![],
         };
 
         let task = create_task(&req).unwrap();
@@ -247,13 +265,35 @@ mod task_handler_tests {
 
     #[test]
     #[serial]
+    fn test_create_task_with_description() {
+        let _temp = setup();
+
+        let req = CreateTaskRequest {
+            title: "Task with description".to_string(),
+            description: Some("This provides context for LLMs".to_string()),
+            priority: None,
+            concepts: vec![],
+        };
+
+        let task = create_task(&req).unwrap();
+        assert!(!task.id.is_empty());
+        assert_eq!(task.title, "Task with description");
+
+        // Verify description was stored
+        let detail = get_task(&task.id).unwrap();
+        assert_eq!(detail.description, Some("This provides context for LLMs".to_string()));
+    }
+
+    #[test]
+    #[serial]
     fn test_create_task_empty_title() {
         let _temp = setup();
 
         let req = CreateTaskRequest {
             title: "   ".to_string(),
+            description: None,
             priority: None,
-            project: None,
+            concepts: vec![],
         };
 
         let result = create_task(&req);
@@ -578,7 +618,7 @@ mod check_handler_tests {
     fn test_list_checks_with_data() {
         let _temp = setup();
 
-        // Create .noslop.toml with checks
+        // Create .noslop.toml with checks (using legacy "target" format for backwards compat test)
         std::fs::write(
             ".noslop.toml",
             r#"
@@ -597,8 +637,8 @@ severity = "warn"
 
         let checks = list_checks().unwrap();
         assert_eq!(checks.checks.len(), 2);
-        assert_eq!(checks.checks[0].target, "*.rs");
-        assert_eq!(checks.checks[1].target, "*.md");
+        assert_eq!(checks.checks[0].scope, "*.rs");
+        assert_eq!(checks.checks[1].scope, "*.md");
     }
 
     #[test]
@@ -610,25 +650,25 @@ severity = "warn"
         std::fs::write(".noslop.toml", "# noslop config\n").unwrap();
 
         let req = CreateCheckRequest {
-            target: "src/**/*.rs".to_string(),
+            scope: "src/**/*.rs".to_string(),
             message: "Review code changes".to_string(),
             severity: "block".to_string(),
         };
 
         let check = create_check(&req).unwrap();
         assert!(!check.id.is_empty());
-        assert_eq!(check.target, "src/**/*.rs");
+        assert_eq!(check.scope, "src/**/*.rs");
         assert_eq!(check.message, "Review code changes");
         assert_eq!(check.severity, "block");
     }
 
     #[test]
     #[serial]
-    fn test_create_check_empty_target() {
+    fn test_create_check_empty_scope() {
         let _temp = setup();
 
         let req = CreateCheckRequest {
-            target: "   ".to_string(),
+            scope: "   ".to_string(),
             message: "Some message".to_string(),
             severity: "block".to_string(),
         };
@@ -644,7 +684,7 @@ severity = "warn"
         let _temp = setup();
 
         let req = CreateCheckRequest {
-            target: "*.rs".to_string(),
+            scope: "*.rs".to_string(),
             message: "   ".to_string(),
             severity: "block".to_string(),
         };
@@ -660,7 +700,7 @@ severity = "warn"
         let _temp = setup();
 
         let req = CreateCheckRequest {
-            target: "*.rs".to_string(),
+            scope: "*.rs".to_string(),
             message: "Check code".to_string(),
             severity: "critical".to_string(), // invalid
         };
@@ -672,142 +712,270 @@ severity = "warn"
 }
 
 // =============================================================================
-// HANDLER TESTS - PROJECTS
+// HANDLER TESTS - CONCEPTS
 // =============================================================================
 
-mod project_handler_tests {
+mod concept_handler_tests {
     use super::*;
     use noslop::api::{
-        CreateProjectRequest, SelectProjectRequest, create_project, delete_project, list_projects,
-        select_project,
+        CreateConceptRequest, SelectConceptRequest, UpdateConceptRequest, create_concept,
+        delete_concept, list_concepts, select_concept, update_concept,
     };
 
     #[test]
     #[serial]
-    fn test_list_projects_empty() {
+    fn test_list_concepts_empty() {
         let _temp = setup();
 
-        let result = list_projects().unwrap();
-        assert!(result.projects.is_empty());
-        assert!(result.current_project.is_none());
+        let result = list_concepts().unwrap();
+        assert!(result.concepts.is_empty());
+        assert!(result.current_concept.is_none());
     }
 
     #[test]
     #[serial]
-    fn test_create_project_success() {
+    fn test_create_concept_success() {
         let _temp = setup();
 
-        let req = CreateProjectRequest {
-            name: "My Project".to_string(),
+        let req = CreateConceptRequest {
+            name: "My Concept".to_string(),
+            description: None,
         };
-        let result = create_project(&req).unwrap();
-        assert_eq!(result.id, "PROJ-1");
-        assert_eq!(result.name, "My Project");
+        let result = create_concept(&req).unwrap();
+        assert_eq!(result.id, "CON-1");
+        assert_eq!(result.name, "My Concept");
 
         // Verify it appears in list
-        let projects = list_projects().unwrap();
-        assert_eq!(projects.projects.len(), 1);
-        assert_eq!(projects.projects[0].name, "My Project");
+        let concepts = list_concepts().unwrap();
+        assert_eq!(concepts.concepts.len(), 1);
+        assert_eq!(concepts.concepts[0].name, "My Concept");
+        assert!(concepts.concepts[0].description.is_none());
     }
 
     #[test]
     #[serial]
-    fn test_create_project_empty_name() {
+    fn test_create_concept_with_description() {
         let _temp = setup();
 
-        let req = CreateProjectRequest {
-            name: "   ".to_string(),
+        let req = CreateConceptRequest {
+            name: "Auth Concept".to_string(),
+            description: Some("JWT-based authentication using RS256".to_string()),
         };
-        let result = create_project(&req);
+        let result = create_concept(&req).unwrap();
+        assert_eq!(result.id, "CON-1");
+        assert_eq!(result.name, "Auth Concept");
+
+        // Verify description is stored
+        let concepts = list_concepts().unwrap();
+        assert_eq!(concepts.concepts.len(), 1);
+        assert_eq!(
+            concepts.concepts[0].description,
+            Some("JWT-based authentication using RS256".to_string())
+        );
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_concept_description() {
+        let _temp = setup();
+
+        // Create a concept
+        let req = CreateConceptRequest {
+            name: "Update Me".to_string(),
+            description: None,
+        };
+        let created = create_concept(&req).unwrap();
+
+        // Update its description
+        let update_req = UpdateConceptRequest {
+            description: Some("New description".to_string()),
+        };
+        let result = update_concept(&created.id, &update_req).unwrap();
+        assert_eq!(result.description, Some("New description".to_string()));
+
+        // Clear the description
+        let clear_req = UpdateConceptRequest { description: None };
+        let result = update_concept(&created.id, &clear_req).unwrap();
+        assert!(result.description.is_none());
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_concept_not_found() {
+        let _temp = setup();
+
+        let req = UpdateConceptRequest {
+            description: Some("test".to_string()),
+        };
+        let result = update_concept("CON-999", &req);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
+    }
+
+    #[test]
+    #[serial]
+    fn test_create_concept_empty_name() {
+        let _temp = setup();
+
+        let req = CreateConceptRequest {
+            name: "   ".to_string(),
+            description: None,
+        };
+        let result = create_concept(&req);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status_code(), 400);
     }
 
     #[test]
     #[serial]
-    fn test_delete_project_success() {
+    fn test_delete_concept_success() {
         let _temp = setup();
 
-        // Create a project first
-        let req = CreateProjectRequest {
+        // Create a concept first
+        let req = CreateConceptRequest {
             name: "To Delete".to_string(),
+            description: None,
         };
-        let created = create_project(&req).unwrap();
+        let created = create_concept(&req).unwrap();
 
         // Delete it
-        let result = delete_project(&created.id);
+        let result = delete_concept(&created.id);
         assert!(result.is_ok());
 
         // Verify it's gone
-        let projects = list_projects().unwrap();
-        assert!(projects.projects.is_empty());
+        let concepts = list_concepts().unwrap();
+        assert!(concepts.concepts.is_empty());
     }
 
     #[test]
     #[serial]
-    fn test_delete_project_not_found() {
+    fn test_delete_concept_not_found() {
         let _temp = setup();
 
-        let result = delete_project("PROJ-999");
+        let result = delete_concept("CON-999");
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status_code(), 404);
     }
 
     #[test]
     #[serial]
-    fn test_select_project_success() {
+    fn test_select_concept_success() {
         let _temp = setup();
 
-        // Create a project
-        let req = CreateProjectRequest {
+        // Create a concept
+        let req = CreateConceptRequest {
             name: "Select Me".to_string(),
+            description: None,
         };
-        let created = create_project(&req).unwrap();
+        let created = create_concept(&req).unwrap();
 
         // Select it
-        let select_req = SelectProjectRequest {
+        let select_req = SelectConceptRequest {
             id: Some(created.id.clone()),
         };
-        let result = select_project(&select_req).unwrap();
-        assert_eq!(result.current_project, Some(created.id.clone()));
+        let result = select_concept(&select_req).unwrap();
+        assert_eq!(result.current_concept, Some(created.id.clone()));
 
         // Deselect (view all)
-        let deselect_req = SelectProjectRequest { id: None };
-        let result = select_project(&deselect_req).unwrap();
-        assert!(result.current_project.is_none());
+        let deselect_req = SelectConceptRequest { id: None };
+        let result = select_concept(&deselect_req).unwrap();
+        assert!(result.current_concept.is_none());
     }
 
     #[test]
     #[serial]
-    fn test_select_project_not_found() {
+    fn test_select_concept_not_found() {
         let _temp = setup();
 
-        let req = SelectProjectRequest {
-            id: Some("PROJ-999".to_string()),
+        let req = SelectConceptRequest {
+            id: Some("CON-999".to_string()),
         };
-        let result = select_project(&req);
+        let result = select_concept(&req);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status_code(), 404);
     }
 
     #[test]
     #[serial]
-    fn test_project_task_count() {
+    fn test_concept_task_count() {
         let _temp = setup();
 
-        // Create a project
-        let req = CreateProjectRequest {
-            name: "Project with tasks".to_string(),
+        // Create a concept
+        let req = CreateConceptRequest {
+            name: "Concept with tasks".to_string(),
+            description: None,
         };
-        let created = create_project(&req).unwrap();
+        let created = create_concept(&req).unwrap();
 
-        // Create tasks in the project
-        TaskRefs::create_with_project("Task 1", None, Some(&created.id)).unwrap();
-        TaskRefs::create_with_project("Task 2", None, Some(&created.id)).unwrap();
+        // Create tasks in the concept using new multi-concept API
+        TaskRefs::create_with_concepts("Task 1", None, std::slice::from_ref(&created.id)).unwrap();
+        TaskRefs::create_with_concepts("Task 2", None, std::slice::from_ref(&created.id)).unwrap();
 
         // Verify task count
-        let projects = list_projects().unwrap();
-        assert_eq!(projects.projects.len(), 1);
-        assert_eq!(projects.projects[0].task_count, 2);
+        let concepts = list_concepts().unwrap();
+        assert_eq!(concepts.concepts.len(), 1);
+        assert_eq!(concepts.concepts[0].task_count, 2);
+    }
+}
+
+// =============================================================================
+// HANDLER TESTS - TASK UPDATE
+// =============================================================================
+
+mod task_update_handler_tests {
+    use super::*;
+    use noslop::api::{UpdateTaskRequest, get_task, update_task};
+
+    #[test]
+    #[serial]
+    fn test_update_task_description() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("My Task", None).unwrap();
+
+        // Add a description
+        let req = UpdateTaskRequest {
+            description: Some("This is a detailed description".to_string()),
+            concepts: None,
+        };
+        let result = update_task(&id, &req).unwrap();
+        assert_eq!(result.description, Some("This is a detailed description".to_string()));
+
+        // Verify it persisted
+        let task = get_task(&id).unwrap();
+        assert_eq!(task.description, Some("This is a detailed description".to_string()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_task_no_change_when_description_none() {
+        let _temp = setup();
+
+        // Create task with description
+        let id = TaskRefs::create("My Task", None).unwrap();
+        TaskRefs::set_description(&id, Some("Initial description")).unwrap();
+
+        // Pass None to leave description unchanged (None means "don't update")
+        let req = UpdateTaskRequest {
+            description: None,
+            concepts: None,
+        };
+        let result = update_task(&id, &req).unwrap();
+        // Description should still be set since None means "don't update"
+        assert_eq!(result.description, Some("Initial description".to_string()));
+    }
+
+    #[test]
+    #[serial]
+    fn test_update_task_not_found() {
+        let _temp = setup();
+
+        let req = UpdateTaskRequest {
+            description: Some("test".to_string()),
+            concepts: None,
+        };
+        let result = update_task("FAKE-999", &req);
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err().status_code(), 404);
     }
 }

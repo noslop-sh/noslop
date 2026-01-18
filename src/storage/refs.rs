@@ -23,14 +23,20 @@ const HEAD_FILE: &str = "HEAD";
 const REFS_DIR: &str = "refs/tasks";
 
 /// Task data stored in a ref file
-#[derive(Debug, Clone, Serialize, Deserialize)]
+///
+/// Note: Uses custom deserialization to support migration from old `concept: Option<String>`
+/// to new `concepts: Vec<String>` format. When reading old files with `concept`, it will
+/// be converted to `concepts` array.
+#[derive(Debug, Clone, Serialize)]
 pub struct TaskRef {
     /// Task title
     pub title: String,
+    /// Task description (detailed context for LLMs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     /// Current status: backlog, pending, `in_progress`, done
     pub status: String,
     /// Priority: p0, p1, p2, p3
-    #[serde(default = "default_priority")]
     pub priority: String,
     /// When created (RFC3339)
     pub created_at: String,
@@ -38,23 +44,92 @@ pub struct TaskRef {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub notes: Option<String>,
     /// IDs of tasks that block this one
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[serde(skip_serializing_if = "Vec::is_empty")]
     pub blocked_by: Vec<String>,
     /// Pending trailer action (set by pre-commit, cleared by post-commit)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pending_trailer: Option<String>,
     /// Optional associated git branch
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
     /// When work started (RFC3339)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub started_at: Option<String>,
     /// When completed (RFC3339)
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
-    /// Project this task belongs to
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub project: Option<String>,
+    /// Concepts this task belongs to (supports multiple)
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub concepts: Vec<String>,
+    /// Scope patterns (files this task touches)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub scope: Vec<String>,
+}
+
+/// Helper struct for deserializing with backwards compatibility
+#[derive(Deserialize)]
+struct TaskRefHelper {
+    title: String,
+    #[serde(default)]
+    description: Option<String>,
+    status: String,
+    #[serde(default = "default_priority")]
+    priority: String,
+    created_at: String,
+    #[serde(default)]
+    notes: Option<String>,
+    #[serde(default)]
+    blocked_by: Vec<String>,
+    #[serde(default)]
+    pending_trailer: Option<String>,
+    #[serde(default)]
+    branch: Option<String>,
+    #[serde(default)]
+    started_at: Option<String>,
+    #[serde(default)]
+    completed_at: Option<String>,
+    /// New format: array of concepts
+    #[serde(default)]
+    concepts: Vec<String>,
+    /// Old format: single concept (for backwards compatibility)
+    #[serde(default)]
+    concept: Option<String>,
+    /// Scope patterns (files this task touches)
+    #[serde(default)]
+    scope: Vec<String>,
+}
+
+impl<'de> Deserialize<'de> for TaskRef {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let helper = TaskRefHelper::deserialize(deserializer)?;
+
+        // Merge old `concept` into `concepts` if present
+        let concepts = if helper.concepts.is_empty() {
+            // If concepts is empty, check for old single concept field
+            helper.concept.into_iter().collect()
+        } else {
+            helper.concepts
+        };
+
+        Ok(Self {
+            title: helper.title,
+            description: helper.description,
+            status: helper.status,
+            priority: helper.priority,
+            created_at: helper.created_at,
+            notes: helper.notes,
+            blocked_by: helper.blocked_by,
+            pending_trailer: helper.pending_trailer,
+            branch: helper.branch,
+            started_at: helper.started_at,
+            completed_at: helper.completed_at,
+            concepts,
+            scope: helper.scope,
+        })
+    }
 }
 
 fn default_priority() -> String {
@@ -67,6 +142,7 @@ impl TaskRef {
     pub fn new(title: String) -> Self {
         Self {
             title,
+            description: None,
             status: "backlog".to_string(),
             priority: default_priority(),
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -76,15 +152,17 @@ impl TaskRef {
             branch: None,
             started_at: None,
             completed_at: None,
-            project: None,
+            concepts: Vec::new(),
+            scope: Vec::new(),
         }
     }
 
-    /// Create a new task with a project
+    /// Create a new task with concepts
     #[must_use]
-    pub fn with_project(title: String, project: Option<String>) -> Self {
+    pub fn with_concepts(title: String, concepts: Vec<String>) -> Self {
         Self {
             title,
+            description: None,
             status: "backlog".to_string(),
             priority: default_priority(),
             created_at: chrono::Utc::now().to_rfc3339(),
@@ -94,8 +172,15 @@ impl TaskRef {
             branch: None,
             started_at: None,
             completed_at: None,
-            project,
+            concepts,
+            scope: Vec::new(),
         }
+    }
+
+    /// Create a new task with a single concept (convenience method)
+    #[must_use]
+    pub fn with_concept(title: String, concept: Option<String>) -> Self {
+        Self::with_concepts(title, concept.into_iter().collect())
     }
 
     /// Check if this task is blocked by unfinished tasks
@@ -107,6 +192,18 @@ impl TaskRef {
                 .find(|(id, _)| id == blocker_id)
                 .is_some_and(|(_, task)| task.status != "done")
         })
+    }
+
+    /// Check if this task belongs to a specific concept
+    #[must_use]
+    pub fn has_concept(&self, concept_id: &str) -> bool {
+        self.concepts.contains(&concept_id.to_string())
+    }
+
+    /// Get the primary concept (first one, for backwards compatibility)
+    #[must_use]
+    pub fn primary_concept(&self) -> Option<&str> {
+        self.concepts.first().map(String::as_str)
     }
 }
 
@@ -182,27 +279,38 @@ impl TaskRefs {
 
     /// Create a new task, returns the ID
     pub fn create(title: &str, priority: Option<&str>) -> anyhow::Result<String> {
-        Self::create_with_project(title, priority, None)
+        Self::create_with_concepts(title, priority, &[])
     }
 
-    /// Create a new task with an optional project, returns the ID
-    pub fn create_with_project(
+    /// Create a new task with multiple concepts, returns the ID
+    pub fn create_with_concepts(
         title: &str,
         priority: Option<&str>,
-        project: Option<&str>,
+        concepts: &[String],
     ) -> anyhow::Result<String> {
         Self::ensure_refs_dir()?;
 
         // Generate next ID
         let id = Self::next_id()?;
 
-        let mut task = TaskRef::with_project(title.to_string(), project.map(String::from));
+        let mut task = TaskRef::with_concepts(title.to_string(), concepts.to_vec());
         if let Some(p) = priority {
             task.priority = p.to_string();
         }
 
         Self::write_task(&id, &task)?;
         Ok(id)
+    }
+
+    /// Create a new task with an optional concept, returns the ID
+    #[deprecated(note = "Use create_with_concepts instead")]
+    pub fn create_with_concept(
+        title: &str,
+        priority: Option<&str>,
+        concept: Option<&str>,
+    ) -> anyhow::Result<String> {
+        let concepts: Vec<String> = concept.into_iter().map(String::from).collect();
+        Self::create_with_concepts(title, priority, &concepts)
     }
 
     /// Get a task by ID
@@ -321,10 +429,10 @@ impl TaskRefs {
         }
     }
 
-    /// Set or unset a task's project
-    pub fn set_project(id: &str, project: Option<&str>) -> anyhow::Result<bool> {
+    /// Set a task's concepts (replaces all existing concepts)
+    pub fn set_concepts(id: &str, concepts: &[&str]) -> anyhow::Result<bool> {
         if let Some(mut task) = Self::get(id)? {
-            task.project = project.map(String::from);
+            task.concepts = concepts.iter().map(|s| (*s).to_string()).collect();
             Self::write_task(id, &task)?;
             Ok(true)
         } else {
@@ -332,12 +440,96 @@ impl TaskRefs {
         }
     }
 
-    /// List tasks filtered by project
-    pub fn list_by_project(project: Option<&str>) -> anyhow::Result<Vec<(String, TaskRef)>> {
+    /// Add a concept to a task
+    pub fn add_concept(id: &str, concept: &str) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            if !task.concepts.contains(&concept.to_string()) {
+                task.concepts.push(concept.to_string());
+                Self::write_task(id, &task)?;
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Remove a concept from a task
+    pub fn remove_concept(id: &str, concept: &str) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            task.concepts.retain(|c| c != concept);
+            Self::write_task(id, &task)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Set or unset a task's concept (backwards compatible - sets single concept)
+    #[deprecated(note = "Use set_concepts, add_concept, or remove_concept instead")]
+    pub fn set_concept(id: &str, concept: Option<&str>) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            task.concepts = concept.into_iter().map(String::from).collect();
+            Self::write_task(id, &task)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Set or unset a task's description
+    pub fn set_description(id: &str, description: Option<&str>) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            task.description = description.map(String::from);
+            Self::write_task(id, &task)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    // === Scope operations ===
+
+    /// Set a task's scope patterns (replaces all existing)
+    pub fn set_scope(id: &str, scope: &[&str]) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            task.scope = scope.iter().map(|s| (*s).to_string()).collect();
+            Self::write_task(id, &task)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Add a scope pattern to a task
+    pub fn add_scope(id: &str, pattern: &str) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            if !task.scope.contains(&pattern.to_string()) {
+                task.scope.push(pattern.to_string());
+                Self::write_task(id, &task)?;
+            }
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// Remove a scope pattern from a task
+    pub fn remove_scope(id: &str, pattern: &str) -> anyhow::Result<bool> {
+        if let Some(mut task) = Self::get(id)? {
+            task.scope.retain(|s| s != pattern);
+            Self::write_task(id, &task)?;
+            Ok(true)
+        } else {
+            Ok(false)
+        }
+    }
+
+    /// List tasks filtered by concept (tasks containing this concept)
+    pub fn list_by_concept(concept: Option<&str>) -> anyhow::Result<Vec<(String, TaskRef)>> {
         let tasks = Self::list()?;
         Ok(tasks
             .into_iter()
-            .filter(|(_, task)| task.project.as_deref() == project)
+            .filter(|(_, task)| concept.map_or(task.concepts.is_empty(), |c| task.has_concept(c)))
             .collect())
     }
 
