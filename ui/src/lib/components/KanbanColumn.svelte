@@ -37,10 +37,7 @@
 <div class="flex min-w-[260px] flex-1 flex-col">
 	<!-- Header -->
 	<div class="mb-2 flex items-center gap-2 px-1">
-		<span
-			class="h-2 w-2 rounded-full"
-			style="background-color: {color};"
-		></span>
+		<span class="h-2 w-2 rounded-full" style="background-color: {color};"></span>
 		<span class="text-sm font-medium text-muted-foreground">
 			{title}
 		</span>
@@ -61,7 +58,9 @@
 		{#each tasks as task (task.id)}
 			<KanbanCard {task} {onTaskDetail} />
 		{:else}
-			<div class="flex h-16 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground">
+			<div
+				class="flex h-16 items-center justify-center rounded-lg border border-dashed border-border text-xs text-muted-foreground"
+			>
 				No tasks
 			</div>
 		{/each}

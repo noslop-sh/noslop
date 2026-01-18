@@ -37,13 +37,6 @@
 	function getConceptName(conceptId: string): string {
 		return $concepts.find((c) => c.id === conceptId)?.name ?? conceptId;
 	}
-
-	const priorityColors: Record<string, string> = {
-		p0: 'bg-destructive text-destructive-foreground',
-		p1: 'bg-warning/20 text-warning',
-		p2: 'bg-muted text-muted-foreground',
-		p3: 'bg-muted text-muted-foreground'
-	};
 </script>
 
 <div
@@ -79,14 +72,18 @@
 		{/if}
 
 		{#if task.check_count > 0}
-			<span class="{task.checks_verified === task.check_count ? 'text-success' : 'text-muted-foreground'}">
+			<span
+				class={task.checks_verified === task.check_count ? 'text-success' : 'text-muted-foreground'}
+			>
 				{task.checks_verified}/{task.check_count} checks
 			</span>
 		{/if}
 
 		<!-- Concepts -->
 		{#each (task.concepts || []).slice(0, 1) as conceptId}
-			<span class="rounded bg-muted px-1.5 py-0.5 text-muted-foreground">{getConceptName(conceptId)}</span>
+			<span class="rounded bg-muted px-1.5 py-0.5 text-muted-foreground"
+				>{getConceptName(conceptId)}</span
+			>
 		{/each}
 	</div>
 </div>

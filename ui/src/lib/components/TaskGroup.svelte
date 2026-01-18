@@ -1,5 +1,4 @@
 <script lang="ts">
-	import type { Snippet } from 'svelte';
 	import type { TaskItem } from '$lib/api/types';
 	import TaskCard from './TaskCard.svelte';
 

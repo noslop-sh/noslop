@@ -141,7 +141,9 @@
 						<Input bind:value={name} placeholder="Authentication" />
 					</div>
 					<div>
-						<label class="mb-1 block text-sm text-muted-foreground">Description (for LLM context)</label>
+						<label class="mb-1 block text-sm text-muted-foreground"
+							>Description (for LLM context)</label
+						>
 						<textarea
 							class="w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
 							rows="3"
@@ -151,9 +153,7 @@
 					</div>
 					<div class="flex gap-2">
 						<Button type="submit" size="sm">Create Concept</Button>
-						<Button type="button" variant="outline" size="sm" onclick={hideForm}>
-							Cancel
-						</Button>
+						<Button type="button" variant="outline" size="sm" onclick={hideForm}>Cancel</Button>
 					</div>
 				</form>
 			</div>
@@ -204,8 +204,14 @@
 										placeholder="Enter description..."
 									></textarea>
 									<div class="mt-2 flex gap-2">
-										<Button size="sm" class="h-7 text-xs" onclick={() => saveDescription(concept.id)}>Save</Button>
-										<Button variant="ghost" size="sm" class="h-7 text-xs" onclick={cancelEdit}>Cancel</Button>
+										<Button
+											size="sm"
+											class="h-7 text-xs"
+											onclick={() => saveDescription(concept.id)}>Save</Button
+										>
+										<Button variant="ghost" size="sm" class="h-7 text-xs" onclick={cancelEdit}
+											>Cancel</Button
+										>
 									</div>
 								</div>
 							{:else}
@@ -233,12 +239,7 @@
 								>
 									Delete
 								</Button>
-								<Button
-									variant="ghost"
-									size="sm"
-									class="h-7 px-2 text-xs"
-									onclick={cancelDelete}
-								>
+								<Button variant="ghost" size="sm" class="h-7 px-2 text-xs" onclick={cancelDelete}>
 									Cancel
 								</Button>
 							</div>
@@ -248,7 +249,17 @@
 								onclick={() => startDelete(concept.id)}
 								title="Delete concept"
 							>
-								<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="16"
+									height="16"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
 									<path d="M3 6h18"></path>
 									<path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
 									<path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
@@ -258,7 +269,9 @@
 					</div>
 				</div>
 			{:else}
-				<div class="flex h-32 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+				<div
+					class="flex h-32 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground"
+				>
 					No concepts defined. Create one to group related tasks and scope patterns.
 				</div>
 			{/each}

@@ -83,31 +83,17 @@
 		</span>
 		{#if confirmingDelete}
 			<div class="flex items-center gap-1">
-				<Button
-					variant="destructive"
-					size="sm"
-					class="h-6 px-2 text-xs"
-					onclick={handleDelete}
-				>
+				<Button variant="destructive" size="sm" class="h-6 px-2 text-xs" onclick={handleDelete}>
 					Delete
 				</Button>
-				<Button
-					variant="ghost"
-					size="sm"
-					class="h-6 px-2 text-xs"
-					onclick={cancelDelete}
-				>
+				<Button variant="ghost" size="sm" class="h-6 px-2 text-xs" onclick={cancelDelete}>
 					Cancel
 				</Button>
 			</div>
 		{:else}
 			<DropdownMenu.Root>
 				<DropdownMenu.Trigger>
-					<Button
-						variant="ghost"
-						size="sm"
-						class="h-6 w-6 p-0 opacity-0 group-hover:opacity-100"
-					>
+					<Button variant="ghost" size="sm" class="h-6 w-6 p-0 opacity-0 group-hover:opacity-100">
 						⋮
 					</Button>
 				</DropdownMenu.Trigger>
@@ -128,7 +114,7 @@
 	<!-- Footer: Tags and metadata -->
 	<div class="flex flex-wrap items-center gap-1.5">
 		<!-- Concept tags -->
-		{#each (task.concepts || []) as conceptId}
+		{#each task.concepts || [] as conceptId}
 			<Badge variant="secondary" class="text-xs">{getConceptName(conceptId)}</Badge>
 		{/each}
 
@@ -150,9 +136,7 @@
 
 		<!-- Blocked indicator -->
 		{#if task.blocked && task.status !== 'done'}
-			<Badge variant="destructive" class="text-xs">
-				blocked
-			</Badge>
+			<Badge variant="destructive" class="text-xs">blocked</Badge>
 		{/if}
 
 		<!-- Branch -->

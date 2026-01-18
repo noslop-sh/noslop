@@ -90,9 +90,7 @@
 					</div>
 					<div class="flex gap-2">
 						<Button type="submit" size="sm">Create Check</Button>
-						<Button type="button" variant="outline" size="sm" onclick={hideForm}>
-							Cancel
-						</Button>
+						<Button type="button" variant="outline" size="sm" onclick={hideForm}>Cancel</Button>
 					</div>
 				</form>
 			</div>
@@ -101,7 +99,11 @@
 		<!-- Checks list -->
 		<div class="space-y-2">
 			{#each $checks as check (check.id)}
-				<div class="rounded-md border border-border border-l-4 bg-card p-3 {getSeverityColor(check.severity)}">
+				<div
+					class="rounded-md border border-border border-l-4 bg-card p-3 {getSeverityColor(
+						check.severity
+					)}"
+				>
 					<div class="flex items-start justify-between">
 						<div class="flex-1">
 							<div class="mb-1 flex items-center gap-2">
@@ -114,7 +116,9 @@
 					</div>
 				</div>
 			{:else}
-				<div class="flex h-32 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground">
+				<div
+					class="flex h-32 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground"
+				>
 					No checks defined. Create one to require verification when specific files change.
 				</div>
 			{/each}

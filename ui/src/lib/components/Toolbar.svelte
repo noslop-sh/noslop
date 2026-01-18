@@ -4,7 +4,7 @@
 	import * as api from '$lib/api/client';
 
 	async function handleConceptChange(value: string | undefined) {
-		const conceptId = value === 'all' ? null : value ?? null;
+		const conceptId = value === 'all' ? null : (value ?? null);
 		try {
 			await api.selectConcept({ id: conceptId });
 			currentConcept.set(conceptId);
@@ -45,7 +45,9 @@
 
 	<!-- Right: Concept filter only -->
 	<Select.Root type="single" value={selectedValue} onValueChange={handleConceptChange}>
-		<Select.Trigger class="h-7 w-32 border-0 bg-transparent text-xs text-muted-foreground hover:text-foreground">
+		<Select.Trigger
+			class="h-7 w-32 border-0 bg-transparent text-xs text-muted-foreground hover:text-foreground"
+		>
 			{#if selectedValue === 'all'}
 				All tasks
 			{:else}

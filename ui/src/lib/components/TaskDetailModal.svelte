@@ -78,7 +78,9 @@
 	async function saveDescription() {
 		if (!task) return;
 		try {
-			const updated = await api.updateTask(task.id, { description: editingDescription.trim() || null });
+			const updated = await api.updateTask(task.id, {
+				description: editingDescription.trim() || null
+			});
 			task = updated;
 			editingField = null;
 			await loadTasks();
@@ -161,10 +163,7 @@
 
 	const availableBlockers = $derived(
 		$tasks.filter(
-			(t) =>
-				t.id !== task?.id &&
-				t.status !== 'done' &&
-				!(task?.blocked_by || []).includes(t.id)
+			(t) => t.id !== task?.id && t.status !== 'done' && !(task?.blocked_by || []).includes(t.id)
 		)
 	);
 </script>
@@ -198,7 +197,13 @@
 					<span>{task.status}{task.current ? ' (active)' : ''}</span>
 					{#if task.priority && task.priority !== 'p2'}
 						<span class="text-muted-foreground/50">·</span>
-						<span class="{task.priority === 'p0' ? 'text-destructive' : task.priority === 'p1' ? 'text-warning' : ''}">{task.priority}</span>
+						<span
+							class={task.priority === 'p0'
+								? 'text-destructive'
+								: task.priority === 'p1'
+									? 'text-warning'
+									: ''}>{task.priority}</span
+						>
 					{/if}
 				</div>
 
@@ -214,7 +219,9 @@
 						></textarea>
 						<div class="mt-2 flex gap-2">
 							<Button size="sm" class="h-7 text-xs" onclick={saveDescription}>Save</Button>
-							<Button variant="ghost" size="sm" class="h-7 text-xs" onclick={cancelEdit}>Cancel</Button>
+							<Button variant="ghost" size="sm" class="h-7 text-xs" onclick={cancelEdit}
+								>Cancel</Button
+							>
 						</div>
 					</div>
 				{:else}
@@ -232,7 +239,7 @@
 
 				<!-- Concepts (inline tags) -->
 				<div class="mb-3 flex flex-wrap items-center gap-1.5">
-					{#each (task.concepts || []) as conceptId}
+					{#each task.concepts || [] as conceptId}
 						<Badge variant="secondary" class="gap-1 pr-1 text-xs">
 							{getConceptName(conceptId)}
 							<button
@@ -240,7 +247,17 @@
 								onclick={() => removeConcept(conceptId)}
 								aria-label="Remove concept"
 							>
-								<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+								<svg
+									xmlns="http://www.w3.org/2000/svg"
+									width="10"
+									height="10"
+									viewBox="0 0 24 24"
+									fill="none"
+									stroke="currentColor"
+									stroke-width="2.5"
+									stroke-linecap="round"
+									stroke-linejoin="round"
+								>
 									<path d="M18 6 6 18"></path>
 									<path d="m6 6 12 12"></path>
 								</svg>
@@ -272,7 +289,7 @@
 						{#if (task.blocked_by || []).length > 0}
 							<span class="text-xs text-muted-foreground">Blocked by:</span>
 						{/if}
-						{#each (task.blocked_by || []) as blockerId}
+						{#each task.blocked_by || [] as blockerId}
 							<Badge variant="destructive" class="gap-1 pr-1 text-xs">
 								{blockerId}
 								<button
@@ -280,7 +297,17 @@
 									onclick={() => removeBlocker(blockerId)}
 									aria-label="Remove blocker"
 								>
-									<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										width="10"
+										height="10"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2.5"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+									>
 										<path d="M18 6 6 18"></path>
 										<path d="m6 6 12 12"></path>
 									</svg>
@@ -312,12 +339,16 @@
 					<div class="mb-4 rounded-md border border-border p-3">
 						<div class="mb-2 flex items-center justify-between">
 							<span class="text-xs font-medium text-foreground">Checks</span>
-							<span class="text-xs {task.checks_verified === task.check_count ? 'text-success' : 'text-muted-foreground'}">
+							<span
+								class="text-xs {task.checks_verified === task.check_count
+									? 'text-success'
+									: 'text-muted-foreground'}"
+							>
 								{task.checks_verified}/{task.check_count} verified
 							</span>
 						</div>
 						<div class="space-y-1.5">
-							{#each (task.checks || []) as check}
+							{#each task.checks || [] as check}
 								<div
 									class="flex items-center justify-between text-xs
 										{check.severity === 'block' ? 'text-destructive' : ''}
@@ -325,7 +356,7 @@
 										{check.severity === 'info' ? 'text-muted-foreground' : ''}"
 								>
 									<span>{check.message}</span>
-									<span class="{check.verified ? 'text-success' : 'opacity-40'}">
+									<span class={check.verified ? 'text-success' : 'opacity-40'}>
 										{check.verified ? '✓' : '○'}
 									</span>
 								</div>
@@ -342,7 +373,7 @@
 						{/if}
 						{#if (task.scope || []).length > 0}
 							<div class="mt-1 space-y-0.5">
-								{#each (task.scope || []) as pattern}
+								{#each task.scope || [] as pattern}
 									<p class="font-mono opacity-60">{pattern}</p>
 								{/each}
 							</div>

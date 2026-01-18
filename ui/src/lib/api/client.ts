@@ -25,11 +25,7 @@ import type {
 
 const API_BASE = '/api/v1';
 
-async function request<T>(
-	method: string,
-	endpoint: string,
-	body?: unknown
-): Promise<T> {
+async function request<T>(method: string, endpoint: string, body?: unknown): Promise<T> {
 	const options: RequestInit = {
 		method,
 		headers: {

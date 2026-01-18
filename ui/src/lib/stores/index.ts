@@ -12,13 +12,10 @@ export const selectedTaskId = writable<string | null>(null);
 export const connectionStatus = writable<'connected' | 'disconnected'>('disconnected');
 
 // Derived stores
-export const filteredTasks = derived(
-	[tasks, currentConcept],
-	([$tasks, $currentConcept]) => {
-		if (!$currentConcept) return $tasks;
-		return $tasks.filter((t) => (t.concepts || []).includes($currentConcept));
-	}
-);
+export const filteredTasks = derived([tasks, currentConcept], ([$tasks, $currentConcept]) => {
+	if (!$currentConcept) return $tasks;
+	return $tasks.filter((t) => (t.concepts || []).includes($currentConcept));
+});
 
 export const tasksByStatus = derived(filteredTasks, ($filteredTasks) => {
 	const inProgress = $filteredTasks.filter((t) => t.status === 'in_progress');
@@ -117,7 +114,7 @@ export async function startPolling() {
 			}
 			lastCounter = events.counter;
 			connectionStatus.set('connected');
-		} catch (error) {
+		} catch {
 			connectionStatus.set('disconnected');
 			await new Promise((r) => setTimeout(r, 2000));
 		}
