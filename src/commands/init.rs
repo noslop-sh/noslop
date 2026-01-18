@@ -3,10 +3,10 @@
 use std::fs;
 use std::path::Path;
 
-use noslop::output::OutputMode;
-
 use noslop::git;
 use noslop::noslop_file;
+use noslop::output::OutputMode;
+use noslop::paths;
 
 /// Initialize noslop in the current repository
 pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
@@ -24,10 +24,9 @@ pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
         }
     }
 
-    let noslop_path = Path::new(".noslop.toml");
-    let _noslop_dir = Path::new(".noslop");
+    let noslop_toml = paths::noslop_toml();
 
-    if noslop_path.exists() && !force {
+    if noslop_toml.exists() && !force {
         println!("Already initialized (.noslop.toml exists).");
         println!("Use --force to reinitialize.");
         return Ok(());
@@ -40,7 +39,7 @@ pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
     println!("  Generated project prefix: {prefix}");
 
     // Create .noslop.toml with project config and example check
-    let noslop_toml = format!(
+    let noslop_toml_content = format!(
         r#"# noslop checks
 
 [project]
@@ -57,18 +56,17 @@ prefix = "{prefix}"
 # severity = "warn"
 "#
     );
-    fs::write(noslop_path, noslop_toml)?;
+    fs::write(&noslop_toml, noslop_toml_content)?;
     println!("  Created .noslop.toml");
 
     // Create .noslop/ for verifications and tasks
-    fs::create_dir_all(".noslop")?;
-    fs::create_dir_all(".noslop/refs/tasks")?;
+    fs::create_dir_all(paths::noslop_dir())?;
+    fs::create_dir_all(paths::refs_tasks_dir())?;
 
     // Create .gitignore to exclude local task data
     // - refs/ contains task ref files (one file per task)
     // - HEAD contains current active task
-    // - tasks/ is legacy but included for backwards compatibility
-    fs::write(".noslop/.gitignore", "refs/\nHEAD\ntasks/\n")?;
+    fs::write(paths::noslop_dir().join(".gitignore"), "refs/\nHEAD\n")?;
     println!("  Created .noslop/");
     println!("  Created .noslop/refs/tasks/ (gitignored)");
 

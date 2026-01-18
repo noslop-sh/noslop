@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::Deserialize;
 
 use crate::models::{Check, Severity};
+use crate::paths;
 
 /// A .noslop.toml file structure
 #[derive(Debug, Deserialize)]
@@ -213,10 +214,10 @@ fn matches_scope(scope: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bool
 
 /// Create or update a .noslop.toml file with a new check
 pub fn add_check(scope: &str, message: &str, severity: &str) -> anyhow::Result<String> {
-    let path = Path::new(".noslop.toml");
+    let path = paths::noslop_toml();
 
     let mut file = if path.exists() {
-        load_file(path)?
+        load_file(&path)?
     } else {
         NoslopFile {
             project: ProjectConfig::default(),
@@ -250,7 +251,7 @@ pub fn add_check(scope: &str, message: &str, severity: &str) -> anyhow::Result<S
 
     // Write back using new [[check]] format
     let content = format_noslop_file(&file);
-    fs::write(path, content)?;
+    fs::write(&path, content)?;
 
     Ok(generated_id)
 }

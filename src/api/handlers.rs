@@ -8,6 +8,7 @@ use std::path::Path;
 
 use crate::config::GlobalConfig;
 use crate::noslop_file;
+use crate::paths;
 use crate::scope::Scope;
 use crate::storage::{TaskRefs, TrailerVerificationStore, VerificationStore};
 
@@ -322,12 +323,12 @@ pub fn remove_blocker(id: &str, req: &BlockerRequest) -> Result<TaskMutationData
 
 /// List all checks
 pub fn list_checks() -> Result<ChecksData, ApiError> {
-    let path = Path::new(".noslop.toml");
+    let path = paths::noslop_toml();
     if !path.exists() {
         return Ok(ChecksData { checks: vec![] });
     }
 
-    match noslop_file::load_file(path) {
+    match noslop_file::load_file(&path) {
         Ok(file) => {
             let checks: Vec<CheckItem> = file
                 .checks
@@ -383,11 +384,11 @@ fn get_current_branch() -> Option<String> {
 }
 
 fn load_check_count() -> usize {
-    let path = Path::new(".noslop.toml");
+    let path = paths::noslop_toml();
     if !path.exists() {
         return 0;
     }
-    noslop_file::load_file(path).map(|f| f.checks.len()).unwrap_or(0)
+    noslop_file::load_file(&path).map(|f| f.checks.len()).unwrap_or(0)
 }
 
 /// Compute checks that apply to a task based on aggregated scope overlap
@@ -402,12 +403,12 @@ fn compute_task_checks(
     cwd: &Path,
 ) -> Vec<TaskCheckItem> {
     // Load checks from .noslop.toml
-    let path = Path::new(".noslop.toml");
+    let path = paths::noslop_toml();
     if !path.exists() {
         return Vec::new();
     }
 
-    let Ok(file) = noslop_file::load_file(path) else {
+    let Ok(file) = noslop_file::load_file(&path) else {
         return Vec::new();
     };
 

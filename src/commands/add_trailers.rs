@@ -6,7 +6,8 @@
 use std::fs;
 use std::path::Path;
 
-use noslop::git;
+use noslop::models::Verification;
+use noslop::paths;
 use noslop::storage::TaskRefs;
 
 /// Add verification and task trailers to commit message file
@@ -15,22 +16,13 @@ use noslop::storage::TaskRefs;
 /// Appends Noslop-Verify trailers from staged verifications and
 /// Noslop-Task trailers from pending task actions.
 pub fn add_trailers(commit_msg_file: &str) -> anyhow::Result<()> {
-    // Use main worktree for .noslop/ lookups
-    let base_dir = git::get_main_worktree().unwrap_or_else(|| Path::new(".").to_path_buf());
-    add_trailers_in(&base_dir, commit_msg_file)
-}
-
-/// Add trailers in a specific directory (for testing)
-fn add_trailers_in(base_dir: &Path, commit_msg_file: &str) -> anyhow::Result<()> {
-    use noslop::models::Verification;
-
     let msg_path = Path::new(commit_msg_file);
     if !msg_path.exists() {
         anyhow::bail!("Commit message file not found: {commit_msg_file}");
     }
 
-    // Load staged verifications from base_dir (main worktree)
-    let verifications_file = base_dir.join(".noslop/staged-verifications.json");
+    // Load staged verifications
+    let verifications_file = paths::staged_verifications();
     let verifications: Vec<Verification> = if verifications_file.exists() {
         let json = fs::read_to_string(&verifications_file)?;
         serde_json::from_str(&json)?

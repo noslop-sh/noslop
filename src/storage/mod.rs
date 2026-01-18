@@ -11,8 +11,6 @@
 pub mod file;
 /// Git-like refs storage for tasks
 pub mod refs;
-/// Legacy branch-scoped task storage (deprecated)
-pub mod task;
 /// Commit trailer storage for verifications
 pub mod trailer;
 
@@ -71,8 +69,3 @@ pub fn verification_store() -> Box<dyn VerificationStore> {
 #[allow(unused_imports)]
 pub use refs::{TaskRef, TaskRefs};
 pub use trailer::TrailerVerificationStore;
-
-// Legacy task storage (deprecated, use TaskRefs instead)
-#[allow(unused_imports)]
-#[deprecated(since = "0.2.0", note = "Use TaskRefs instead of TaskStore")]
-pub use task::TaskStore;

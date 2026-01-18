@@ -1,9 +1,9 @@
 //! Status command - show overview of current noslop state
 
-use noslop::output::OutputMode;
-use noslop::storage::TaskRefs;
-
 use noslop::noslop_file;
+use noslop::output::OutputMode;
+use noslop::paths;
+use noslop::storage::TaskRefs;
 
 /// Show current noslop status
 pub fn status(output_mode: OutputMode) -> anyhow::Result<()> {
@@ -75,10 +75,10 @@ fn get_current_branch() -> Option<String> {
 }
 
 fn load_check_count() -> usize {
-    let path = std::path::Path::new(".noslop.toml");
+    let path = paths::noslop_toml();
     if !path.exists() {
         return 0;
     }
 
-    noslop_file::load_file(path).map(|f| f.checks.len()).unwrap_or(0)
+    noslop_file::load_file(&path).map(|f| f.checks.len()).unwrap_or(0)
 }

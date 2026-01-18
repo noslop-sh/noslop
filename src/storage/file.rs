@@ -7,29 +7,18 @@
 //! the MAIN worktree to ensure all worktrees share the same state.
 
 use std::fs;
-use std::path::PathBuf;
 
-use crate::git;
 use crate::models::Verification;
-
-const STAGED_VERIFICATIONS_FILE: &str = "staged-verifications.json";
+use crate::paths;
 
 /// File-based storage (used for staging)
 #[derive(Debug, Clone, Copy)]
 pub struct FileStore;
 
 impl FileStore {
-    /// Get path to staged verifications file in main worktree
-    fn staged_verifications_path() -> PathBuf {
-        git::get_main_worktree().map_or_else(
-            || PathBuf::from(".noslop").join(STAGED_VERIFICATIONS_FILE),
-            |root| root.join(".noslop").join(STAGED_VERIFICATIONS_FILE),
-        )
-    }
-
     /// Load staged verifications from file
     pub fn load_staged_verifications() -> anyhow::Result<Vec<Verification>> {
-        let path = Self::staged_verifications_path();
+        let path = paths::staged_verifications();
         if !path.exists() {
             return Ok(Vec::new());
         }
@@ -39,7 +28,7 @@ impl FileStore {
 
     /// Save staged verifications to file
     pub fn save_staged_verifications(verifications: &[Verification]) -> anyhow::Result<()> {
-        let path = Self::staged_verifications_path();
+        let path = paths::staged_verifications();
         // Ensure directory exists
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
@@ -51,7 +40,7 @@ impl FileStore {
 
     /// Clear staged verifications
     pub fn clear_staged_verifications() -> anyhow::Result<()> {
-        let path = Self::staged_verifications_path();
+        let path = paths::staged_verifications();
         if path.exists() {
             fs::remove_file(&path)?;
         }

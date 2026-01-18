@@ -10,7 +10,7 @@
 //! - **This Module**: CLI command, static files, file watcher
 
 use std::io::Cursor;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -136,7 +136,7 @@ fn not_found() -> Response<Cursor<Vec<u8>>> {
 /// For worktree support, watches the main worktree's .noslop/ directory
 /// so that changes are detected regardless of which worktree you're in.
 fn start_file_watcher() -> anyhow::Result<RecommendedWatcher> {
-    use noslop::git;
+    use noslop::paths;
 
     let (tx, rx) = std::sync::mpsc::channel();
 
@@ -152,14 +152,8 @@ fn start_file_watcher() -> anyhow::Result<RecommendedWatcher> {
         Config::default(),
     )?;
 
-    // Get main worktree for .noslop/ and .noslop.toml paths
-    let main_worktree = git::get_main_worktree();
-
     // Watch .noslop directory for task changes (in main worktree)
-    let noslop_dir = main_worktree
-        .as_ref()
-        .map(|root| root.join(".noslop"))
-        .unwrap_or_else(|| PathBuf::from(".noslop"));
+    let noslop_dir = paths::noslop_dir();
     if noslop_dir.exists() {
         watcher.watch(&noslop_dir, RecursiveMode::Recursive)?;
     }
@@ -174,10 +168,7 @@ fn start_file_watcher() -> anyhow::Result<RecommendedWatcher> {
     }
 
     // Watch .noslop.toml for check changes (in main worktree)
-    let noslop_toml = main_worktree
-        .as_ref()
-        .map(|root| root.join(".noslop.toml"))
-        .unwrap_or_else(|| PathBuf::from(".noslop.toml"));
+    let noslop_toml = paths::noslop_toml();
     if noslop_toml.exists() {
         watcher.watch(&noslop_toml, RecursiveMode::NonRecursive)?;
     }

@@ -4,9 +4,7 @@
 //! staged verifications and pending task trailers after they've
 //! been added to the commit.
 
-use std::path::Path;
-
-use noslop::git;
+use noslop::paths;
 use noslop::storage::TaskRefs;
 
 /// Clear staged verifications and pending task trailers
@@ -18,9 +16,11 @@ use noslop::storage::TaskRefs;
 ///
 /// This runs after the commit has been created with all trailers.
 pub fn clear_staged() -> anyhow::Result<()> {
-    // Use main worktree for .noslop/ lookups
-    let base_dir = git::get_main_worktree().unwrap_or_else(|| Path::new(".").to_path_buf());
-    clear_staged_in(&base_dir)?;
+    // Delete staged verifications file
+    let verifications_file = paths::staged_verifications();
+    if verifications_file.exists() {
+        std::fs::remove_file(verifications_file)?;
+    }
 
     // Clear pending task trailers
     TaskRefs::clear_all_pending_trailers()?;
@@ -67,13 +67,4 @@ fn get_last_commit_files() -> anyhow::Result<Vec<String>> {
         .collect();
 
     Ok(files)
-}
-
-/// Clear staged verifications in a specific directory (for testing)
-fn clear_staged_in(base_dir: &Path) -> anyhow::Result<()> {
-    let verifications_file = base_dir.join(".noslop/staged-verifications.json");
-    if verifications_file.exists() {
-        std::fs::remove_file(verifications_file)?;
-    }
-    Ok(())
 }

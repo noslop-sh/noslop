@@ -36,6 +36,7 @@ pub mod models;
 pub mod noslop_file;
 pub mod output;
 pub mod parser;
+pub mod paths;
 pub mod resolver;
 pub mod scope;
 pub mod storage;

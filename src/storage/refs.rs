@@ -12,15 +12,10 @@
 //! all worktrees share the same task state.
 
 use std::fs;
-use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
-use crate::git;
-
-const NOSLOP_DIR: &str = ".noslop";
-const HEAD_FILE: &str = "HEAD";
-const REFS_DIR: &str = "refs/tasks";
+use crate::paths;
 
 /// Task data stored in a ref file
 ///
@@ -212,33 +207,9 @@ impl TaskRef {
 pub struct TaskRefs;
 
 impl TaskRefs {
-    /// Get path to .noslop directory
-    ///
-    /// Returns the .noslop directory in the main worktree.
-    /// This ensures all worktrees share the same task state.
-    fn noslop_dir() -> PathBuf {
-        git::get_main_worktree()
-            .map_or_else(|| PathBuf::from(NOSLOP_DIR), |root| root.join(NOSLOP_DIR))
-    }
-
-    /// Get path to HEAD file
-    fn head_path() -> PathBuf {
-        Self::noslop_dir().join(HEAD_FILE)
-    }
-
-    /// Get path to refs/tasks directory
-    fn refs_dir() -> PathBuf {
-        Self::noslop_dir().join(REFS_DIR)
-    }
-
-    /// Get path to a task ref file
-    fn task_path(id: &str) -> PathBuf {
-        Self::refs_dir().join(id)
-    }
-
     /// Ensure refs directory exists
     fn ensure_refs_dir() -> anyhow::Result<()> {
-        fs::create_dir_all(Self::refs_dir())?;
+        fs::create_dir_all(paths::refs_tasks_dir())?;
         Ok(())
     }
 
@@ -246,7 +217,7 @@ impl TaskRefs {
 
     /// Get current active task ID (from HEAD)
     pub fn current() -> anyhow::Result<Option<String>> {
-        let path = Self::head_path();
+        let path = paths::head_file();
         if !path.exists() {
             return Ok(None);
         }
@@ -261,14 +232,14 @@ impl TaskRefs {
 
     /// Set current active task (write to HEAD)
     pub fn set_current(id: &str) -> anyhow::Result<()> {
-        fs::create_dir_all(Self::noslop_dir())?;
-        fs::write(Self::head_path(), format!("{id}\n"))?;
+        fs::create_dir_all(paths::noslop_dir())?;
+        fs::write(paths::head_file(), format!("{id}\n"))?;
         Ok(())
     }
 
     /// Clear current active task (remove HEAD)
     pub fn clear_current() -> anyhow::Result<()> {
-        let path = Self::head_path();
+        let path = paths::head_file();
         if path.exists() {
             fs::remove_file(path)?;
         }
@@ -315,7 +286,7 @@ impl TaskRefs {
 
     /// Get a task by ID
     pub fn get(id: &str) -> anyhow::Result<Option<TaskRef>> {
-        let path = Self::task_path(id);
+        let path = paths::task_ref(id);
         if !path.exists() {
             return Ok(None);
         }
@@ -327,7 +298,7 @@ impl TaskRefs {
     /// Write a task to its ref file
     pub fn write_task(id: &str, task: &TaskRef) -> anyhow::Result<()> {
         Self::ensure_refs_dir()?;
-        let path = Self::task_path(id);
+        let path = paths::task_ref(id);
         let json = serde_json::to_string_pretty(task)?;
         fs::write(path, json)?;
         Ok(())
@@ -557,7 +528,7 @@ impl TaskRefs {
 
     /// Delete a task
     pub fn delete(id: &str) -> anyhow::Result<bool> {
-        let path = Self::task_path(id);
+        let path = paths::task_ref(id);
         if path.exists() {
             fs::remove_file(path)?;
             // If this was the current task, clear HEAD
@@ -572,7 +543,7 @@ impl TaskRefs {
 
     /// List all task IDs
     pub fn list_ids() -> anyhow::Result<Vec<String>> {
-        let refs_dir = Self::refs_dir();
+        let refs_dir = paths::refs_tasks_dir();
         if !refs_dir.exists() {
             return Ok(Vec::new());
         }
@@ -694,8 +665,7 @@ impl TaskRefs {
     /// Looks for .noslop.toml in the main worktree to ensure
     /// consistent prefixes across all worktrees.
     fn get_prefix() -> anyhow::Result<String> {
-        let path = git::get_main_worktree()
-            .map_or_else(|| PathBuf::from(".noslop.toml"), |root| root.join(".noslop.toml"));
+        let path = paths::noslop_toml();
         if path.exists() {
             let content = fs::read_to_string(&path)?;
             // Simple extraction - look for prefix = "..."

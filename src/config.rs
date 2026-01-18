@@ -9,10 +9,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-/// Default config directory name under XDG config
-const CONFIG_DIR: &str = "noslop";
-/// Config file name
-const CONFIG_FILE: &str = "config.toml";
+use crate::paths;
 
 /// Global noslop configuration
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -97,15 +94,13 @@ impl GlobalConfig {
     /// Get the config directory path
     #[must_use]
     pub fn config_dir() -> PathBuf {
-        dirs::config_dir()
-            .unwrap_or_else(|| PathBuf::from("~/.config"))
-            .join(CONFIG_DIR)
+        paths::global_config_dir()
     }
 
     /// Get the config file path
     #[must_use]
     pub fn config_path() -> PathBuf {
-        Self::config_dir().join(CONFIG_FILE)
+        paths::global_config()
     }
 
     /// Load config from disk, or create default if not exists
