@@ -919,6 +919,151 @@ mod concept_handler_tests {
 }
 
 // =============================================================================
+// HANDLER TESTS - TASK CHECKS
+// =============================================================================
+
+mod task_checks_handler_tests {
+    use super::*;
+    use noslop::api::get_task;
+
+    #[test]
+    #[serial]
+    fn test_task_with_no_scope_has_no_checks() {
+        let _temp = setup();
+
+        // Create a task with no scope
+        let id = TaskRefs::create("Task without scope", None).unwrap();
+
+        // Create .noslop.toml with a check
+        std::fs::write(
+            ".noslop.toml",
+            r#"
+[[check]]
+id = "CHK-1"
+scope = "src/**/*.rs"
+message = "Review Rust code"
+severity = "block"
+"#,
+        )
+        .unwrap();
+
+        let task = get_task(&id).unwrap();
+        // Task has no scope, so no checks should apply
+        assert_eq!(task.check_count, 0);
+        assert_eq!(task.checks_verified, 0);
+        assert!(task.checks.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn test_task_with_matching_scope_has_checks() {
+        let _temp = setup();
+
+        // Create a task with scope
+        let id = TaskRefs::create("Task with scope", None).unwrap();
+        TaskRefs::set_scope(&id, &["src/auth.rs"]).unwrap();
+
+        // Create .noslop.toml with checks
+        std::fs::write(
+            ".noslop.toml",
+            r#"
+[[check]]
+id = "CHK-1"
+scope = "src/**/*.rs"
+message = "Review Rust code"
+severity = "block"
+
+[[check]]
+id = "CHK-2"
+scope = "tests/**"
+message = "Review tests"
+severity = "warn"
+"#,
+        )
+        .unwrap();
+
+        let task = get_task(&id).unwrap();
+        // Only CHK-1 should apply (src/**/*.rs matches src/auth.rs)
+        assert_eq!(task.check_count, 1);
+        assert_eq!(task.checks_verified, 0);
+        assert_eq!(task.checks.len(), 1);
+        assert_eq!(task.checks[0].id, "CHK-1");
+        assert!(!task.checks[0].verified);
+    }
+
+    #[test]
+    #[serial]
+    fn test_task_checks_all_unverified_initially() {
+        let _temp = setup();
+
+        // Create task with scope matching multiple checks
+        let id = TaskRefs::create("Multi-check task", None).unwrap();
+        TaskRefs::set_scope(&id, &["src/api/handlers.rs", "tests/unit/api_test.rs"]).unwrap();
+
+        std::fs::write(
+            ".noslop.toml",
+            r#"
+[[check]]
+id = "CHK-1"
+scope = "src/**"
+message = "Review source"
+severity = "block"
+
+[[check]]
+id = "CHK-2"
+scope = "tests/**"
+message = "Review tests"
+severity = "warn"
+"#,
+        )
+        .unwrap();
+
+        let task = get_task(&id).unwrap();
+        assert_eq!(task.check_count, 2);
+        assert_eq!(task.checks_verified, 0);
+        assert!(task.checks.iter().all(|c| !c.verified));
+    }
+
+    #[test]
+    #[serial]
+    fn test_task_check_count_and_verified_count_in_response() {
+        let _temp = setup();
+
+        let id = TaskRefs::create("Task for counting", None).unwrap();
+        TaskRefs::set_scope(&id, &["src/main.rs"]).unwrap();
+
+        std::fs::write(
+            ".noslop.toml",
+            r#"
+[[check]]
+id = "NOS-1"
+scope = "src/**"
+message = "First check"
+severity = "block"
+
+[[check]]
+id = "NOS-2"
+scope = "src/**"
+message = "Second check"
+severity = "warn"
+
+[[check]]
+id = "NOS-3"
+scope = "docs/**"
+message = "Third check (no match)"
+severity = "info"
+"#,
+        )
+        .unwrap();
+
+        let task = get_task(&id).unwrap();
+        // NOS-1 and NOS-2 should match, NOS-3 should not
+        assert_eq!(task.check_count, 2);
+        assert_eq!(task.checks_verified, 0);
+    }
+}
+
+// =============================================================================
 // HANDLER TESTS - TASK UPDATE
 // =============================================================================
 

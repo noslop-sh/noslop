@@ -169,3 +169,70 @@ fn test_append_multiple_trailers() {
     assert!(result.contains("NOS-1"));
     assert!(result.contains("NOS-2"));
 }
+
+// =============================================================================
+// TRAILER PARSING TESTS
+// =============================================================================
+
+mod trailer_parsing_tests {
+    use noslop::storage::trailer::parse_verification_trailer;
+
+    #[test]
+    fn test_parse_verification_trailer_full() {
+        let value = "NOS-1 | Fixed the bug | human";
+        let result = parse_verification_trailer(value);
+
+        assert!(result.is_some());
+        let v = result.unwrap();
+        assert_eq!(v.check_id, "NOS-1");
+        assert_eq!(v.message, "Fixed the bug");
+        assert_eq!(v.verified_by, "human");
+    }
+
+    #[test]
+    fn test_parse_verification_trailer_with_llm_verifier() {
+        let value = "CHK-42 | Analyzed security implications | claude-3-opus";
+        let result = parse_verification_trailer(value);
+
+        assert!(result.is_some());
+        let v = result.unwrap();
+        assert_eq!(v.check_id, "CHK-42");
+        assert_eq!(v.message, "Analyzed security implications");
+        assert_eq!(v.verified_by, "claude-3-opus");
+    }
+
+    #[test]
+    fn test_parse_verification_trailer_missing_verifier() {
+        // When verifier is missing, it defaults to "unknown"
+        let value = "NOS-1 | Just the message";
+        let result = parse_verification_trailer(value);
+
+        assert!(result.is_some());
+        let v = result.unwrap();
+        assert_eq!(v.check_id, "NOS-1");
+        assert_eq!(v.message, "Just the message");
+        assert_eq!(v.verified_by, "unknown");
+    }
+
+    #[test]
+    fn test_parse_verification_trailer_invalid_format() {
+        // No pipe separator at all
+        let value = "NOS-1 Fixed the bug";
+        let result = parse_verification_trailer(value);
+
+        // Should return None for invalid format
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_parse_verification_trailer_with_extra_whitespace() {
+        let value = "  NOS-1  |   Message with spaces   |  human  ";
+        let result = parse_verification_trailer(value);
+
+        assert!(result.is_some());
+        let v = result.unwrap();
+        assert_eq!(v.check_id, "NOS-1");
+        assert_eq!(v.message, "Message with spaces");
+        assert_eq!(v.verified_by, "human");
+    }
+}

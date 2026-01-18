@@ -211,4 +211,118 @@ describe('API Client', () => {
 			expect(result.changed).toBe(true);
 		});
 	});
+
+	describe('Task with checks', () => {
+		it('should return task with check_count and checks_verified', async () => {
+			const mockData = {
+				tasks: [
+					{
+						id: 'TSK-1',
+						title: 'Task with checks',
+						status: 'in_progress',
+						priority: 'p1',
+						current: true,
+						blocked: false,
+						check_count: 3,
+						checks_verified: 1,
+						concepts: []
+					}
+				]
+			};
+
+			mockFetch.mockResolvedValueOnce({
+				json: () => Promise.resolve({ success: true, data: mockData })
+			});
+
+			const result = await api.getTasks();
+
+			expect(result.tasks[0].check_count).toBe(3);
+			expect(result.tasks[0].checks_verified).toBe(1);
+		});
+
+		it('should return task detail with checks array', async () => {
+			const mockData = {
+				id: 'TSK-1',
+				title: 'Task with checks',
+				status: 'in_progress',
+				priority: 'p1',
+				current: true,
+				blocked: false,
+				check_count: 2,
+				checks_verified: 1,
+				created_at: '2024-01-01T00:00:00Z',
+				checks: [
+					{ id: 'CHK-1', message: 'Review code', severity: 'block', verified: true },
+					{ id: 'CHK-2', message: 'Security check', severity: 'warn', verified: false }
+				]
+			};
+
+			mockFetch.mockResolvedValueOnce({
+				json: () => Promise.resolve({ success: true, data: mockData })
+			});
+
+			const result = await api.getTask('TSK-1');
+
+			expect(result.check_count).toBe(2);
+			expect(result.checks_verified).toBe(1);
+			expect(result.checks).toHaveLength(2);
+			expect(result.checks[0].verified).toBe(true);
+			expect(result.checks[1].verified).toBe(false);
+		});
+
+		it('should return task with zero checks when no scope matches', async () => {
+			const mockData = {
+				tasks: [
+					{
+						id: 'TSK-2',
+						title: 'Task without matching checks',
+						status: 'pending',
+						priority: 'p2',
+						current: false,
+						blocked: false,
+						check_count: 0,
+						checks_verified: 0,
+						concepts: []
+					}
+				]
+			};
+
+			mockFetch.mockResolvedValueOnce({
+				json: () => Promise.resolve({ success: true, data: mockData })
+			});
+
+			const result = await api.getTasks();
+
+			expect(result.tasks[0].check_count).toBe(0);
+			expect(result.tasks[0].checks_verified).toBe(0);
+		});
+
+		it('should return fully verified task with all checks verified', async () => {
+			const mockData = {
+				id: 'TSK-3',
+				title: 'Fully verified task',
+				status: 'done',
+				priority: 'p1',
+				current: false,
+				blocked: false,
+				check_count: 2,
+				checks_verified: 2,
+				created_at: '2024-01-01T00:00:00Z',
+				checks: [
+					{ id: 'CHK-1', message: 'First check', severity: 'block', verified: true },
+					{ id: 'CHK-2', message: 'Second check', severity: 'block', verified: true }
+				]
+			};
+
+			mockFetch.mockResolvedValueOnce({
+				json: () => Promise.resolve({ success: true, data: mockData })
+			});
+
+			const result = await api.getTask('TSK-3');
+
+			expect(result.check_count).toBe(2);
+			expect(result.checks_verified).toBe(2);
+			expect(result.checks.every((c) => c.verified)).toBe(true);
+		});
+	});
 });

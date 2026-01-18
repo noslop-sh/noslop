@@ -3,12 +3,13 @@
 //! These handlers contain business logic and are HTTP-agnostic.
 //! They take typed input and return `Result<T, ApiError>`.
 
+use std::collections::HashSet;
 use std::path::Path;
 
 use crate::config::GlobalConfig;
 use crate::noslop_file;
 use crate::scope::Scope;
-use crate::storage::TaskRefs;
+use crate::storage::{TaskRefs, TrailerVerificationStore, VerificationStore};
 
 use super::error::ApiError;
 use super::types::{
@@ -83,7 +84,8 @@ pub fn list_tasks_filtered(
         })
         .map(|(id, t)| {
             // Compute checks for this task
-            let checks = compute_task_checks(&t.scope, &t.concepts, &config, &cwd);
+            let checks =
+                compute_task_checks(&t.scope, &t.concepts, t.branch.as_deref(), &config, &cwd);
             let check_count = checks.len();
             let checks_verified = checks.iter().filter(|c| c.verified).count();
 
@@ -124,7 +126,13 @@ pub fn get_task(id: &str) -> Result<TaskDetailData, ApiError> {
             let config = GlobalConfig::load();
 
             // Compute checks for this task
-            let checks = compute_task_checks(&task.scope, &task.concepts, &config, &cwd);
+            let checks = compute_task_checks(
+                &task.scope,
+                &task.concepts,
+                task.branch.as_deref(),
+                &config,
+                &cwd,
+            );
             let check_count = checks.len();
             let checks_verified = checks.iter().filter(|c| c.verified).count();
 
@@ -389,6 +397,7 @@ fn load_check_count() -> usize {
 fn compute_task_checks(
     task_scope: &[String],
     task_concepts: &[String],
+    task_branch: Option<&str>,
     config: &GlobalConfig,
     cwd: &Path,
 ) -> Vec<TaskCheckItem> {
@@ -405,6 +414,9 @@ fn compute_task_checks(
     if file.checks.is_empty() {
         return Vec::new();
     }
+
+    // Get verified check IDs from commit trailers on the task's branch
+    let verified_ids = get_verified_check_ids(task_branch);
 
     // Build effective scope: task.scope ∪ concepts[*].scope
     let mut effective_scope: Vec<&str> = task_scope.iter().map(String::as_str).collect();
@@ -447,16 +459,73 @@ fn compute_task_checks(
         });
 
         if applies {
+            let check_id = check.id.clone().unwrap_or_else(|| format!("NOS-{}", i + 1));
+            let verified = verified_ids.contains(&check_id);
             result.push(TaskCheckItem {
-                id: check.id.clone().unwrap_or_else(|| format!("CHK-{}", i + 1)),
+                id: check_id,
                 message: check.message.clone(),
                 severity: check.severity.clone(),
-                verified: false, // TODO: Wire up verification status
+                verified,
             });
         }
     }
 
     result
+}
+
+/// Get the set of verified check IDs from commits on a branch
+fn get_verified_check_ids(branch: Option<&str>) -> HashSet<String> {
+    let Some(branch) = branch else {
+        return HashSet::new();
+    };
+
+    // Get all commits on this branch (compared to main/master)
+    let commits = get_branch_commits(branch);
+    let store = TrailerVerificationStore::new();
+
+    let mut verified = HashSet::new();
+    for commit in commits {
+        if let Ok(verifications) = store.parse_from_commit(&commit) {
+            for v in verifications {
+                verified.insert(v.check_id);
+            }
+        }
+    }
+
+    verified
+}
+
+/// Get commit SHAs on a branch (compared to main branch)
+fn get_branch_commits(branch: &str) -> Vec<String> {
+    use std::process::Command;
+
+    // Try to find the base branch (main, master, or develop)
+    let base = find_base_branch().unwrap_or_else(|| "HEAD~50".to_string());
+
+    let output = Command::new("git")
+        .args(["log", "--format=%H", &format!("{base}..{branch}")])
+        .output();
+
+    match output {
+        Ok(out) if out.status.success() => {
+            String::from_utf8_lossy(&out.stdout).lines().map(String::from).collect()
+        },
+        _ => Vec::new(),
+    }
+}
+
+/// Find the base branch (main, master, or develop)
+fn find_base_branch() -> Option<String> {
+    use std::process::Command;
+
+    for branch in &["main", "master", "develop"] {
+        let output = Command::new("git").args(["rev-parse", "--verify", branch]).output();
+
+        if output.is_ok_and(|o| o.status.success()) {
+            return Some(branch.to_string());
+        }
+    }
+    None
 }
 
 // =============================================================================

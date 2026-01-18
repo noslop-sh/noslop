@@ -64,18 +64,18 @@ impl VerificationStore for TrailerVerificationStore {
     }
 
     fn parse_from_commit(&self, commit_sha: &str) -> anyhow::Result<Vec<Verification>> {
-        let output = Command::new("git")
-            .args(["log", "-1", "--format=%(trailers)", commit_sha])
-            .output()?;
+        // Get the full commit body, not just trailers
+        // This handles cases where verifications aren't in a contiguous trailer block
+        let output = Command::new("git").args(["log", "-1", "--format=%B", commit_sha]).output()?;
 
         if !output.status.success() {
             return Ok(Vec::new());
         }
 
-        let trailers = String::from_utf8_lossy(&output.stdout);
+        let body = String::from_utf8_lossy(&output.stdout);
         let mut verifications = Vec::new();
 
-        for line in trailers.lines() {
+        for line in body.lines() {
             if let Some(value) = line.strip_prefix(&format!("{VERIFY_TRAILER}: "))
                 && let Some(verification) = parse_verification_trailer(value)
             {
@@ -88,7 +88,8 @@ impl VerificationStore for TrailerVerificationStore {
 }
 
 /// Parse a verification from trailer format: "check | message | by"
-fn parse_verification_trailer(value: &str) -> Option<Verification> {
+#[must_use]
+pub fn parse_verification_trailer(value: &str) -> Option<Verification> {
     let parts: Vec<&str> = value.splitn(3, " | ").collect();
     if parts.len() >= 2 {
         Some(Verification::new(
