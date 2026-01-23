@@ -8,15 +8,21 @@
 //! ### Per-Project (Repository Root)
 //!
 //! ```text
-//! repo/
-//! ├── .noslop.toml              # Committed project config (checks, prefix)
-//! └── .noslop/                  # Local state directory (gitignored)
-//!     ├── HEAD                  # Current active task ID
-//!     ├── refs/tasks/           # Task ref files (one per task)
+//! repo/                                    # Main worktree
+//! ├── .noslop.toml                        # SHARED: Committed config
+//! └── .noslop/                            # Local state (gitignored)
+//!     ├── refs/tasks/                     # SHARED: Task definitions
 //!     │   ├── TSK-1
 //!     │   └── TSK-2
-//!     ├── staged-verifications.json  # Staging area for verifications
-//!     └── .gitignore            # Excludes refs/, HEAD from git
+//!     └── worktrees/                      # Agent working directories
+//!         ├── TSK-1/                      # Agent 1's workspace
+//!         │   ├── .noslop/
+//!         │   │   └── HEAD               # LOCAL: This agent's task
+//!         │   └── src/...
+//!         └── TSK-2/                      # Agent 2's workspace
+//!             ├── .noslop/
+//!             │   └── HEAD
+//!             └── src/...
 //! ```
 //!
 //! ### Global (User-Level)
@@ -28,8 +34,11 @@
 //!
 //! ## Worktree Support
 //!
-//! When running from a git worktree, all `.noslop/` paths resolve to the
-//! main worktree root. This ensures all worktrees share task state.
+//! Noslop supports multi-agent workflows via git worktrees:
+//! - **Shared state** (main worktree `.noslop/`): Task definitions, config
+//! - **Local state** (per-worktree `.noslop/`): HEAD, staged verifications
+//!
+//! Each agent works in its own worktree with its own HEAD pointer.
 
 use std::path::PathBuf;
 
@@ -53,6 +62,9 @@ const REFS_TASKS_DIR: &str = "refs/tasks";
 
 /// Staged verifications filename
 const STAGED_VERIFICATIONS_FILE: &str = "staged-verifications.json";
+
+/// Worktrees subdirectory
+const WORKTREES_DIR: &str = "worktrees";
 
 /// Get the project root directory.
 ///
