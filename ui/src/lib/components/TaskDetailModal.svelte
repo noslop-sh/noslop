@@ -4,7 +4,7 @@
 	import { Badge } from '$lib/components/ui/badge';
 	import type { TaskDetailData } from '$lib/api/types';
 	import * as api from '$lib/api/client';
-	import { concepts, tasks, loadTasks, loadConcepts } from '$lib/stores';
+	import { topics, tasks, loadTasks, loadTopics } from '$lib/stores';
 
 	interface Props {
 		task: TaskDetailData | null;
@@ -36,8 +36,8 @@
 		}
 	});
 
-	function getConceptName(conceptId: string): string {
-		return $concepts.find((c) => c.id === conceptId)?.name ?? conceptId;
+	function getTopicName(topicId: string): string {
+		return $topics.find((c) => c.id === topicId)?.name ?? topicId;
 	}
 
 	function startEditTitle() {
@@ -107,27 +107,27 @@
 		}
 	}
 
-	async function removeConcept(conceptId: string) {
+	async function removeTopic(topicId: string) {
 		if (!task) return;
-		const newConcepts = (task.concepts || []).filter((c) => c !== conceptId);
+		const newTopics = (task.topics || []).filter((c) => c !== topicId);
 		try {
-			const updated = await api.updateTask(task.id, { concepts: newConcepts });
+			const updated = await api.updateTask(task.id, { topics: newTopics });
 			task = updated;
-			await Promise.all([loadTasks(), loadConcepts()]);
+			await Promise.all([loadTasks(), loadTopics()]);
 		} catch (error) {
-			console.error('Failed to remove concept:', error);
+			console.error('Failed to remove topic:', error);
 		}
 	}
 
-	async function addConcept(conceptId: string) {
-		if (!task || (task.concepts || []).includes(conceptId)) return;
-		const newConcepts = [...(task.concepts || []), conceptId];
+	async function addTopic(topicId: string) {
+		if (!task || (task.topics || []).includes(topicId)) return;
+		const newTopics = [...(task.topics || []), topicId];
 		try {
-			const updated = await api.updateTask(task.id, { concepts: newConcepts });
+			const updated = await api.updateTask(task.id, { topics: newTopics });
 			task = updated;
-			await Promise.all([loadTasks(), loadConcepts()]);
+			await Promise.all([loadTasks(), loadTopics()]);
 		} catch (error) {
-			console.error('Failed to add concept:', error);
+			console.error('Failed to add topic:', error);
 		}
 	}
 
@@ -157,9 +157,7 @@
 		}
 	}
 
-	const availableConcepts = $derived(
-		$concepts.filter((c) => !(task?.concepts || []).includes(c.id))
-	);
+	const availableTopics = $derived($topics.filter((c) => !(task?.topics || []).includes(c.id)));
 
 	const availableBlockers = $derived(
 		$tasks.filter(
@@ -237,15 +235,15 @@
 					</button>
 				{/if}
 
-				<!-- Concepts (inline tags) -->
+				<!-- Topics (inline tags) -->
 				<div class="mb-3 flex flex-wrap items-center gap-1.5">
-					{#each task.concepts || [] as conceptId}
+					{#each task.topics || [] as topicId}
 						<Badge variant="secondary" class="gap-1 pr-1 text-xs">
-							{getConceptName(conceptId)}
+							{getTopicName(topicId)}
 							<button
 								class="ml-0.5 rounded-full p-0.5 hover:bg-muted-foreground/20"
-								onclick={() => removeConcept(conceptId)}
-								aria-label="Remove concept"
+								onclick={() => removeTopic(topicId)}
+								aria-label="Remove topic"
 							>
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
@@ -264,20 +262,20 @@
 							</button>
 						</Badge>
 					{/each}
-					{#if availableConcepts.length > 0}
+					{#if availableTopics.length > 0}
 						<select
 							class="h-5 rounded border-none bg-transparent px-1 text-xs text-muted-foreground hover:text-foreground focus:outline-none"
 							onchange={(e) => {
 								const target = e.target as HTMLSelectElement;
 								if (target.value) {
-									addConcept(target.value);
+									addTopic(target.value);
 									target.value = '';
 								}
 							}}
 						>
-							<option value="">+ concept</option>
-							{#each availableConcepts as concept}
-								<option value={concept.id}>{concept.name}</option>
+							<option value="">+ topic</option>
+							{#each availableTopics as topic}
+								<option value={topic.id}>{topic.name}</option>
 							{/each}
 						</select>
 					{/if}

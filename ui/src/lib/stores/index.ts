@@ -1,20 +1,20 @@
 import { writable, derived } from 'svelte/store';
-import type { TaskItem, ConceptInfo, CheckItem, StatusData } from '$lib/api/types';
+import type { TaskItem, TopicInfo, CheckItem, StatusData } from '$lib/api/types';
 import * as api from '$lib/api/client';
 
 // Core state
 export const tasks = writable<TaskItem[]>([]);
-export const concepts = writable<ConceptInfo[]>([]);
+export const topics = writable<TopicInfo[]>([]);
 export const checks = writable<CheckItem[]>([]);
 export const status = writable<StatusData | null>(null);
-export const currentConcept = writable<string | null>(null);
+export const currentTopic = writable<string | null>(null);
 export const selectedTaskId = writable<string | null>(null);
 export const connectionStatus = writable<'connected' | 'disconnected'>('disconnected');
 
 // Derived stores
-export const filteredTasks = derived([tasks, currentConcept], ([$tasks, $currentConcept]) => {
-	if (!$currentConcept) return $tasks;
-	return $tasks.filter((t) => (t.concepts || []).includes($currentConcept));
+export const filteredTasks = derived([tasks, currentTopic], ([$tasks, $currentTopic]) => {
+	if (!$currentTopic) return $tasks;
+	return $tasks.filter((t) => (t.topics || []).includes($currentTopic));
 });
 
 export const tasksByStatus = derived(filteredTasks, ($filteredTasks) => {
@@ -42,17 +42,17 @@ export const selectedTask = derived([tasks, selectedTaskId], ([$tasks, $selected
 // Actions
 export async function loadAll() {
 	try {
-		const [statusData, tasksData, conceptsData, checksData] = await Promise.all([
+		const [statusData, tasksData, topicsData, checksData] = await Promise.all([
 			api.getStatus(),
 			api.getTasks(),
-			api.getConcepts(),
+			api.getTopics(),
 			api.getChecks()
 		]);
 
 		status.set(statusData);
 		tasks.set(tasksData.tasks);
-		concepts.set(conceptsData.concepts);
-		currentConcept.set(conceptsData.current_concept);
+		topics.set(topicsData.topics);
+		currentTopic.set(topicsData.current_topic);
 		checks.set(checksData.checks);
 		connectionStatus.set('connected');
 	} catch (error) {
@@ -70,13 +70,13 @@ export async function loadTasks() {
 	}
 }
 
-export async function loadConcepts() {
+export async function loadTopics() {
 	try {
-		const data = await api.getConcepts();
-		concepts.set(data.concepts);
-		currentConcept.set(data.current_concept);
+		const data = await api.getTopics();
+		topics.set(data.topics);
+		currentTopic.set(data.current_topic);
 	} catch (error) {
-		console.error('Failed to load concepts:', error);
+		console.error('Failed to load topics:', error);
 	}
 }
 

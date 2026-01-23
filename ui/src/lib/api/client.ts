@@ -9,18 +9,18 @@ import type {
 	TaskMutationData,
 	ChecksData,
 	CheckCreateData,
-	ConceptsData,
-	ConceptInfo,
-	ConceptCreateData,
+	TopicsData,
+	TopicInfo,
+	TopicCreateData,
 	EventsData,
 	CreateTaskRequest,
 	CreateCheckRequest,
-	CreateConceptRequest,
+	CreateTopicRequest,
 	UpdateTaskRequest,
-	UpdateConceptRequest,
+	UpdateTopicRequest,
 	BlockerRequest,
 	LinkBranchRequest,
-	SelectConceptRequest
+	SelectTopicRequest
 } from './types';
 
 const API_BASE = '/api/v1';
@@ -110,25 +110,25 @@ export async function createCheck(req: CreateCheckRequest): Promise<CheckCreateD
 	return request<CheckCreateData>('POST', '/checks', req);
 }
 
-// Concepts
-export async function getConcepts(): Promise<ConceptsData> {
-	return request<ConceptsData>('GET', '/concepts');
+// Topics
+export async function getTopics(): Promise<TopicsData> {
+	return request<TopicsData>('GET', '/topics');
 }
 
-export async function createConcept(req: CreateConceptRequest): Promise<ConceptCreateData> {
-	return request<ConceptCreateData>('POST', '/concepts', req);
+export async function createTopic(req: CreateTopicRequest): Promise<TopicCreateData> {
+	return request<TopicCreateData>('POST', '/topics', req);
 }
 
-export async function updateConcept(id: string, req: UpdateConceptRequest): Promise<ConceptInfo> {
-	return request<ConceptInfo>('PATCH', `/concepts/${id}`, req);
+export async function updateTopic(id: string, req: UpdateTopicRequest): Promise<TopicInfo> {
+	return request<TopicInfo>('PATCH', `/topics/${id}`, req);
 }
 
-export async function deleteConcept(id: string): Promise<void> {
-	return request<void>('DELETE', `/concepts/${id}`);
+export async function deleteTopic(id: string): Promise<void> {
+	return request<void>('DELETE', `/topics/${id}`);
 }
 
-export async function selectConcept(req: SelectConceptRequest): Promise<ConceptsData> {
-	return request<ConceptsData>('POST', '/concepts/select', req);
+export async function selectTopic(req: SelectTopicRequest): Promise<TopicsData> {
+	return request<TopicsData>('POST', '/topics/select', req);
 }
 
 // Events (long-polling)

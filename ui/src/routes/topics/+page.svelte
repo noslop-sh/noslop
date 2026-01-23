@@ -3,14 +3,14 @@
 	import { Button } from '$lib/components/ui/button';
 	import { Badge } from '$lib/components/ui/badge';
 	import { Input } from '$lib/components/ui/input';
-	import { concepts, loadConcepts } from '$lib/stores';
+	import { topics, loadTopics } from '$lib/stores';
 	import * as api from '$lib/api/client';
 
 	let showForm = $state(false);
 	let name = $state('');
 	let description = $state('');
 
-	// Track which concept is being edited or deleted
+	// Track which topic is being edited or deleted
 	let editingId = $state<string | null>(null);
 	let editingName = $state('');
 	let editingDescription = $state('');
@@ -22,16 +22,16 @@
 		if (!name.trim()) return;
 
 		try {
-			await api.createConcept({
+			await api.createTopic({
 				name: name.trim(),
 				description: description.trim() || undefined
 			});
 			name = '';
 			description = '';
 			showForm = false;
-			await loadConcepts();
+			await loadTopics();
 		} catch (error) {
-			console.error('Failed to create concept:', error);
+			console.error('Failed to create topic:', error);
 		}
 	}
 
@@ -53,10 +53,10 @@
 
 	async function handleDelete(id: string) {
 		try {
-			await api.deleteConcept(id);
-			await loadConcepts();
+			await api.deleteTopic(id);
+			await loadTopics();
 		} catch (error) {
-			console.error('Failed to delete concept:', error);
+			console.error('Failed to delete topic:', error);
 		}
 		confirmingDeleteId = null;
 	}
@@ -86,20 +86,20 @@
 			return;
 		}
 		try {
-			await api.updateConcept(id, { name: editingName.trim() });
-			await loadConcepts();
+			await api.updateTopic(id, { name: editingName.trim() });
+			await loadTopics();
 		} catch (error) {
-			console.error('Failed to update concept:', error);
+			console.error('Failed to update topic:', error);
 		}
 		cancelEdit();
 	}
 
 	async function saveDescription(id: string) {
 		try {
-			await api.updateConcept(id, { description: editingDescription.trim() || null });
-			await loadConcepts();
+			await api.updateTopic(id, { description: editingDescription.trim() || null });
+			await loadTopics();
 		} catch (error) {
-			console.error('Failed to update concept:', error);
+			console.error('Failed to update topic:', error);
 		}
 		cancelEdit();
 	}
@@ -127,25 +127,25 @@
 	<Toolbar />
 
 	<div class="flex h-10 shrink-0 items-center justify-between border-b border-border px-4">
-		<h1 class="text-sm font-medium text-foreground">Concepts</h1>
+		<h1 class="text-sm font-medium text-foreground">Topics</h1>
 		<Button size="sm" class="h-7 text-xs" onclick={toggleForm}>+ New</Button>
 	</div>
 
 	<main class="mx-auto w-full max-w-3xl flex-1 overflow-y-auto p-4">
-		<!-- New concept form -->
+		<!-- New topic form -->
 		{#if showForm}
 			<div class="mb-6 rounded-md border border-border bg-card p-4">
 				<form onsubmit={handleSubmit} class="space-y-4">
 					<div>
-						<label for="concept-name" class="mb-1 block text-sm text-muted-foreground">Name</label>
-						<Input id="concept-name" bind:value={name} placeholder="Authentication" />
+						<label for="topic-name" class="mb-1 block text-sm text-muted-foreground">Name</label>
+						<Input id="topic-name" bind:value={name} placeholder="Authentication" />
 					</div>
 					<div>
-						<label for="concept-description" class="mb-1 block text-sm text-muted-foreground"
+						<label for="topic-description" class="mb-1 block text-sm text-muted-foreground"
 							>Description (for LLM context)</label
 						>
 						<textarea
-							id="concept-description"
+							id="topic-description"
 							class="w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
 							rows="3"
 							bind:value={description}
@@ -153,62 +153,60 @@
 						></textarea>
 					</div>
 					<div class="flex gap-2">
-						<Button type="submit" size="sm">Create Concept</Button>
+						<Button type="submit" size="sm">Create Topic</Button>
 						<Button type="button" variant="outline" size="sm" onclick={hideForm}>Cancel</Button>
 					</div>
 				</form>
 			</div>
 		{/if}
 
-		<!-- Concepts list -->
+		<!-- Topics list -->
 		<div class="space-y-2">
-			{#each $concepts as concept (concept.id)}
+			{#each $topics as topic (topic.id)}
 				<div class="group rounded-md border border-border bg-card p-3">
 					<div class="flex items-start justify-between">
 						<div class="flex-1">
 							<!-- Name row -->
 							<div class="mb-1 flex items-center gap-2">
-								{#if editingId === concept.id && editingField === 'name'}
+								{#if editingId === topic.id && editingField === 'name'}
 									<input
 										type="text"
 										class="flex-1 rounded border border-border bg-muted px-2 py-1 text-sm font-medium text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
 										bind:value={editingName}
-										onkeydown={(e) => handleNameKeydown(e, concept.id)}
-										onblur={() => saveName(concept.id)}
+										onkeydown={(e) => handleNameKeydown(e, topic.id)}
+										onblur={() => saveName(topic.id)}
 									/>
 								{:else}
 									<button
 										class="text-sm font-medium text-foreground hover:text-primary"
-										onclick={() => startEditName(concept.id, concept.name)}
+										onclick={() => startEditName(topic.id, topic.name)}
 									>
-										{concept.name}
+										{topic.name}
 									</button>
 								{/if}
-								<Badge variant="secondary" class="text-xs">{concept.task_count} tasks</Badge>
+								<Badge variant="secondary" class="text-xs">{topic.task_count} tasks</Badge>
 							</div>
 
 							<!-- Scope -->
-							{#if (concept.scope || []).length > 0}
+							{#if (topic.scope || []).length > 0}
 								<p class="mb-1 font-mono text-xs text-muted-foreground">
-									{(concept.scope || []).join(', ')}
+									{(topic.scope || []).join(', ')}
 								</p>
 							{/if}
 
 							<!-- Description -->
-							{#if editingId === concept.id && editingField === 'description'}
+							{#if editingId === topic.id && editingField === 'description'}
 								<div class="mt-2">
 									<textarea
 										class="w-full rounded-md border border-border bg-muted p-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
 										rows="2"
 										bind:value={editingDescription}
-										onkeydown={(e) => handleDescKeydown(e, concept.id)}
+										onkeydown={(e) => handleDescKeydown(e, topic.id)}
 										placeholder="Enter description..."
 									></textarea>
 									<div class="mt-2 flex gap-2">
-										<Button
-											size="sm"
-											class="h-7 text-xs"
-											onclick={() => saveDescription(concept.id)}>Save</Button
+										<Button size="sm" class="h-7 text-xs" onclick={() => saveDescription(topic.id)}
+											>Save</Button
 										>
 										<Button variant="ghost" size="sm" class="h-7 text-xs" onclick={cancelEdit}
 											>Cancel</Button
@@ -218,10 +216,10 @@
 							{:else}
 								<button
 									class="mt-1 w-full text-left text-sm text-muted-foreground hover:text-foreground"
-									onclick={() => startEditDescription(concept.id, concept.description)}
+									onclick={() => startEditDescription(topic.id, topic.description)}
 								>
-									{#if concept.description}
-										{concept.description}
+									{#if topic.description}
+										{topic.description}
 									{:else}
 										<span class="italic">Click to add description...</span>
 									{/if}
@@ -230,13 +228,13 @@
 						</div>
 
 						<!-- Action icons -->
-						{#if confirmingDeleteId === concept.id}
+						{#if confirmingDeleteId === topic.id}
 							<div class="flex items-center gap-1">
 								<Button
 									variant="destructive"
 									size="sm"
 									class="h-7 px-2 text-xs"
-									onclick={() => handleDelete(concept.id)}
+									onclick={() => handleDelete(topic.id)}
 								>
 									Delete
 								</Button>
@@ -244,11 +242,11 @@
 									Cancel
 								</Button>
 							</div>
-						{:else if editingId !== concept.id}
+						{:else if editingId !== topic.id}
 							<button
 								class="p-1 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
-								onclick={() => startDelete(concept.id)}
-								title="Delete concept"
+								onclick={() => startDelete(topic.id)}
+								title="Delete topic"
 							>
 								<svg
 									xmlns="http://www.w3.org/2000/svg"
@@ -273,7 +271,7 @@
 				<div
 					class="flex h-32 items-center justify-center rounded-lg border border-dashed border-border text-sm text-muted-foreground"
 				>
-					No concepts defined. Create one to group related tasks and scope patterns.
+					No topics defined. Create one to group related tasks and scope patterns.
 				</div>
 			{/each}
 		</div>

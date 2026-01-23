@@ -170,21 +170,21 @@ describe('API Client', () => {
 		});
 	});
 
-	describe('getConcepts', () => {
-		it('should fetch concepts', async () => {
+	describe('getTopics', () => {
+		it('should fetch topics', async () => {
 			const mockData = {
-				concepts: [{ id: 'CON-1', name: 'Auth', task_count: 3, created_at: '2024-01-01' }],
-				current_concept: null
+				topics: [{ id: 'TOP-1', name: 'Auth', task_count: 3, created_at: '2024-01-01' }],
+				current_topic: null
 			};
 
 			mockFetch.mockResolvedValueOnce({
 				json: () => Promise.resolve({ success: true, data: mockData })
 			});
 
-			const result = await api.getConcepts();
+			const result = await api.getTopics();
 
-			expect(result.concepts).toHaveLength(1);
-			expect(result.concepts[0].name).toBe('Auth');
+			expect(result.topics).toHaveLength(1);
+			expect(result.topics[0].name).toBe('Auth');
 		});
 	});
 
@@ -225,7 +225,7 @@ describe('API Client', () => {
 						blocked: false,
 						check_count: 3,
 						checks_verified: 1,
-						concepts: []
+						topics: []
 					}
 				]
 			};
@@ -282,7 +282,7 @@ describe('API Client', () => {
 						blocked: false,
 						check_count: 0,
 						checks_verified: 0,
-						concepts: []
+						topics: []
 					}
 				]
 			};

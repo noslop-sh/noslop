@@ -65,9 +65,9 @@ pub struct CreateTaskRequest {
     /// Optional priority (p0, p1, p2, p3)
     #[serde(default)]
     pub priority: Option<String>,
-    /// Concepts to assign task to
+    /// Topics to assign task to
     #[serde(default)]
-    pub concepts: Vec<String>,
+    pub topics: Vec<String>,
 }
 
 /// Request body for creating a check
@@ -162,9 +162,9 @@ pub struct TaskItem {
     /// When completed (RFC3339)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
-    /// Concepts this task belongs to
+    /// Topics this task belongs to
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub concepts: Vec<String>,
+    pub topics: Vec<String>,
     /// Scope patterns (files this task touches)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub scope: Vec<String>,
@@ -207,9 +207,9 @@ pub struct TaskDetailData {
     /// When completed (RFC3339)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
-    /// Concepts this task belongs to
+    /// Topics this task belongs to
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub concepts: Vec<String>,
+    pub topics: Vec<String>,
     /// Scope patterns (files this task touches)
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub scope: Vec<String>,
@@ -387,67 +387,67 @@ pub struct BlockerRequest {
 }
 
 // =============================================================================
-// CONCEPT TYPES
+// TOPIC TYPES
 // =============================================================================
 
-/// Concept info
+/// Topic info
 #[derive(Debug, Serialize)]
-pub struct ConceptInfo {
-    /// Concept ID
+pub struct TopicInfo {
+    /// Topic ID
     pub id: String,
-    /// Concept name
+    /// Topic name
     pub name: String,
-    /// Concept description (context for LLMs)
+    /// Topic description (context for LLMs)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Scope patterns for this concept
+    /// Scope patterns for this topic
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub scope: Vec<String>,
-    /// Number of tasks in concept
+    /// Number of tasks in topic
     pub task_count: usize,
     /// When created (RFC3339)
     pub created_at: String,
 }
 
-/// Concepts list response
+/// Topics list response
 #[derive(Debug, Serialize)]
-pub struct ConceptsData {
-    /// List of concepts
-    pub concepts: Vec<ConceptInfo>,
-    /// Currently selected concept ID (None = view all)
-    pub current_concept: Option<String>,
+pub struct TopicsData {
+    /// List of topics
+    pub topics: Vec<TopicInfo>,
+    /// Currently selected topic ID (None = view all)
+    pub current_topic: Option<String>,
 }
 
-/// Create concept request
+/// Create topic request
 #[derive(Debug, Deserialize)]
-pub struct CreateConceptRequest {
-    /// Concept name
+pub struct CreateTopicRequest {
+    /// Topic name
     pub name: String,
     /// Optional description
     #[serde(default)]
     pub description: Option<String>,
 }
 
-/// Create concept response
+/// Create topic response
 #[derive(Debug, Serialize)]
-pub struct ConceptCreateData {
-    /// Created concept ID
+pub struct TopicCreateData {
+    /// Created topic ID
     pub id: String,
-    /// Concept name
+    /// Topic name
     pub name: String,
 }
 
-/// Select concept request
+/// Select topic request
 #[derive(Debug, Deserialize)]
-pub struct SelectConceptRequest {
-    /// Concept ID to select (None = view all)
+pub struct SelectTopicRequest {
+    /// Topic ID to select (None = view all)
     #[serde(default)]
     pub id: Option<String>,
 }
 
-/// Update concept request
+/// Update topic request
 #[derive(Debug, Deserialize)]
-pub struct UpdateConceptRequest {
+pub struct UpdateTopicRequest {
     /// New description (None to clear)
     #[serde(default)]
     pub description: Option<String>,
@@ -459,7 +459,7 @@ pub struct UpdateTaskRequest {
     /// New description (None to clear)
     #[serde(default)]
     pub description: Option<String>,
-    /// New concepts list (None means no change)
+    /// New topics list (None means no change)
     #[serde(default)]
-    pub concepts: Option<Vec<String>>,
+    pub topics: Option<Vec<String>>,
 }

@@ -10,9 +10,9 @@ use serde::{Serialize, de::DeserializeOwned};
 use tiny_http::{Header, Method, Request, Response, StatusCode};
 
 use noslop::api::{
-    self, ApiError, ApiResponse, BlockerRequest, CreateCheckRequest, CreateConceptRequest,
-    CreateTaskRequest, LinkBranchRequest, SelectConceptRequest, UpdateConceptRequest,
-    UpdateConfigRequest, UpdateTaskRequest,
+    self, ApiError, ApiResponse, BlockerRequest, CreateCheckRequest, CreateTaskRequest,
+    CreateTopicRequest, LinkBranchRequest, SelectTopicRequest, UpdateConfigRequest,
+    UpdateTaskRequest, UpdateTopicRequest,
 };
 
 // =============================================================================
@@ -41,7 +41,7 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
         (&Method::Get, "/checks") => handle_result(api::list_checks()),
         (&Method::Get, "/workspace") => handle_result(api::get_workspace()),
         (&Method::Get, "/config") => handle_result(api::get_config()),
-        (&Method::Get, "/concepts") => handle_result(api::list_concepts()),
+        (&Method::Get, "/topics") => handle_result(api::list_topics()),
 
         // PATCH /config - update config
         (&Method::Patch, "/config") => match read_json_body::<UpdateConfigRequest>(request) {
@@ -61,18 +61,16 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
             Err(e) => error_response(&e),
         },
 
-        // POST /concepts - create concept
-        (&Method::Post, "/concepts") => match read_json_body::<CreateConceptRequest>(request) {
-            Ok(req) => handle_result(api::create_concept(&req)),
+        // POST /topics - create topic
+        (&Method::Post, "/topics") => match read_json_body::<CreateTopicRequest>(request) {
+            Ok(req) => handle_result(api::create_topic(&req)),
             Err(e) => error_response(&e),
         },
 
-        // POST /concepts/select - select current concept
-        (&Method::Post, "/concepts/select") => {
-            match read_json_body::<SelectConceptRequest>(request) {
-                Ok(req) => handle_result(api::select_concept(&req)),
-                Err(e) => error_response(&e),
-            }
+        // POST /topics/select - select current topic
+        (&Method::Post, "/topics/select") => match read_json_body::<SelectTopicRequest>(request) {
+            Ok(req) => handle_result(api::select_topic(&req)),
+            Err(e) => error_response(&e),
         },
 
         // Task detail: GET /tasks/{id}
@@ -188,13 +186,13 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
             }
         },
 
-        // Concept update: PATCH /concepts/{id}
-        _ if method == Method::Patch && api_path.starts_with("/concepts/") => {
-            let id = api_path.strip_prefix("/concepts/").unwrap_or("");
-            // Make sure it's not a sub-action like /concepts/id/something
+        // Topic update: PATCH /topics/{id}
+        _ if method == Method::Patch && api_path.starts_with("/topics/") => {
+            let id = api_path.strip_prefix("/topics/").unwrap_or("");
+            // Make sure it's not a sub-action like /topics/id/something
             if !id.contains('/') {
-                match read_json_body::<UpdateConceptRequest>(request) {
-                    Ok(req) => handle_result(api::update_concept(id, &req)),
+                match read_json_body::<UpdateTopicRequest>(request) {
+                    Ok(req) => handle_result(api::update_topic(id, &req)),
                     Err(e) => error_response(&e),
                 }
             } else {
@@ -213,13 +211,11 @@ pub fn handle_api_request(request: &mut Request) -> Response<Cursor<Vec<u8>>> {
             }
         },
 
-        // Concept delete: DELETE /concepts/{id}
-        _ if method == Method::Delete && api_path.starts_with("/concepts/") => {
-            let id = api_path.strip_prefix("/concepts/").unwrap_or("");
+        // Topic delete: DELETE /topics/{id}
+        _ if method == Method::Delete && api_path.starts_with("/topics/") => {
+            let id = api_path.strip_prefix("/topics/").unwrap_or("");
             if !id.contains('/') {
-                handle_result(
-                    api::delete_concept(id).map(|()| serde_json::json!({"deleted": true})),
-                )
+                handle_result(api::delete_topic(id).map(|()| serde_json::json!({"deleted": true})))
             } else {
                 not_found_response(&format!("API endpoint not found: {} {}", method, api_path))
             }

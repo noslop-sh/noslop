@@ -15,11 +15,10 @@ use crate::storage::{TaskRefs, TrailerVerificationStore, VerificationStore};
 use super::error::ApiError;
 use super::types::{
     BlockerRequest, BranchInfo, BranchSelection, CheckCreateData, CheckItem, ChecksData,
-    ConceptCreateData, ConceptInfo, ConceptsData, ConfigData, CreateCheckRequest,
-    CreateConceptRequest, CreateTaskRequest, LinkBranchRequest, RepoInfo, SelectConceptRequest,
-    StatusData, TaskCheckItem, TaskCounts, TaskCreateData, TaskDetailData, TaskItem,
-    TaskMutationData, TasksData, UpdateConceptRequest, UpdateConfigRequest, UpdateTaskRequest,
-    WorkspaceData,
+    ConfigData, CreateCheckRequest, CreateTaskRequest, CreateTopicRequest, LinkBranchRequest,
+    RepoInfo, SelectTopicRequest, StatusData, TaskCheckItem, TaskCounts, TaskCreateData,
+    TaskDetailData, TaskItem, TaskMutationData, TasksData, TopicCreateData, TopicInfo, TopicsData,
+    UpdateConfigRequest, UpdateTaskRequest, UpdateTopicRequest, WorkspaceData,
 };
 
 // =============================================================================
@@ -61,9 +60,9 @@ pub fn list_tasks() -> Result<TasksData, ApiError> {
     list_tasks_filtered(None, None)
 }
 
-/// List tasks with optional concept and/or branch filter
+/// List tasks with optional topic and/or branch filter
 pub fn list_tasks_filtered(
-    concept_filter: Option<&str>,
+    topic_filter: Option<&str>,
     branch_filter: Option<&str>,
 ) -> Result<TasksData, ApiError> {
     let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
@@ -72,16 +71,16 @@ pub fn list_tasks_filtered(
     let task_items: Vec<TaskItem> = tasks
         .iter()
         .filter(|(_, t)| {
-            // If concept filter is set, only include tasks that have the concept
-            let concept_match = concept_filter.is_none_or(|filter| t.has_concept(filter));
+            // If topic filter is set, only include tasks that have the topic
+            let topic_match = topic_filter.is_none_or(|filter| t.has_topic(filter));
             // If branch filter is set, only include tasks with matching branch
             let branch_match =
                 branch_filter.is_none_or(|filter| t.branch.as_deref() == Some(filter));
-            concept_match && branch_match
+            topic_match && branch_match
         })
         .map(|(id, t)| {
             // Compute checks for this task
-            let checks = compute_task_checks(&t.scope, &t.concepts, t.branch.as_deref());
+            let checks = compute_task_checks(&t.scope, &t.topics, t.branch.as_deref());
             let check_count = checks.len();
             let checks_verified = checks.iter().filter(|c| c.verified).count();
 
@@ -97,7 +96,7 @@ pub fn list_tasks_filtered(
                 branch: t.branch.clone(),
                 started_at: t.started_at.clone(),
                 completed_at: t.completed_at.clone(),
-                concepts: t.concepts.clone(),
+                topics: t.topics.clone(),
                 scope: t.scope.clone(),
                 check_count,
                 checks_verified,
@@ -118,7 +117,7 @@ pub fn get_task(id: &str) -> Result<TaskDetailData, ApiError> {
             let blocked = task.is_blocked(&tasks);
 
             // Compute checks for this task
-            let checks = compute_task_checks(&task.scope, &task.concepts, task.branch.as_deref());
+            let checks = compute_task_checks(&task.scope, &task.topics, task.branch.as_deref());
             let check_count = checks.len();
             let checks_verified = checks.iter().filter(|c| c.verified).count();
 
@@ -136,7 +135,7 @@ pub fn get_task(id: &str) -> Result<TaskDetailData, ApiError> {
                 branch: task.branch,
                 started_at: task.started_at,
                 completed_at: task.completed_at,
-                concepts: task.concepts,
+                topics: task.topics,
                 scope: task.scope,
                 check_count,
                 checks_verified,
@@ -156,7 +155,7 @@ pub fn create_task(req: &CreateTaskRequest) -> Result<TaskCreateData, ApiError> 
 
     let priority = req.priority.as_deref();
 
-    let id = TaskRefs::create_with_concepts(&req.title, priority, &req.concepts)
+    let id = TaskRefs::create_with_topics(&req.title, priority, &req.topics)
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
     // Set description if provided
@@ -378,14 +377,14 @@ fn load_check_count() -> usize {
 
 /// Compute checks that apply to a task based on aggregated scope overlap
 ///
-/// Effective scope = task.scope ∪ concepts[*].scope
+/// Effective scope = task.scope ∪ topics[*].scope
 /// A check applies if check.scope overlaps with the effective scope
 fn compute_task_checks(
     task_scope: &[String],
-    task_concepts: &[String],
+    task_topics: &[String],
     task_branch: Option<&str>,
 ) -> Vec<TaskCheckItem> {
-    // Load checks and concepts from .noslop.toml
+    // Load checks and topics from .noslop.toml
     let file = noslop_file::load_or_default();
 
     if file.checks.is_empty() {
@@ -395,13 +394,13 @@ fn compute_task_checks(
     // Get verified check IDs from commit trailers on the task's branch
     let verified_ids = get_verified_check_ids(task_branch);
 
-    // Build effective scope: task.scope ∪ concepts[*].scope
+    // Build effective scope: task.scope ∪ topics[*].scope
     let mut effective_scope: Vec<&str> = task_scope.iter().map(String::as_str).collect();
 
-    // Add scope patterns from attached concepts
-    for concept_id in task_concepts {
-        if let Some(concept) = file.get_concept(concept_id) {
-            for pattern in &concept.scope {
+    // Add scope patterns from attached topics
+    for topic_id in task_topics {
+        if let Some(topic) = file.get_topic(topic_id) {
+            for pattern in &topic.scope {
                 effective_scope.push(pattern);
             }
         }
@@ -702,19 +701,19 @@ pub fn update_config(req: &UpdateConfigRequest) -> Result<ConfigData, ApiError> 
 }
 
 // =============================================================================
-// CONCEPTS
+// TOPICS
 // =============================================================================
 
-/// List all concepts in the workspace
-pub fn list_concepts() -> Result<ConceptsData, ApiError> {
+/// List all topics in the workspace
+pub fn list_topics() -> Result<TopicsData, ApiError> {
     let file = noslop_file::load_or_default();
     let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
 
-    let concepts: Vec<ConceptInfo> = file
-        .all_concepts()
+    let topics: Vec<TopicInfo> = file
+        .all_topics()
         .map(|c| {
-            let task_count = tasks.iter().filter(|(_, t)| t.has_concept(&c.id)).count();
-            ConceptInfo {
+            let task_count = tasks.iter().filter(|(_, t)| t.has_topic(&c.id)).count();
+            TopicInfo {
                 id: c.id.clone(),
                 name: c.name.clone(),
                 description: c.description.clone(),
@@ -725,86 +724,86 @@ pub fn list_concepts() -> Result<ConceptsData, ApiError> {
         })
         .collect();
 
-    let current_concept =
-        noslop_file::current_concept().map_err(|e| ApiError::internal(e.to_string()))?;
+    let current_topic =
+        noslop_file::current_topic().map_err(|e| ApiError::internal(e.to_string()))?;
 
-    Ok(ConceptsData {
-        concepts,
-        current_concept,
+    Ok(TopicsData {
+        topics,
+        current_topic,
     })
 }
 
-/// Create a new concept
-pub fn create_concept(req: &CreateConceptRequest) -> Result<ConceptCreateData, ApiError> {
+/// Create a new topic
+pub fn create_topic(req: &CreateTopicRequest) -> Result<TopicCreateData, ApiError> {
     if req.name.trim().is_empty() {
-        return Err(ApiError::bad_request("Concept name cannot be empty"));
+        return Err(ApiError::bad_request("Topic name cannot be empty"));
     }
 
-    let id = noslop_file::create_concept(&req.name, req.description.as_deref())
+    let id = noslop_file::create_topic(&req.name, req.description.as_deref())
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
-    Ok(ConceptCreateData {
+    Ok(TopicCreateData {
         id,
         name: req.name.clone(),
     })
 }
 
-/// Delete a concept
-pub fn delete_concept(id: &str) -> Result<(), ApiError> {
-    let deleted = noslop_file::delete_concept(id).map_err(|e| ApiError::internal(e.to_string()))?;
+/// Delete a topic
+pub fn delete_topic(id: &str) -> Result<(), ApiError> {
+    let deleted = noslop_file::delete_topic(id).map_err(|e| ApiError::internal(e.to_string()))?;
 
     if !deleted {
-        return Err(ApiError::not_found(format!("Concept '{id}' not found")));
+        return Err(ApiError::not_found(format!("Topic '{id}' not found")));
     }
 
     Ok(())
 }
 
-/// Select the current concept (or None for "view all")
-pub fn select_concept(req: &SelectConceptRequest) -> Result<ConceptsData, ApiError> {
-    // Verify concept exists if an ID is provided
+/// Select the current topic (or None for "view all")
+pub fn select_topic(req: &SelectTopicRequest) -> Result<TopicsData, ApiError> {
+    // Verify topic exists if an ID is provided
     if let Some(id) = &req.id {
         let file = noslop_file::load_or_default();
-        if file.get_concept(id).is_none() {
-            return Err(ApiError::not_found(format!("Concept '{id}' not found")));
+        if file.get_topic(id).is_none() {
+            return Err(ApiError::not_found(format!("Topic '{id}' not found")));
         }
     }
 
-    noslop_file::set_current_concept(req.id.as_deref())
+    noslop_file::set_current_topic(req.id.as_deref())
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
-    list_concepts()
+    list_topics()
 }
 
-/// Update a concept's description
-pub fn update_concept(id: &str, req: &UpdateConceptRequest) -> Result<ConceptInfo, ApiError> {
-    let updated = noslop_file::update_concept_description(id, req.description.as_deref())
+/// Update a topic's description
+pub fn update_topic(id: &str, req: &UpdateTopicRequest) -> Result<TopicInfo, ApiError> {
+    let updated = noslop_file::update_topic_description(id, req.description.as_deref())
         .map_err(|e| ApiError::internal(e.to_string()))?;
 
     if !updated {
-        return Err(ApiError::not_found(format!("Concept '{id}' not found")));
+        return Err(ApiError::not_found(format!("Topic '{id}' not found")));
     }
 
-    // Return updated concept
+    // Return updated topic
     let file = noslop_file::load_or_default();
-    let concept = file
-        .get_concept(id)
-        .ok_or_else(|| ApiError::internal("Concept updated but could not be read back"))?;
+    let topic = file
+        .get_topic(id)
+        .ok_or_else(|| ApiError::internal("Topic updated but could not be read back"))?;
 
     let tasks = TaskRefs::list().map_err(|e| ApiError::internal(e.to_string()))?;
-    let task_count = tasks.iter().filter(|(_, t)| t.has_concept(id)).count();
+    let task_count = tasks.iter().filter(|(_, t)| t.has_topic(id)).count();
 
-    Ok(ConceptInfo {
-        id: concept.id.clone(),
-        name: concept.name.clone(),
-        description: concept.description.clone(),
-        scope: concept.scope.clone(),
+    Ok(TopicInfo {
+        id: topic.id.clone(),
+        name: topic.name.clone(),
+        description: topic.description.clone(),
+        scope: topic.scope.clone(),
         task_count,
-        created_at: concept.created_at.clone(),
+        created_at: topic.created_at.clone(),
     })
 }
 
-/// Update a task's description and/or concepts
+/// Update a task's description and/or topics
 pub fn update_task(id: &str, req: &UpdateTaskRequest) -> Result<TaskDetailData, ApiError> {
     // Verify task exists
     if TaskRefs::get(id).map_err(|e| ApiError::internal(e.to_string()))?.is_none() {
@@ -817,10 +816,10 @@ pub fn update_task(id: &str, req: &UpdateTaskRequest) -> Result<TaskDetailData, 
             .map_err(|e| ApiError::internal(e.to_string()))?;
     }
 
-    // Update concepts if provided
-    if let Some(concepts) = &req.concepts {
-        let concept_refs: Vec<&str> = concepts.iter().map(String::as_str).collect();
-        TaskRefs::set_concepts(id, &concept_refs).map_err(|e| ApiError::internal(e.to_string()))?;
+    // Update topics if provided
+    if let Some(topics) = &req.topics {
+        let topic_refs: Vec<&str> = topics.iter().map(String::as_str).collect();
+        TaskRefs::set_topics(id, &topic_refs).map_err(|e| ApiError::internal(e.to_string()))?;
     }
 
     // Return updated task

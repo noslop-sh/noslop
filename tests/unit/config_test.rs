@@ -119,7 +119,7 @@ fn test_config_save_and_load() {
 }
 
 // =============================================================================
-// CONCEPT TESTS (moved to tests/unit/noslop_file_test.rs)
+// TOPIC TESTS (moved to tests/unit/noslop_file_test.rs)
 // =============================================================================
-// Concepts are now stored in .noslop.toml via noslop_file module.
-// See tests/unit/noslop_file_test.rs for concept tests.
+// Topics are now stored in .noslop.toml via noslop_file module.
+// See tests/unit/noslop_file_test.rs for topic tests.

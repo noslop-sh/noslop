@@ -22,9 +22,9 @@ pub struct NoslopFile {
     #[serde(default, rename = "check")]
     pub checks: Vec<CheckEntry>,
 
-    /// Concepts defined in this file via [[concept]] sections
-    #[serde(default, rename = "concept")]
-    pub concepts: Vec<ConceptEntry>,
+    /// Topics defined in this file via [[topic]] sections
+    #[serde(default, rename = "topic")]
+    pub topics: Vec<TopicEntry>,
 }
 
 impl NoslopFile {
@@ -33,20 +33,20 @@ impl NoslopFile {
         self.checks.iter()
     }
 
-    /// Get all concepts
-    pub fn all_concepts(&self) -> impl Iterator<Item = &ConceptEntry> {
-        self.concepts.iter()
+    /// Get all topics
+    pub fn all_topics(&self) -> impl Iterator<Item = &TopicEntry> {
+        self.topics.iter()
     }
 
-    /// Get a concept by ID
+    /// Get a topic by ID
     #[must_use]
-    pub fn get_concept(&self, id: &str) -> Option<&ConceptEntry> {
-        self.concepts.iter().find(|c| c.id == id)
+    pub fn get_topic(&self, id: &str) -> Option<&TopicEntry> {
+        self.topics.iter().find(|c| c.id == id)
     }
 
-    /// Get a mutable concept by ID
-    pub fn get_concept_mut(&mut self, id: &str) -> Option<&mut ConceptEntry> {
-        self.concepts.iter_mut().find(|c| c.id == id)
+    /// Get a mutable topic by ID
+    pub fn get_topic_mut(&mut self, id: &str) -> Option<&mut TopicEntry> {
+        self.topics.iter_mut().find(|c| c.id == id)
     }
 }
 
@@ -95,17 +95,17 @@ fn default_severity() -> String {
     "block".to_string()
 }
 
-/// A concept entry in .noslop.toml
+/// A topic entry in .noslop.toml
 #[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ConceptEntry {
-    /// Concept ID (e.g., "CON-1")
+pub struct TopicEntry {
+    /// Topic ID (e.g., "TOP-1")
     pub id: String,
-    /// Concept name
+    /// Topic name
     pub name: String,
     /// Description providing context for LLMs
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
-    /// Scope patterns (files/directories this concept applies to)
+    /// Scope patterns (files/directories this topic applies to)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scope: Vec<String>,
     /// When created (RFC3339)
@@ -338,9 +338,9 @@ fn format_noslop_file(file: &NoslopFile) -> String {
         out.push('\n');
     }
 
-    // Write concepts
-    for entry in file.all_concepts() {
-        out.push_str("[[concept]]\n");
+    // Write topics
+    for entry in file.all_topics() {
+        out.push_str("[[topic]]\n");
         let _ = writeln!(out, "id = \"{}\"", entry.id);
         let _ = writeln!(out, "name = \"{}\"", entry.name);
         if let Some(desc) = &entry.description {
@@ -357,24 +357,24 @@ fn format_noslop_file(file: &NoslopFile) -> String {
 }
 
 // =============================================================================
-// CONCEPT OPERATIONS
+// TOPIC OPERATIONS
 // =============================================================================
 
-/// Create a new concept, returns the concept ID
-pub fn create_concept(name: &str, description: Option<&str>) -> anyhow::Result<String> {
+/// Create a new topic, returns the topic ID
+pub fn create_topic(name: &str, description: Option<&str>) -> anyhow::Result<String> {
     let mut file = load_or_default();
 
     // Generate next ID
     let max_num = file
-        .concepts
+        .topics
         .iter()
-        .filter_map(|c| c.id.strip_prefix("CON-").and_then(|n| n.parse::<u32>().ok()))
+        .filter_map(|c| c.id.strip_prefix("TOP-").and_then(|n| n.parse::<u32>().ok()))
         .max()
         .unwrap_or(0);
 
-    let id = format!("CON-{}", max_num + 1);
+    let id = format!("TOP-{}", max_num + 1);
 
-    file.concepts.push(ConceptEntry {
+    file.topics.push(TopicEntry {
         id: id.clone(),
         name: name.to_string(),
         description: description.map(String::from),
@@ -386,11 +386,11 @@ pub fn create_concept(name: &str, description: Option<&str>) -> anyhow::Result<S
     Ok(id)
 }
 
-/// Update a concept's description
-pub fn update_concept_description(id: &str, description: Option<&str>) -> anyhow::Result<bool> {
+/// Update a topic's description
+pub fn update_topic_description(id: &str, description: Option<&str>) -> anyhow::Result<bool> {
     let mut file = load_or_default();
-    if let Some(concept) = file.get_concept_mut(id) {
-        concept.description = description.map(String::from);
+    if let Some(topic) = file.get_topic_mut(id) {
+        topic.description = description.map(String::from);
         save_file(&file)?;
         Ok(true)
     } else {
@@ -398,18 +398,18 @@ pub fn update_concept_description(id: &str, description: Option<&str>) -> anyhow
     }
 }
 
-/// Delete a concept by ID, returns true if found and deleted
-pub fn delete_concept(id: &str) -> anyhow::Result<bool> {
+/// Delete a topic by ID, returns true if found and deleted
+pub fn delete_topic(id: &str) -> anyhow::Result<bool> {
     let mut file = load_or_default();
-    let len_before = file.concepts.len();
-    file.concepts.retain(|c| c.id != id);
+    let len_before = file.topics.len();
+    file.topics.retain(|c| c.id != id);
 
-    if file.concepts.len() < len_before {
+    if file.topics.len() < len_before {
         save_file(&file)?;
 
-        // Clear current concept if it was the deleted one
-        if current_concept()?.as_deref() == Some(id) {
-            set_current_concept(None)?;
+        // Clear current topic if it was the deleted one
+        if current_topic()?.as_deref() == Some(id) {
+            set_current_topic(None)?;
         }
         Ok(true)
     } else {
@@ -417,9 +417,9 @@ pub fn delete_concept(id: &str) -> anyhow::Result<bool> {
     }
 }
 
-/// Get the current concept ID (from .noslop/current-concept)
-pub fn current_concept() -> anyhow::Result<Option<String>> {
-    let path = paths::current_concept_file();
+/// Get the current topic ID (from .noslop/current-topic)
+pub fn current_topic() -> anyhow::Result<Option<String>> {
+    let path = paths::current_topic_file();
     if !path.exists() {
         return Ok(None);
     }
@@ -432,9 +432,9 @@ pub fn current_concept() -> anyhow::Result<Option<String>> {
     }
 }
 
-/// Set the current concept (None to clear)
-pub fn set_current_concept(id: Option<&str>) -> anyhow::Result<()> {
-    let path = paths::current_concept_file();
+/// Set the current topic (None to clear)
+pub fn set_current_topic(id: Option<&str>) -> anyhow::Result<()> {
+    let path = paths::current_topic_file();
     if let Some(id) = id {
         // Ensure parent dir exists
         if let Some(parent) = path.parent() {

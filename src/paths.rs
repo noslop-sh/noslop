@@ -141,13 +141,13 @@ pub fn global_config() -> PathBuf {
     global_config_dir().join(GLOBAL_CONFIG_FILE)
 }
 
-/// Get the current concept file path.
+/// Get the current topic file path.
 ///
-/// Returns `.noslop/current-concept` (local, gitignored).
-/// Contains the ID of the currently selected concept.
+/// Returns `.noslop/current-topic` (local, gitignored).
+/// Contains the ID of the currently selected topic.
 #[must_use]
-pub fn current_concept_file() -> PathBuf {
-    noslop_dir().join("current-concept")
+pub fn current_topic_file() -> PathBuf {
+    noslop_dir().join("current-topic")
 }
 
 #[cfg(test)]

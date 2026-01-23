@@ -18,10 +18,10 @@ Located at the repository root (or main worktree for git worktrees):
 
 ```
 repo/
-├── .noslop.toml              # Committed - project config (checks, concepts)
+├── .noslop.toml              # Committed - project config (checks, topics)
 └── .noslop/                  # Gitignored - local state
     ├── HEAD                  # Current active task ID
-    ├── current-concept       # Currently selected concept ID
+    ├── current-topic         # Currently selected topic ID
     ├── refs/tasks/           # Task storage (one file per task)
     │   ├── TSK-1
     │   ├── TSK-2
@@ -44,8 +44,8 @@ scope = "src/**/*.rs"
 message = "Consider impact on public API"
 severity = "block"  # block | warn | info
 
-[[concept]]
-id = "CON-1"
+[[topic]]
+id = "TOP-1"
 name = "Authentication"
 description = "User auth and session management"
 scope = ["src/auth/**"]
@@ -57,7 +57,7 @@ created_at = "2026-01-17T12:00:00Z"
 Local state directory. Contains task state that is NOT committed.
 
 - **`HEAD`** - Plain text file containing the current active task ID
-- **`current-concept`** - Plain text file containing the currently selected concept ID
+- **`current-topic`** - Plain text file containing the currently selected topic ID
 - **`refs/tasks/<ID>`** - JSON files, one per task
 - **`staged-verifications.json`** - Temporary staging area for check verifications (cleared after commit)
 
@@ -82,7 +82,7 @@ hidden = ["wip", "archived"]
 ```
 
 Global config contains UI preferences and workspace-specific settings (branch visibility, colors).
-Concepts are stored in `.noslop.toml` per-project, not in global config.
+Topics are stored in `.noslop.toml` per-project, not in global config.
 
 ## Git Integration
 
@@ -125,7 +125,7 @@ paths::refs_tasks_dir()      // .noslop/refs/tasks/
 paths::task_ref("TSK-1")     // .noslop/refs/tasks/TSK-1
 paths::staged_verifications() // .noslop/staged-verifications.json
 
-paths::current_concept_file() // .noslop/current-concept
+paths::current_topic_file() // .noslop/current-topic
 
 // Global paths
 paths::global_config_dir()   // ~/.noslop/

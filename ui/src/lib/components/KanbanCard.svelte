@@ -1,6 +1,6 @@
 <script lang="ts">
 	import type { TaskItem } from '$lib/api/types';
-	import { concepts } from '$lib/stores';
+	import { topics } from '$lib/stores';
 
 	interface Props {
 		task: TaskItem;
@@ -34,8 +34,8 @@
 		}
 	}
 
-	function getConceptName(conceptId: string): string {
-		return $concepts.find((c) => c.id === conceptId)?.name ?? conceptId;
+	function getTopicName(topicId: string): string {
+		return $topics.find((c) => c.id === topicId)?.name ?? topicId;
 	}
 </script>
 
@@ -99,10 +99,10 @@
 			</span>
 		{/if}
 
-		<!-- Concepts -->
-		{#each (task.concepts || []).slice(0, 1) as conceptId}
+		<!-- Topics -->
+		{#each (task.topics || []).slice(0, 1) as topicId}
 			<span class="rounded bg-muted px-1.5 py-0.5 text-muted-foreground"
-				>{getConceptName(conceptId)}</span
+				>{getTopicName(topicId)}</span
 			>
 		{/each}
 	</div>

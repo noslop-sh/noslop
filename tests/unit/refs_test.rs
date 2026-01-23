@@ -398,160 +398,160 @@ fn test_refs_move_to_backlog_not_found() {
 }
 
 // =============================================================================
-// CONCEPT OPERATIONS
+// TOPIC OPERATIONS
 // =============================================================================
 
 #[test]
 #[serial(cwd)]
-fn test_refs_set_concepts() {
+fn test_refs_set_topics() {
     let _temp = setup();
 
-    let id = TaskRefs::create("Task with concepts", None).unwrap();
+    let id = TaskRefs::create("Task with topics", None).unwrap();
 
-    // Initially no concepts
+    // Initially no topics
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert!(task.concepts.is_empty());
+    assert!(task.topics.is_empty());
 
-    // Set concepts
-    let result = TaskRefs::set_concepts(&id, &["CON-1", "CON-2"]).unwrap();
+    // Set topics
+    let result = TaskRefs::set_topics(&id, &["TOP-1", "TOP-2"]).unwrap();
     assert!(result);
 
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert_eq!(task.concepts, vec!["CON-1".to_string(), "CON-2".to_string()]);
+    assert_eq!(task.topics, vec!["TOP-1".to_string(), "TOP-2".to_string()]);
 
-    // Unset concepts
-    let result = TaskRefs::set_concepts(&id, &[]).unwrap();
+    // Unset topics
+    let result = TaskRefs::set_topics(&id, &[]).unwrap();
     assert!(result);
 
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert!(task.concepts.is_empty());
+    assert!(task.topics.is_empty());
 }
 
 #[test]
 #[serial(cwd)]
-fn test_refs_add_remove_concept() {
+fn test_refs_add_remove_topic() {
     let _temp = setup();
 
     let id = TaskRefs::create("Task", None).unwrap();
 
-    // Add first concept
-    let result = TaskRefs::add_concept(&id, "CON-1").unwrap();
+    // Add first topic
+    let result = TaskRefs::add_topic(&id, "TOP-1").unwrap();
     assert!(result);
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert_eq!(task.concepts, vec!["CON-1".to_string()]);
+    assert_eq!(task.topics, vec!["TOP-1".to_string()]);
 
-    // Add second concept
-    TaskRefs::add_concept(&id, "CON-2").unwrap();
+    // Add second topic
+    TaskRefs::add_topic(&id, "TOP-2").unwrap();
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert_eq!(task.concepts, vec!["CON-1".to_string(), "CON-2".to_string()]);
+    assert_eq!(task.topics, vec!["TOP-1".to_string(), "TOP-2".to_string()]);
 
     // Adding duplicate should not add again
-    TaskRefs::add_concept(&id, "CON-1").unwrap();
+    TaskRefs::add_topic(&id, "TOP-1").unwrap();
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert_eq!(task.concepts.len(), 2);
+    assert_eq!(task.topics.len(), 2);
 
-    // Remove concept
-    let result = TaskRefs::remove_concept(&id, "CON-1").unwrap();
+    // Remove topic
+    let result = TaskRefs::remove_topic(&id, "TOP-1").unwrap();
     assert!(result);
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert_eq!(task.concepts, vec!["CON-2".to_string()]);
+    assert_eq!(task.topics, vec!["TOP-2".to_string()]);
 }
 
 #[test]
 #[serial(cwd)]
-fn test_refs_set_concepts_not_found() {
+fn test_refs_set_topics_not_found() {
     let _temp = setup();
 
-    let result = TaskRefs::set_concepts("FAKE-999", &["CON-1"]).unwrap();
+    let result = TaskRefs::set_topics("FAKE-999", &["TOP-1"]).unwrap();
     assert!(!result);
 }
 
 #[test]
 #[serial(cwd)]
-fn test_refs_create_with_concepts() {
+fn test_refs_create_with_topics() {
     let _temp = setup();
 
-    let concepts = vec!["CON-1".to_string(), "CON-2".to_string()];
-    let id = TaskRefs::create_with_concepts("Task in concepts", None, &concepts).unwrap();
+    let topics = vec!["TOP-1".to_string(), "TOP-2".to_string()];
+    let id = TaskRefs::create_with_topics("Task in topics", None, &topics).unwrap();
 
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert_eq!(task.concepts, concepts);
-    assert_eq!(task.title, "Task in concepts");
+    assert_eq!(task.topics, topics);
+    assert_eq!(task.title, "Task in topics");
 }
 
 #[test]
 #[serial(cwd)]
-fn test_refs_create_with_empty_concepts() {
+fn test_refs_create_with_empty_topics() {
     let _temp = setup();
 
-    let id = TaskRefs::create_with_concepts("Task without concept", None, &[]).unwrap();
+    let id = TaskRefs::create_with_topics("Task without topic", None, &[]).unwrap();
 
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert!(task.concepts.is_empty());
+    assert!(task.topics.is_empty());
 }
 
 #[test]
 #[serial(cwd)]
-fn test_refs_list_by_concept() {
+fn test_refs_list_by_topic() {
     let _temp = setup();
 
-    // Create tasks with different concepts
-    let id1 = TaskRefs::create_with_concepts("Task 1", None, &["CON-1".to_string()]).unwrap();
+    // Create tasks with different topics
+    let id1 = TaskRefs::create_with_topics("Task 1", None, &["TOP-1".to_string()]).unwrap();
     let id2 =
-        TaskRefs::create_with_concepts("Task 2", None, &["CON-1".to_string(), "CON-2".to_string()])
+        TaskRefs::create_with_topics("Task 2", None, &["TOP-1".to_string(), "TOP-2".to_string()])
             .unwrap();
-    let id3 = TaskRefs::create_with_concepts("Task 3", None, &["CON-2".to_string()]).unwrap();
-    let id4 = TaskRefs::create("Task 4 (no concept)", None).unwrap();
+    let id3 = TaskRefs::create_with_topics("Task 3", None, &["TOP-2".to_string()]).unwrap();
+    let id4 = TaskRefs::create("Task 4 (no topic)", None).unwrap();
 
-    // List tasks in CON-1 (should include task 1 and 2)
-    let con1_tasks = TaskRefs::list_by_concept(Some("CON-1")).unwrap();
-    assert_eq!(con1_tasks.len(), 2);
-    let con1_ids: Vec<_> = con1_tasks.iter().map(|(id, _)| id.as_str()).collect();
-    assert!(con1_ids.contains(&id1.as_str()));
-    assert!(con1_ids.contains(&id2.as_str()));
+    // List tasks in TOP-1 (should include task 1 and 2)
+    let top1_tasks = TaskRefs::list_by_topic(Some("TOP-1")).unwrap();
+    assert_eq!(top1_tasks.len(), 2);
+    let top1_ids: Vec<_> = top1_tasks.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(top1_ids.contains(&id1.as_str()));
+    assert!(top1_ids.contains(&id2.as_str()));
 
-    // List tasks in CON-2 (should include task 2 and 3)
-    let con2_tasks = TaskRefs::list_by_concept(Some("CON-2")).unwrap();
-    assert_eq!(con2_tasks.len(), 2);
-    let con2_ids: Vec<_> = con2_tasks.iter().map(|(id, _)| id.as_str()).collect();
-    assert!(con2_ids.contains(&id2.as_str()));
-    assert!(con2_ids.contains(&id3.as_str()));
+    // List tasks in TOP-2 (should include task 2 and 3)
+    let top2_tasks = TaskRefs::list_by_topic(Some("TOP-2")).unwrap();
+    assert_eq!(top2_tasks.len(), 2);
+    let top2_ids: Vec<_> = top2_tasks.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(top2_ids.contains(&id2.as_str()));
+    assert!(top2_ids.contains(&id3.as_str()));
 
-    // List tasks with no concept
-    let no_con_tasks = TaskRefs::list_by_concept(None).unwrap();
-    assert_eq!(no_con_tasks.len(), 1);
-    assert_eq!(no_con_tasks[0].0, id4);
+    // List tasks with no topic
+    let no_top_tasks = TaskRefs::list_by_topic(None).unwrap();
+    assert_eq!(no_top_tasks.len(), 1);
+    assert_eq!(no_top_tasks[0].0, id4);
 }
 
 #[test]
 #[serial(cwd)]
-fn test_refs_has_concept() {
+fn test_refs_has_topic() {
     let _temp = setup();
 
     let id =
-        TaskRefs::create_with_concepts("Task", None, &["CON-1".to_string(), "CON-2".to_string()])
+        TaskRefs::create_with_topics("Task", None, &["TOP-1".to_string(), "TOP-2".to_string()])
             .unwrap();
 
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert!(task.has_concept("CON-1"));
-    assert!(task.has_concept("CON-2"));
-    assert!(!task.has_concept("CON-3"));
+    assert!(task.has_topic("TOP-1"));
+    assert!(task.has_topic("TOP-2"));
+    assert!(!task.has_topic("TOP-3"));
 }
 
 #[test]
 #[serial(cwd)]
-fn test_refs_primary_concept() {
+fn test_refs_primary_topic() {
     let _temp = setup();
 
     let id =
-        TaskRefs::create_with_concepts("Task", None, &["CON-1".to_string(), "CON-2".to_string()])
+        TaskRefs::create_with_topics("Task", None, &["TOP-1".to_string(), "TOP-2".to_string()])
             .unwrap();
 
     let task = TaskRefs::get(&id).unwrap().unwrap();
-    assert_eq!(task.primary_concept(), Some("CON-1"));
+    assert_eq!(task.primary_topic(), Some("TOP-1"));
 
-    // Empty concepts returns None
+    // Empty topics returns None
     let id2 = TaskRefs::create("Task 2", None).unwrap();
     let task2 = TaskRefs::get(&id2).unwrap().unwrap();
-    assert_eq!(task2.primary_concept(), None);
+    assert_eq!(task2.primary_topic(), None);
 }

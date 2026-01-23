@@ -16,9 +16,9 @@ The UI is the **human command center** for directing agent work and monitoring p
 
 ### 1. Check-Task Association
 Checks are derived from **aggregated scope overlap**:
-- Task's effective scope = `task.scope ∪ concepts[*].scope`
+- Task's effective scope = `task.scope ∪ topics[*].scope`
 - `task.scope`: Files the task directly touches (auto-enriched from commits)
-- `concepts[*].scope`: Scope patterns from all attached concepts
+- `topics[*].scope`: Scope patterns from all attached topics
 - A check applies to a task if `check.scope` overlaps with the task's effective scope
 
 ### 2. Git Visibility
@@ -26,8 +26,8 @@ Minimal - branch level only. Task detail shows branch name, no commit history in
 
 ### 3. No Sidebar
 Cleaner layout with:
-- Concept filter in toolbar dropdown
-- Checks/Concepts accessed via dedicated views
+- Topic filter in toolbar dropdown
+- Checks/Topics accessed via dedicated views
 
 ---
 
@@ -39,7 +39,7 @@ Cleaner layout with:
 ┌──────────────────────────────────────────────────────────────────────────┐
 │ noslop                              branch: feature-xyz         [live]   │
 ├──────────────────────────────────────────────────────────────────────────┤
-│ [Concept: All ▾]   [+ New Task]              [Checks]  [Concepts]        │
+│ [Topic: All ▾]   [+ New Task]              [Checks]  [Topics]        │
 ├──────────────────────────────────────────────────────────────────────────┤
 │                                                                          │
 │ ═══ IN PROGRESS ═════════════════════════════════════════════════════   │
@@ -73,17 +73,17 @@ Cleaner layout with:
 
 | Element | Description |
 |---------|-------------|
-| Concept filter | Dropdown to filter tasks by concept (default: "All") |
+| Topic filter | Dropdown to filter tasks by topic (default: "All") |
 | + New Task | Create task button |
 | [Checks] | Navigate to Checks view (CRUD) |
-| [Concepts] | Navigate to Concepts view (CRUD) |
+| [Topics] | Navigate to Topics view (CRUD) |
 
 ### Task Card Elements
 
 | Element | Description |
 |---------|-------------|
 | ID + Title | e.g., "TSK-3 Implement auth flow" |
-| Concept tags | Badges showing attached concepts: [Auth] [API] |
+| Topic tags | Badges showing attached topics: [Auth] [API] |
 | Check counter | "checks: 1/2 ✓" (1 verified, 2 total) or "(no checks)" |
 | Priority | p1, p2, etc. (for pending tasks) |
 | Blocked by | Shows blocker if blocked |
@@ -101,15 +101,15 @@ Click a task to open detail modal with full info:
 │ Priority: p1                                                  │
 │ Branch: feature/auth                                          │
 │                                                               │
-│ ─── CONCEPTS ────────────────────────────────────────────── │
-│ [Auth ×] [API ×]                           [+ Add concept]   │
+│ ─── TOPICS ────────────────────────────────────────────── │
+│ [Auth ×] [API ×]                           [+ Add topic]   │
 │                                                               │
 │ ─── SCOPE (auto-enriched from commits) ─────────────────── │
 │ src/auth.rs                                                   │
 │ src/login.rs                                                  │
 │ [+ Add scope]                                                 │
 │                                                               │
-│ ─── CHECKS (from scope + concept overlap) ──────────────── │
+│ ─── CHECKS (from scope + topic overlap) ──────────────── │
 │ CHK-1  Security review required    block   ○ pending         │
 │        "Any auth changes need security sign-off"             │
 │ CHK-2  Test coverage check         warn    ● verified        │
@@ -154,24 +154,24 @@ Accessed via toolbar [Checks] button. Full CRUD:
 
 ---
 
-## Concepts View (Dedicated Page)
+## Topics View (Dedicated Page)
 
-Accessed via toolbar [Concepts] button. Full CRUD:
+Accessed via toolbar [Topics] button. Full CRUD:
 
 ```
-┌─ CONCEPTS ───────────────────────────────────────────────────────────────┐
+┌─ TOPICS ───────────────────────────────────────────────────────────────┐
 │                                                                          │
-│ [← Back to Tasks]                                   [+ New Concept]      │
+│ [← Back to Tasks]                                   [+ New Topic]      │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐  │
-│ │ CON-1  Authentication                                              │  │
+│ │ TOP-1  Authentication                                              │  │
 │ │        scope: src/auth/**, src/middleware/auth.rs                  │  │
 │ │        "User login, session management, OAuth integration"         │  │
 │ │                                              [Edit] [Delete]       │  │
 │ └────────────────────────────────────────────────────────────────────┘  │
 │                                                                          │
 │ ┌────────────────────────────────────────────────────────────────────┐  │
-│ │ CON-2  API                                                         │  │
+│ │ TOP-2  API                                                         │  │
 │ │        scope: src/api/**                                           │  │
 │ │        "REST API endpoints and handlers"                           │  │
 │ │                                              [Edit] [Delete]       │  │
@@ -203,14 +203,14 @@ Accessed via toolbar [Concepts] button. Full CRUD:
 ### Phase 3: Main View Implementation
 
 - [ ] Create main layout (no sidebar)
-- [ ] Build toolbar with concept filter dropdown + navigation buttons
+- [ ] Build toolbar with topic filter dropdown + navigation buttons
 - [ ] Build grouped task list (IN PROGRESS / PENDING / BLOCKED / DONE)
-- [ ] Task cards with concept tags + check counter
+- [ ] Task cards with topic tags + check counter
 - [ ] Implement drag-and-drop between status groups
 
 ### Phase 4: Task Detail Modal
 
-- [ ] Concepts section with add/remove
+- [ ] Topics section with add/remove
 - [ ] Scope section (read-only, auto-enriched)
 - [ ] Checks section showing actual checks with verification status
 - [ ] Blockers section
@@ -222,9 +222,9 @@ Accessed via toolbar [Concepts] button. Full CRUD:
 - [ ] List, Create, Edit, Delete
 - [ ] Navigation via toolbar button
 
-### Phase 6: Concepts View
+### Phase 6: Topics View
 
-- [ ] New page for concept CRUD
+- [ ] New page for topic CRUD
 - [ ] List, Create, Edit, Delete (including scope management)
 - [ ] Navigation via toolbar button
 
@@ -245,7 +245,7 @@ Accessed via toolbar [Concepts] button. Full CRUD:
 | GET | `/api/v1/tasks` | List all tasks with check counts |
 | GET | `/api/v1/tasks/:id` | Get task detail with full check list |
 | POST | `/api/v1/tasks` | Create task |
-| PATCH | `/api/v1/tasks/:id` | Update task (description, concepts) |
+| PATCH | `/api/v1/tasks/:id` | Update task (description, topics) |
 | DELETE | `/api/v1/tasks/:id` | Delete task |
 | POST | `/api/v1/tasks/:id/start` | Start task |
 | POST | `/api/v1/tasks/:id/done` | Complete task |
@@ -256,11 +256,11 @@ Accessed via toolbar [Concepts] button. Full CRUD:
 | POST | `/api/v1/tasks/:id/link-branch` | Link/unlink branch |
 | GET | `/api/v1/checks` | List all checks |
 | POST | `/api/v1/checks` | Create check |
-| GET | `/api/v1/concepts` | List all concepts with scope |
-| POST | `/api/v1/concepts` | Create concept |
-| PATCH | `/api/v1/concepts/:id` | Update concept |
-| DELETE | `/api/v1/concepts/:id` | Delete concept |
-| POST | `/api/v1/concepts/select` | Select current concept filter |
+| GET | `/api/v1/topics` | List all topics with scope |
+| POST | `/api/v1/topics` | Create topic |
+| PATCH | `/api/v1/topics/:id` | Update topic |
+| DELETE | `/api/v1/topics/:id` | Delete topic |
+| POST | `/api/v1/topics/select` | Select current topic filter |
 | GET | `/api/v1/events` | Long-polling for changes |
 
 ---
@@ -281,7 +281,7 @@ interface TaskItem {
   branch?: string;
   started_at?: string;
   completed_at?: string;
-  concepts: string[];
+  topics: string[];
   scope: string[];
   check_count: number;
   checks_verified: number;
@@ -304,9 +304,9 @@ interface TaskCheckItem {
 }
 ```
 
-### ConceptInfo
+### TopicInfo
 ```typescript
-interface ConceptInfo {
+interface TopicInfo {
   id: string;
   name: string;
   description?: string;
@@ -330,10 +330,10 @@ interface CheckItem {
 
 ## Files Modified (Phase 1)
 
-- `src/api/types.rs` - Added scope to ConceptInfo, check counts to TaskItem/TaskDetailData
-- `src/api/handlers.rs` - Added compute_task_checks(), updated list_tasks_filtered(), get_task(), list_concepts()
+- `src/api/types.rs` - Added scope to TopicInfo, check counts to TaskItem/TaskDetailData
+- `src/api/handlers.rs` - Added compute_task_checks(), updated list_tasks_filtered(), get_task(), list_topics()
 - `src/storage/refs.rs` - Added scope field to TaskRef with CRUD operations
-- `src/config.rs` - Added scope field to ConceptConfig
+- `src/noslop_file.rs` - Added scope field to TopicEntry
 
 ---
 

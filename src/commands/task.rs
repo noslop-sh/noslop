@@ -84,7 +84,7 @@ fn list(status_filter: Option<&str>, unblocked_only: bool, mode: OutputMode) -> 
         let json_tasks: Vec<_> = filtered
             .iter()
             .map(|(id, t)| {
-                let concepts_info = get_concepts_info(&t.concepts);
+                let topics_info = get_topics_info(&t.topics);
                 serde_json::json!({
                     "id": id,
                     "title": t.title,
@@ -94,9 +94,9 @@ fn list(status_filter: Option<&str>, unblocked_only: bool, mode: OutputMode) -> 
                     "blocked_by": t.blocked_by,
                     "current": current.as_ref() == Some(id),
                     "blocked": t.is_blocked(&tasks),
-                    "concepts": concepts_info.iter().map(|(cid, name, desc)| {
+                    "topics": topics_info.iter().map(|(tid, name, desc)| {
                         serde_json::json!({
-                            "id": cid,
+                            "id": tid,
                             "name": name,
                             "description": desc,
                         })
@@ -148,7 +148,7 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
 
     if mode == OutputMode::Json {
         if let Some(t) = task {
-            let concepts_info = get_concepts_info(&t.concepts);
+            let topics_info = get_topics_info(&t.topics);
             println!(
                 "{}",
                 serde_json::json!({
@@ -163,9 +163,9 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
                     "current": current.as_deref() == Some(id),
                     "created_at": t.created_at,
                     "notes": t.notes,
-                    "concepts": concepts_info.iter().map(|(cid, name, desc)| {
+                    "topics": topics_info.iter().map(|(tid, name, desc)| {
                         serde_json::json!({
-                            "id": cid,
+                            "id": tid,
                             "name": name,
                             "description": desc,
                         })
@@ -202,12 +202,12 @@ fn show(id: &str, mode: OutputMode) -> anyhow::Result<()> {
                 println!("  {}", line);
             }
         }
-        // Show concepts info if present
-        let concepts_info = get_concepts_info(&t.concepts);
-        for (concept_id, concept_name, concept_desc) in concepts_info {
+        // Show topics info if present
+        let topics_info = get_topics_info(&t.topics);
+        for (topic_id, topic_name, topic_desc) in topics_info {
             println!();
-            println!("Concept: {} ({})", concept_name, concept_id);
-            if let Some(desc) = concept_desc {
+            println!("Topic: {} ({})", topic_name, topic_id);
+            if let Some(desc) = topic_desc {
                 for line in desc.lines() {
                     println!("  {}", line);
                 }
@@ -276,8 +276,8 @@ fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
                 (task.branch.clone(), task.description.clone())
             };
 
-            // Get concepts info if task has concepts
-            let concepts_info = get_concepts_info(&task.concepts);
+            // Get topics info if task has topics
+            let topics_info = get_topics_info(&task.topics);
 
             if mode == OutputMode::Json {
                 println!(
@@ -291,9 +291,9 @@ fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
                         "notes": task.notes,
                         "started": start,
                         "branch": linked_branch,
-                        "concepts": concepts_info.iter().map(|(cid, name, desc)| {
+                        "topics": topics_info.iter().map(|(tid, name, desc)| {
                             serde_json::json!({
-                                "id": cid,
+                                "id": tid,
                                 "name": name,
                                 "description": desc,
                             })
@@ -314,11 +314,11 @@ fn next(start: bool, mode: OutputMode) -> anyhow::Result<()> {
                         println!("  {}", line);
                     }
                 }
-                // Show concepts context if present
-                for (concept_id, concept_name, concept_desc) in &concepts_info {
+                // Show topics context if present
+                for (topic_id, topic_name, topic_desc) in &topics_info {
                     println!();
-                    println!("Concept: {} ({})", concept_name, concept_id);
-                    if let Some(desc) = concept_desc {
+                    println!("Topic: {} ({})", topic_name, topic_id);
+                    if let Some(desc) = topic_desc {
                         for line in desc.lines() {
                             println!("  {}", line);
                         }
@@ -350,8 +350,8 @@ fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
         let task = TaskRefs::get(id)?.unwrap();
         let branch = task.branch.clone();
 
-        // Get concepts info if task has concepts
-        let concepts_info = get_concepts_info(&task.concepts);
+        // Get topics info if task has topics
+        let topics_info = get_topics_info(&task.topics);
 
         if mode == OutputMode::Json {
             println!(
@@ -363,9 +363,9 @@ fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
                     "description": task.description,
                     "status": "in_progress",
                     "branch": branch,
-                    "concepts": concepts_info.iter().map(|(cid, name, desc)| {
+                    "topics": topics_info.iter().map(|(tid, name, desc)| {
                         serde_json::json!({
-                            "id": cid,
+                            "id": tid,
                             "name": name,
                             "description": desc,
                         })
@@ -386,11 +386,11 @@ fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
                     println!("  {}", line);
                 }
             }
-            // Show concepts context if present
-            for (concept_id, concept_name, concept_desc) in &concepts_info {
+            // Show topics context if present
+            for (topic_id, topic_name, topic_desc) in &topics_info {
                 println!();
-                println!("Concept: {} ({})", concept_name, concept_id);
-                if let Some(desc) = concept_desc {
+                println!("Topic: {} ({})", topic_name, topic_id);
+                if let Some(desc) = topic_desc {
                     for line in desc.lines() {
                         println!("  {}", line);
                     }
@@ -406,16 +406,16 @@ fn start_task(id: &str, mode: OutputMode) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Get concept info (id, name, description) for multiple concept IDs
-fn get_concepts_info(concept_ids: &[String]) -> Vec<(String, String, Option<String>)> {
-    if concept_ids.is_empty() {
+/// Get topic info (id, name, description) for multiple topic IDs
+fn get_topics_info(topic_ids: &[String]) -> Vec<(String, String, Option<String>)> {
+    if topic_ids.is_empty() {
         return Vec::new();
     }
     let file = noslop_file::load_or_default();
-    concept_ids
+    topic_ids
         .iter()
         .filter_map(|id| {
-            file.get_concept(id)
+            file.get_topic(id)
                 .map(|c| (c.id.clone(), c.name.clone(), c.description.clone()))
         })
         .collect()

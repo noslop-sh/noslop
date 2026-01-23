@@ -253,7 +253,7 @@ mod task_handler_tests {
             title: "New Task".to_string(),
             description: None,
             priority: Some("p0".to_string()),
-            concepts: vec![],
+            topics: vec![],
         };
 
         let task = create_task(&req).unwrap();
@@ -272,7 +272,7 @@ mod task_handler_tests {
             title: "Task with description".to_string(),
             description: Some("This provides context for LLMs".to_string()),
             priority: None,
-            concepts: vec![],
+            topics: vec![],
         };
 
         let task = create_task(&req).unwrap();
@@ -293,7 +293,7 @@ mod task_handler_tests {
             title: "   ".to_string(),
             description: None,
             priority: None,
-            concepts: vec![],
+            topics: vec![],
         };
 
         let result = create_task(&req);
@@ -712,209 +712,209 @@ severity = "warn"
 }
 
 // =============================================================================
-// HANDLER TESTS - CONCEPTS
+// HANDLER TESTS - TOPICS
 // =============================================================================
 
-mod concept_handler_tests {
+mod topic_handler_tests {
     use super::*;
     use noslop::api::{
-        CreateConceptRequest, SelectConceptRequest, UpdateConceptRequest, create_concept,
-        delete_concept, list_concepts, select_concept, update_concept,
+        CreateTopicRequest, SelectTopicRequest, UpdateTopicRequest, create_topic, delete_topic,
+        list_topics, select_topic, update_topic,
     };
 
     #[test]
     #[serial(cwd)]
-    fn test_list_concepts_empty() {
+    fn test_list_topics_empty() {
         let _temp = setup();
 
-        let result = list_concepts().unwrap();
-        assert!(result.concepts.is_empty());
-        assert!(result.current_concept.is_none());
+        let result = list_topics().unwrap();
+        assert!(result.topics.is_empty());
+        assert!(result.current_topic.is_none());
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_create_concept_success() {
+    fn test_create_topic_success() {
         let _temp = setup();
 
-        let req = CreateConceptRequest {
-            name: "My Concept".to_string(),
+        let req = CreateTopicRequest {
+            name: "My Topic".to_string(),
             description: None,
         };
-        let result = create_concept(&req).unwrap();
-        assert_eq!(result.id, "CON-1");
-        assert_eq!(result.name, "My Concept");
+        let result = create_topic(&req).unwrap();
+        assert_eq!(result.id, "TOP-1");
+        assert_eq!(result.name, "My Topic");
 
         // Verify it appears in list
-        let concepts = list_concepts().unwrap();
-        assert_eq!(concepts.concepts.len(), 1);
-        assert_eq!(concepts.concepts[0].name, "My Concept");
-        assert!(concepts.concepts[0].description.is_none());
+        let topics = list_topics().unwrap();
+        assert_eq!(topics.topics.len(), 1);
+        assert_eq!(topics.topics[0].name, "My Topic");
+        assert!(topics.topics[0].description.is_none());
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_create_concept_with_description() {
+    fn test_create_topic_with_description() {
         let _temp = setup();
 
-        let req = CreateConceptRequest {
-            name: "Auth Concept".to_string(),
+        let req = CreateTopicRequest {
+            name: "Auth Topic".to_string(),
             description: Some("JWT-based authentication using RS256".to_string()),
         };
-        let result = create_concept(&req).unwrap();
-        assert_eq!(result.id, "CON-1");
-        assert_eq!(result.name, "Auth Concept");
+        let result = create_topic(&req).unwrap();
+        assert_eq!(result.id, "TOP-1");
+        assert_eq!(result.name, "Auth Topic");
 
         // Verify description is stored
-        let concepts = list_concepts().unwrap();
-        assert_eq!(concepts.concepts.len(), 1);
+        let topics = list_topics().unwrap();
+        assert_eq!(topics.topics.len(), 1);
         assert_eq!(
-            concepts.concepts[0].description,
+            topics.topics[0].description,
             Some("JWT-based authentication using RS256".to_string())
         );
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_update_concept_description() {
+    fn test_update_topic_description() {
         let _temp = setup();
 
-        // Create a concept
-        let req = CreateConceptRequest {
+        // Create a topic
+        let req = CreateTopicRequest {
             name: "Update Me".to_string(),
             description: None,
         };
-        let created = create_concept(&req).unwrap();
+        let created = create_topic(&req).unwrap();
 
         // Update its description
-        let update_req = UpdateConceptRequest {
+        let update_req = UpdateTopicRequest {
             description: Some("New description".to_string()),
         };
-        let result = update_concept(&created.id, &update_req).unwrap();
+        let result = update_topic(&created.id, &update_req).unwrap();
         assert_eq!(result.description, Some("New description".to_string()));
 
         // Clear the description
-        let clear_req = UpdateConceptRequest { description: None };
-        let result = update_concept(&created.id, &clear_req).unwrap();
+        let clear_req = UpdateTopicRequest { description: None };
+        let result = update_topic(&created.id, &clear_req).unwrap();
         assert!(result.description.is_none());
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_update_concept_not_found() {
+    fn test_update_topic_not_found() {
         let _temp = setup();
 
-        let req = UpdateConceptRequest {
+        let req = UpdateTopicRequest {
             description: Some("test".to_string()),
         };
-        let result = update_concept("CON-999", &req);
+        let result = update_topic("TOP-999", &req);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status_code(), 404);
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_create_concept_empty_name() {
+    fn test_create_topic_empty_name() {
         let _temp = setup();
 
-        let req = CreateConceptRequest {
+        let req = CreateTopicRequest {
             name: "   ".to_string(),
             description: None,
         };
-        let result = create_concept(&req);
+        let result = create_topic(&req);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status_code(), 400);
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_delete_concept_success() {
+    fn test_delete_topic_success() {
         let _temp = setup();
 
-        // Create a concept first
-        let req = CreateConceptRequest {
+        // Create a topic first
+        let req = CreateTopicRequest {
             name: "To Delete".to_string(),
             description: None,
         };
-        let created = create_concept(&req).unwrap();
+        let created = create_topic(&req).unwrap();
 
         // Delete it
-        let result = delete_concept(&created.id);
+        let result = delete_topic(&created.id);
         assert!(result.is_ok());
 
         // Verify it's gone
-        let concepts = list_concepts().unwrap();
-        assert!(concepts.concepts.is_empty());
+        let topics = list_topics().unwrap();
+        assert!(topics.topics.is_empty());
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_delete_concept_not_found() {
+    fn test_delete_topic_not_found() {
         let _temp = setup();
 
-        let result = delete_concept("CON-999");
+        let result = delete_topic("TOP-999");
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status_code(), 404);
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_select_concept_success() {
+    fn test_select_topic_success() {
         let _temp = setup();
 
-        // Create a concept
-        let req = CreateConceptRequest {
+        // Create a topic
+        let req = CreateTopicRequest {
             name: "Select Me".to_string(),
             description: None,
         };
-        let created = create_concept(&req).unwrap();
+        let created = create_topic(&req).unwrap();
 
         // Select it
-        let select_req = SelectConceptRequest {
+        let select_req = SelectTopicRequest {
             id: Some(created.id.clone()),
         };
-        let result = select_concept(&select_req).unwrap();
-        assert_eq!(result.current_concept, Some(created.id.clone()));
+        let result = select_topic(&select_req).unwrap();
+        assert_eq!(result.current_topic, Some(created.id.clone()));
 
         // Deselect (view all)
-        let deselect_req = SelectConceptRequest { id: None };
-        let result = select_concept(&deselect_req).unwrap();
-        assert!(result.current_concept.is_none());
+        let deselect_req = SelectTopicRequest { id: None };
+        let result = select_topic(&deselect_req).unwrap();
+        assert!(result.current_topic.is_none());
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_select_concept_not_found() {
+    fn test_select_topic_not_found() {
         let _temp = setup();
 
-        let req = SelectConceptRequest {
-            id: Some("CON-999".to_string()),
+        let req = SelectTopicRequest {
+            id: Some("TOP-999".to_string()),
         };
-        let result = select_concept(&req);
+        let result = select_topic(&req);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().status_code(), 404);
     }
 
     #[test]
     #[serial(cwd)]
-    fn test_concept_task_count() {
+    fn test_topic_task_count() {
         let _temp = setup();
 
-        // Create a concept
-        let req = CreateConceptRequest {
-            name: "Concept with tasks".to_string(),
+        // Create a topic
+        let req = CreateTopicRequest {
+            name: "Topic with tasks".to_string(),
             description: None,
         };
-        let created = create_concept(&req).unwrap();
+        let created = create_topic(&req).unwrap();
 
-        // Create tasks in the concept using new multi-concept API
-        TaskRefs::create_with_concepts("Task 1", None, std::slice::from_ref(&created.id)).unwrap();
-        TaskRefs::create_with_concepts("Task 2", None, std::slice::from_ref(&created.id)).unwrap();
+        // Create tasks in the topic using new multi-topic API
+        TaskRefs::create_with_topics("Task 1", None, std::slice::from_ref(&created.id)).unwrap();
+        TaskRefs::create_with_topics("Task 2", None, std::slice::from_ref(&created.id)).unwrap();
 
         // Verify task count
-        let concepts = list_concepts().unwrap();
-        assert_eq!(concepts.concepts.len(), 1);
-        assert_eq!(concepts.concepts[0].task_count, 2);
+        let topics = list_topics().unwrap();
+        assert_eq!(topics.topics.len(), 1);
+        assert_eq!(topics.topics[0].task_count, 2);
     }
 }
 
@@ -1081,7 +1081,7 @@ mod task_update_handler_tests {
         // Add a description
         let req = UpdateTaskRequest {
             description: Some("This is a detailed description".to_string()),
-            concepts: None,
+            topics: None,
         };
         let result = update_task(&id, &req).unwrap();
         assert_eq!(result.description, Some("This is a detailed description".to_string()));
@@ -1103,7 +1103,7 @@ mod task_update_handler_tests {
         // Pass None to leave description unchanged (None means "don't update")
         let req = UpdateTaskRequest {
             description: None,
-            concepts: None,
+            topics: None,
         };
         let result = update_task(&id, &req).unwrap();
         // Description should still be set since None means "don't update"
@@ -1117,7 +1117,7 @@ mod task_update_handler_tests {
 
         let req = UpdateTaskRequest {
             description: Some("test".to_string()),
-            concepts: None,
+            topics: None,
         };
         let result = update_task("FAKE-999", &req);
         assert!(result.is_err());

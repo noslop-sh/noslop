@@ -36,7 +36,7 @@ export interface TaskItem {
 	branch?: string;
 	started_at?: string;
 	completed_at?: string;
-	concepts?: string[];
+	topics?: string[];
 	scope?: string[];
 	check_count: number;
 	checks_verified: number;
@@ -89,7 +89,7 @@ export interface CheckCreateData {
 	severity: string;
 }
 
-export interface ConceptInfo {
+export interface TopicInfo {
 	id: string;
 	name: string;
 	description?: string;
@@ -98,12 +98,12 @@ export interface ConceptInfo {
 	created_at: string;
 }
 
-export interface ConceptsData {
-	concepts: ConceptInfo[];
-	current_concept: string | null;
+export interface TopicsData {
+	topics: TopicInfo[];
+	current_topic: string | null;
 }
 
-export interface ConceptCreateData {
+export interface TopicCreateData {
 	id: string;
 	name: string;
 }
@@ -118,7 +118,7 @@ export interface CreateTaskRequest {
 	title: string;
 	description?: string;
 	priority?: string;
-	concepts?: string[];
+	topics?: string[];
 }
 
 export interface CreateCheckRequest {
@@ -127,7 +127,7 @@ export interface CreateCheckRequest {
 	severity?: string;
 }
 
-export interface CreateConceptRequest {
+export interface CreateTopicRequest {
 	name: string;
 	description?: string;
 }
@@ -135,10 +135,10 @@ export interface CreateConceptRequest {
 export interface UpdateTaskRequest {
 	title?: string;
 	description?: string | null;
-	concepts?: string[];
+	topics?: string[];
 }
 
-export interface UpdateConceptRequest {
+export interface UpdateTopicRequest {
 	name?: string;
 	description?: string | null;
 }
@@ -151,6 +151,6 @@ export interface LinkBranchRequest {
 	branch: string | null;
 }
 
-export interface SelectConceptRequest {
+export interface SelectTopicRequest {
 	id: string | null;
 }

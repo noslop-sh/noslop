@@ -16,13 +16,13 @@ mod types;
 
 pub use error::ApiError;
 pub use handlers::{
-    add_blocker, backlog_task, complete_task, create_check, create_concept, create_task,
-    delete_concept, delete_task, get_config, get_status, get_task, get_workspace, link_branch,
-    list_checks, list_concepts, list_tasks, list_tasks_filtered, remove_blocker, reset_task,
-    select_concept, start_task, update_concept, update_config, update_task,
+    add_blocker, backlog_task, complete_task, create_check, create_task, create_topic, delete_task,
+    delete_topic, get_config, get_status, get_task, get_workspace, link_branch, list_checks,
+    list_tasks, list_tasks_filtered, list_topics, remove_blocker, reset_task, select_topic,
+    start_task, update_config, update_task, update_topic,
 };
 pub use types::{
-    ApiResponse, BlockerRequest, ConceptCreateData, ConceptInfo, ConceptsData, CreateCheckRequest,
-    CreateConceptRequest, CreateTaskRequest, EventsData, LinkBranchRequest, SelectConceptRequest,
-    UpdateConceptRequest, UpdateConfigRequest, UpdateTaskRequest,
+    ApiResponse, BlockerRequest, CreateCheckRequest, CreateTaskRequest, CreateTopicRequest,
+    EventsData, LinkBranchRequest, SelectTopicRequest, TopicCreateData, TopicInfo, TopicsData,
+    UpdateConfigRequest, UpdateTaskRequest, UpdateTopicRequest,
 };

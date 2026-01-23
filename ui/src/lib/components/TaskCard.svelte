@@ -3,7 +3,7 @@
 	import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
 	import { Button } from '$lib/components/ui/button';
 	import type { TaskItem } from '$lib/api/types';
-	import { selectedTaskId, concepts } from '$lib/stores';
+	import { selectedTaskId, topics } from '$lib/stores';
 	import * as api from '$lib/api/client';
 	import { loadTasks, loadStatus } from '$lib/stores';
 
@@ -59,8 +59,8 @@
 		confirmingDelete = false;
 	}
 
-	function getConceptName(conceptId: string): string {
-		return $concepts.find((c) => c.id === conceptId)?.name ?? conceptId;
+	function getTopicName(topicId: string): string {
+		return $topics.find((c) => c.id === topicId)?.name ?? topicId;
 	}
 </script>
 
@@ -113,9 +113,9 @@
 
 	<!-- Footer: Tags and metadata -->
 	<div class="flex flex-wrap items-center gap-1.5">
-		<!-- Concept tags -->
-		{#each task.concepts || [] as conceptId}
-			<Badge variant="secondary" class="text-xs">{getConceptName(conceptId)}</Badge>
+		<!-- Topic tags -->
+		{#each task.topics || [] as topicId}
+			<Badge variant="secondary" class="text-xs">{getTopicName(topicId)}</Badge>
 		{/each}
 
 		<!-- Check counter -->

@@ -19,9 +19,9 @@ use crate::paths;
 
 /// Task data stored in a ref file
 ///
-/// Note: Uses custom deserialization to support migration from old `concept: Option<String>`
-/// to new `concepts: Vec<String>` format. When reading old files with `concept`, it will
-/// be converted to `concepts` array.
+/// Note: Uses custom deserialization to support migration from old `topic: Option<String>`
+/// to new `topics: Vec<String>` format. When reading old files with `topic`, it will
+/// be converted to `topics` array.
 #[derive(Debug, Clone, Serialize)]
 pub struct TaskRef {
     /// Task title
@@ -53,9 +53,9 @@ pub struct TaskRef {
     /// When completed (RFC3339)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub completed_at: Option<String>,
-    /// Concepts this task belongs to (supports multiple)
+    /// Topics this task belongs to (supports multiple)
     #[serde(skip_serializing_if = "Vec::is_empty")]
-    pub concepts: Vec<String>,
+    pub topics: Vec<String>,
     /// Scope patterns (files this task touches)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scope: Vec<String>,
@@ -83,12 +83,12 @@ struct TaskRefHelper {
     started_at: Option<String>,
     #[serde(default)]
     completed_at: Option<String>,
-    /// New format: array of concepts
+    /// New format: array of topics
     #[serde(default)]
-    concepts: Vec<String>,
-    /// Old format: single concept (for backwards compatibility)
+    topics: Vec<String>,
+    /// Old format: single topic (for backwards compatibility)
     #[serde(default)]
-    concept: Option<String>,
+    topic: Option<String>,
     /// Scope patterns (files this task touches)
     #[serde(default)]
     scope: Vec<String>,
@@ -101,12 +101,12 @@ impl<'de> Deserialize<'de> for TaskRef {
     {
         let helper = TaskRefHelper::deserialize(deserializer)?;
 
-        // Merge old `concept` into `concepts` if present
-        let concepts = if helper.concepts.is_empty() {
-            // If concepts is empty, check for old single concept field
-            helper.concept.into_iter().collect()
+        // Merge old `topic` into `topics` if present
+        let topics = if helper.topics.is_empty() {
+            // If topics is empty, check for old single topic field
+            helper.topic.into_iter().collect()
         } else {
-            helper.concepts
+            helper.topics
         };
 
         Ok(Self {
@@ -121,7 +121,7 @@ impl<'de> Deserialize<'de> for TaskRef {
             branch: helper.branch,
             started_at: helper.started_at,
             completed_at: helper.completed_at,
-            concepts,
+            topics,
             scope: helper.scope,
         })
     }
@@ -147,14 +147,14 @@ impl TaskRef {
             branch: None,
             started_at: None,
             completed_at: None,
-            concepts: Vec::new(),
+            topics: Vec::new(),
             scope: Vec::new(),
         }
     }
 
-    /// Create a new task with concepts
+    /// Create a new task with topics
     #[must_use]
-    pub fn with_concepts(title: String, concepts: Vec<String>) -> Self {
+    pub fn with_topics(title: String, topics: Vec<String>) -> Self {
         Self {
             title,
             description: None,
@@ -167,15 +167,15 @@ impl TaskRef {
             branch: None,
             started_at: None,
             completed_at: None,
-            concepts,
+            topics,
             scope: Vec::new(),
         }
     }
 
-    /// Create a new task with a single concept (convenience method)
+    /// Create a new task with a single topic (convenience method)
     #[must_use]
-    pub fn with_concept(title: String, concept: Option<String>) -> Self {
-        Self::with_concepts(title, concept.into_iter().collect())
+    pub fn with_topic(title: String, topic: Option<String>) -> Self {
+        Self::with_topics(title, topic.into_iter().collect())
     }
 
     /// Check if this task is blocked by unfinished tasks
@@ -189,16 +189,16 @@ impl TaskRef {
         })
     }
 
-    /// Check if this task belongs to a specific concept
+    /// Check if this task belongs to a specific topic
     #[must_use]
-    pub fn has_concept(&self, concept_id: &str) -> bool {
-        self.concepts.contains(&concept_id.to_string())
+    pub fn has_topic(&self, topic_id: &str) -> bool {
+        self.topics.contains(&topic_id.to_string())
     }
 
-    /// Get the primary concept (first one, for backwards compatibility)
+    /// Get the primary topic (first one, for backwards compatibility)
     #[must_use]
-    pub fn primary_concept(&self) -> Option<&str> {
-        self.concepts.first().map(String::as_str)
+    pub fn primary_topic(&self) -> Option<&str> {
+        self.topics.first().map(String::as_str)
     }
 }
 
@@ -250,21 +250,21 @@ impl TaskRefs {
 
     /// Create a new task, returns the ID
     pub fn create(title: &str, priority: Option<&str>) -> anyhow::Result<String> {
-        Self::create_with_concepts(title, priority, &[])
+        Self::create_with_topics(title, priority, &[])
     }
 
-    /// Create a new task with multiple concepts, returns the ID
-    pub fn create_with_concepts(
+    /// Create a new task with multiple topics, returns the ID
+    pub fn create_with_topics(
         title: &str,
         priority: Option<&str>,
-        concepts: &[String],
+        topics: &[String],
     ) -> anyhow::Result<String> {
         Self::ensure_refs_dir()?;
 
         // Generate next ID
         let id = Self::next_id()?;
 
-        let mut task = TaskRef::with_concepts(title.to_string(), concepts.to_vec());
+        let mut task = TaskRef::with_topics(title.to_string(), topics.to_vec());
         if let Some(p) = priority {
             task.priority = p.to_string();
         }
@@ -273,15 +273,15 @@ impl TaskRefs {
         Ok(id)
     }
 
-    /// Create a new task with an optional concept, returns the ID
-    #[deprecated(note = "Use create_with_concepts instead")]
-    pub fn create_with_concept(
+    /// Create a new task with an optional topic, returns the ID
+    #[deprecated(note = "Use create_with_topics instead")]
+    pub fn create_with_topic(
         title: &str,
         priority: Option<&str>,
-        concept: Option<&str>,
+        topic: Option<&str>,
     ) -> anyhow::Result<String> {
-        let concepts: Vec<String> = concept.into_iter().map(String::from).collect();
-        Self::create_with_concepts(title, priority, &concepts)
+        let topics: Vec<String> = topic.into_iter().map(String::from).collect();
+        Self::create_with_topics(title, priority, &topics)
     }
 
     /// Get a task by ID
@@ -400,10 +400,10 @@ impl TaskRefs {
         }
     }
 
-    /// Set a task's concepts (replaces all existing concepts)
-    pub fn set_concepts(id: &str, concepts: &[&str]) -> anyhow::Result<bool> {
+    /// Set a task's topics (replaces all existing topics)
+    pub fn set_topics(id: &str, topics: &[&str]) -> anyhow::Result<bool> {
         if let Some(mut task) = Self::get(id)? {
-            task.concepts = concepts.iter().map(|s| (*s).to_string()).collect();
+            task.topics = topics.iter().map(|s| (*s).to_string()).collect();
             Self::write_task(id, &task)?;
             Ok(true)
         } else {
@@ -411,11 +411,11 @@ impl TaskRefs {
         }
     }
 
-    /// Add a concept to a task
-    pub fn add_concept(id: &str, concept: &str) -> anyhow::Result<bool> {
+    /// Add a topic to a task
+    pub fn add_topic(id: &str, topic: &str) -> anyhow::Result<bool> {
         if let Some(mut task) = Self::get(id)? {
-            if !task.concepts.contains(&concept.to_string()) {
-                task.concepts.push(concept.to_string());
+            if !task.topics.contains(&topic.to_string()) {
+                task.topics.push(topic.to_string());
                 Self::write_task(id, &task)?;
             }
             Ok(true)
@@ -424,10 +424,10 @@ impl TaskRefs {
         }
     }
 
-    /// Remove a concept from a task
-    pub fn remove_concept(id: &str, concept: &str) -> anyhow::Result<bool> {
+    /// Remove a topic from a task
+    pub fn remove_topic(id: &str, topic: &str) -> anyhow::Result<bool> {
         if let Some(mut task) = Self::get(id)? {
-            task.concepts.retain(|c| c != concept);
+            task.topics.retain(|c| c != topic);
             Self::write_task(id, &task)?;
             Ok(true)
         } else {
@@ -435,11 +435,11 @@ impl TaskRefs {
         }
     }
 
-    /// Set or unset a task's concept (backwards compatible - sets single concept)
-    #[deprecated(note = "Use set_concepts, add_concept, or remove_concept instead")]
-    pub fn set_concept(id: &str, concept: Option<&str>) -> anyhow::Result<bool> {
+    /// Set or unset a task's topic (backwards compatible - sets single topic)
+    #[deprecated(note = "Use set_topics, add_topic, or remove_topic instead")]
+    pub fn set_topic(id: &str, topic: Option<&str>) -> anyhow::Result<bool> {
         if let Some(mut task) = Self::get(id)? {
-            task.concepts = concept.into_iter().map(String::from).collect();
+            task.topics = topic.into_iter().map(String::from).collect();
             Self::write_task(id, &task)?;
             Ok(true)
         } else {
@@ -495,12 +495,12 @@ impl TaskRefs {
         }
     }
 
-    /// List tasks filtered by concept (tasks containing this concept)
-    pub fn list_by_concept(concept: Option<&str>) -> anyhow::Result<Vec<(String, TaskRef)>> {
+    /// List tasks filtered by topic (tasks containing this topic)
+    pub fn list_by_topic(topic: Option<&str>) -> anyhow::Result<Vec<(String, TaskRef)>> {
         let tasks = Self::list()?;
         Ok(tasks
             .into_iter()
-            .filter(|(_, task)| concept.map_or(task.concepts.is_empty(), |c| task.has_concept(c)))
+            .filter(|(_, task)| topic.map_or(task.topics.is_empty(), |c| task.has_topic(c)))
             .collect())
     }
 
