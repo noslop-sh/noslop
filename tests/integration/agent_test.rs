@@ -28,7 +28,10 @@ fn setup_repo() -> TempDir {
     // Create initial commit so we have a branch
     fs::write(repo_path.join("README.md"), "# Test").unwrap();
     assert!(git::add_file(repo_path, "README.md"), "Failed to stage README");
-    assert!(git::commit(repo_path, "Initial commit", false), "Failed to create initial commit");
+    assert!(
+        git::commit(repo_path, "Initial commit", false),
+        "Failed to create initial commit"
+    );
 
     // Initialize noslop
     noslop_in(repo_path).arg("init").assert().success();
@@ -285,10 +288,7 @@ fn test_agent_kill_nonexistent() {
     let repo_path = temp_dir.path();
 
     // Try to kill non-existent agent - should still succeed (idempotent)
-    noslop_in(repo_path)
-        .args(["agent", "kill", "ghost-agent"])
-        .assert()
-        .success();
+    noslop_in(repo_path).args(["agent", "kill", "ghost-agent"]).assert().success();
 }
 
 // =============================================================================
@@ -338,10 +338,7 @@ fn test_agent_assign_task() {
         .success();
 
     // Add a task
-    noslop_in(repo_path)
-        .args(["task", "add", "Task to assign"])
-        .assert()
-        .success();
+    noslop_in(repo_path).args(["task", "add", "Task to assign"]).assert().success();
 
     // Assign task to agent
     noslop_in(repo_path)
@@ -378,10 +375,7 @@ fn test_agent_assign_claimed_task_fails() {
         .success();
 
     // Add a task
-    noslop_in(repo_path)
-        .args(["task", "add", "Contested task"])
-        .assert()
-        .success();
+    noslop_in(repo_path).args(["task", "add", "Contested task"]).assert().success();
 
     // Assign to agent-x
     noslop_in(repo_path)
@@ -404,10 +398,7 @@ fn test_agent_assign_nonexistent_agent_fails() {
     let repo_path = temp_dir.path();
 
     // Add a task
-    noslop_in(repo_path)
-        .args(["task", "add", "Orphan task"])
-        .assert()
-        .success();
+    noslop_in(repo_path).args(["task", "add", "Orphan task"]).assert().success();
 
     // Try to assign to non-existent agent
     noslop_in(repo_path)
