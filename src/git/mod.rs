@@ -232,3 +232,149 @@ pub fn is_linked_worktree() -> bool {
     // We're in a linked worktree if our root differs from main worktree
     current_root != main_worktree
 }
+
+/// Get the current worktree root directory.
+///
+/// Returns the root of whatever worktree we're in (may differ from main).
+/// Uses `git rev-parse --show-toplevel`.
+#[must_use]
+pub fn get_current_worktree() -> Option<PathBuf> {
+    let output = Command::new("git").args(["rev-parse", "--show-toplevel"]).output().ok()?;
+
+    if !output.status.success() {
+        return None;
+    }
+
+    let path = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    Some(PathBuf::from(path))
+}
+
+/// Information about a git worktree
+#[derive(Debug, Clone)]
+pub struct WorktreeInfo {
+    /// Absolute path to the worktree
+    pub path: PathBuf,
+    /// HEAD commit hash
+    pub head: String,
+    /// Branch name (if not detached)
+    pub branch: Option<String>,
+    /// Whether this is the main worktree
+    pub is_main: bool,
+}
+
+/// List all worktrees in the repository.
+///
+/// Uses `git worktree list --porcelain` for machine-readable output.
+/// Returns worktrees sorted with main worktree first.
+pub fn list_worktrees() -> anyhow::Result<Vec<WorktreeInfo>> {
+    let output = Command::new("git").args(["worktree", "list", "--porcelain"]).output()?;
+
+    if !output.status.success() {
+        anyhow::bail!("Failed to list worktrees");
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut worktrees = Vec::new();
+    let mut current: Option<WorktreeInfo> = None;
+
+    for line in stdout.lines() {
+        if let Some(path_str) = line.strip_prefix("worktree ") {
+            // Save previous worktree if any
+            if let Some(wt) = current.take() {
+                worktrees.push(wt);
+            }
+            // Start new worktree
+            let path = PathBuf::from(path_str);
+            current = Some(WorktreeInfo {
+                path,
+                head: String::new(),
+                branch: None,
+                is_main: false,
+            });
+        } else if let Some(head_str) = line.strip_prefix("HEAD ") {
+            if let Some(ref mut wt) = current {
+                wt.head = head_str.to_string();
+            }
+        } else if let Some(branch_str) = line.strip_prefix("branch ") {
+            if let Some(ref mut wt) = current {
+                // branch refs/heads/main -> main
+                let branch = branch_str.strip_prefix("refs/heads/").unwrap_or(branch_str);
+                wt.branch = Some(branch.to_string());
+            }
+        } else if line == "bare" {
+            // Skip bare worktrees
+            current = None;
+        }
+    }
+
+    // Don't forget the last one
+    if let Some(wt) = current {
+        worktrees.push(wt);
+    }
+
+    // Mark the main worktree
+    if let Some(main) = get_main_worktree() {
+        for wt in &mut worktrees {
+            if wt.path == main {
+                wt.is_main = true;
+                break;
+            }
+        }
+    }
+
+    Ok(worktrees)
+}
+
+/// Create a new worktree at the given path with a new branch.
+///
+/// Equivalent to: `git worktree add <path> -b <branch>`
+pub fn create_worktree(path: &Path, branch: &str) -> anyhow::Result<()> {
+    let output = Command::new("git")
+        .args(["worktree", "add", &path.to_string_lossy(), "-b", branch])
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Failed to create worktree: {}", stderr.trim());
+    }
+
+    Ok(())
+}
+
+/// Create a new worktree from an existing branch.
+///
+/// Equivalent to: `git worktree add <path> <branch>`
+pub fn create_worktree_from_branch(path: &Path, branch: &str) -> anyhow::Result<()> {
+    let output = Command::new("git")
+        .args(["worktree", "add", &path.to_string_lossy(), branch])
+        .output()?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Failed to create worktree: {}", stderr.trim());
+    }
+
+    Ok(())
+}
+
+/// Remove a worktree.
+///
+/// Equivalent to: `git worktree remove <path>`
+/// Use `force` to remove even with uncommitted changes.
+pub fn remove_worktree(path: &Path, force: bool) -> anyhow::Result<()> {
+    let path_str = path.to_string_lossy();
+    let output = if force {
+        Command::new("git")
+            .args(["worktree", "remove", "--force", &path_str])
+            .output()?
+    } else {
+        Command::new("git").args(["worktree", "remove", &path_str]).output()?
+    };
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("Failed to remove worktree: {}", stderr.trim());
+    }
+
+    Ok(())
+}

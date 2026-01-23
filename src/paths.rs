@@ -14,14 +14,14 @@
 //!     ├── refs/tasks/                     # SHARED: Task definitions
 //!     │   ├── TSK-1
 //!     │   └── TSK-2
-//!     └── worktrees/                      # Agent working directories
-//!         ├── TSK-1/                      # Agent 1's workspace
+//!     └── agents/                         # Agent workspaces (git worktrees)
+//!         ├── agent-1/                    # Agent 1
 //!         │   ├── .noslop/
-//!         │   │   └── HEAD               # LOCAL: This agent's task
+//!         │   │   └── HEAD               # LOCAL: agent-1's current task
 //!         │   └── src/...
-//!         └── TSK-2/                      # Agent 2's workspace
+//!         └── agent-2/                    # Agent 2
 //!             ├── .noslop/
-//!             │   └── HEAD
+//!             │   └── HEAD               # LOCAL: agent-2's current task
 //!             └── src/...
 //! ```
 //!
@@ -32,13 +32,14 @@
 //! └── config.toml               # User preferences, workspace state
 //! ```
 //!
-//! ## Worktree Support
+//! ## Multi-Agent Support
 //!
-//! Noslop supports multi-agent workflows via git worktrees:
-//! - **Shared state** (main worktree `.noslop/`): Task definitions, config
-//! - **Local state** (per-worktree `.noslop/`): HEAD, staged verifications
+//! Noslop supports multiple AI agents working simultaneously:
+//! - **Shared state** (main `.noslop/`): Task definitions, config
+//! - **Agent-local state** (per-agent `.noslop/`): HEAD, staged verifications
 //!
-//! Each agent works in its own worktree with its own HEAD pointer.
+//! Each agent is a git worktree under the hood, but users interact with
+//! "agents" not "worktrees". Use `noslop agent spawn` to create agents.
 
 use std::path::PathBuf;
 
@@ -63,8 +64,8 @@ const REFS_TASKS_DIR: &str = "refs/tasks";
 /// Staged verifications filename
 const STAGED_VERIFICATIONS_FILE: &str = "staged-verifications.json";
 
-/// Worktrees subdirectory
-const WORKTREES_DIR: &str = "worktrees";
+/// Agents subdirectory (each agent is a git worktree)
+const AGENTS_DIR: &str = "agents";
 
 /// Get the project root directory.
 ///
@@ -95,10 +96,12 @@ pub fn noslop_dir() -> PathBuf {
 
 /// Get path to `.noslop/HEAD` file.
 ///
-/// Contains the ID of the currently active task.
+/// Contains the ID of the currently active task for THIS agent.
+/// Each agent has its own HEAD, allowing multiple agents to work
+/// on different tasks simultaneously.
 #[must_use]
 pub fn head_file() -> PathBuf {
-    noslop_dir().join(HEAD_FILE)
+    agent_local_dir().join(HEAD_FILE)
 }
 
 /// Get path to `.noslop/refs/tasks/` directory.
@@ -121,9 +124,59 @@ pub fn task_ref(id: &str) -> PathBuf {
 ///
 /// Temporary staging area for verifications before they're added
 /// to a commit as trailers.
+///
+/// NOTE: This is per-agent (each agent has its own staging area).
 #[must_use]
 pub fn staged_verifications() -> PathBuf {
-    noslop_dir().join(STAGED_VERIFICATIONS_FILE)
+    agent_local_dir().join(STAGED_VERIFICATIONS_FILE)
+}
+
+// =============================================================================
+// Agent paths (multi-agent support)
+// =============================================================================
+
+/// Get the current agent's root directory.
+///
+/// For the main worktree, this returns the project root.
+/// For agent worktrees, this returns the agent's workspace directory
+/// (e.g., `.noslop/agents/agent-1/`).
+///
+/// This is the working directory where the agent's code lives.
+#[must_use]
+pub fn agent_root() -> PathBuf {
+    git::get_current_worktree().unwrap_or_else(|| PathBuf::from("."))
+}
+
+/// Get the agent-local `.noslop/` directory.
+///
+/// Each agent has its own `.noslop/` for local state (HEAD, staged verifications).
+/// This ensures agents don't interfere with each other.
+#[must_use]
+pub fn agent_local_dir() -> PathBuf {
+    agent_root().join(NOSLOP_DIR)
+}
+
+/// Get path to the agents directory.
+///
+/// Returns `.noslop/agents/` in the main worktree.
+/// This is where all agent workspaces are created.
+#[must_use]
+pub fn agents_dir() -> PathBuf {
+    noslop_dir().join(AGENTS_DIR)
+}
+
+/// Get path to a specific agent's workspace directory.
+///
+/// Returns `.noslop/agents/{name}/`.
+#[must_use]
+pub fn agent_path(name: &str) -> PathBuf {
+    agents_dir().join(name)
+}
+
+/// Check if we're running inside an agent workspace (not the main worktree).
+#[must_use]
+pub fn is_agent() -> bool {
+    git::is_linked_worktree()
 }
 
 // =============================================================================
@@ -155,11 +208,11 @@ pub fn global_config() -> PathBuf {
 
 /// Get the current topic file path.
 ///
-/// Returns `.noslop/current-topic` (local, gitignored).
-/// Contains the ID of the currently selected topic.
+/// Returns `.noslop/current-topic` for the current agent.
+/// Each agent can have its own selected topic context.
 #[must_use]
 pub fn current_topic_file() -> PathBuf {
-    noslop_dir().join("current-topic")
+    agent_local_dir().join("current-topic")
 }
 
 #[cfg(test)]
@@ -190,5 +243,20 @@ mod tests {
 
         let global = global_config();
         assert!(global.ends_with("config.toml"));
+    }
+
+    #[test]
+    fn test_agent_paths() {
+        // Verify agent path structure
+        let agents = agents_dir();
+        assert!(agents.to_string_lossy().contains(".noslop"));
+        assert!(agents.to_string_lossy().contains("agents"));
+
+        let agent = agent_path("agent-1");
+        assert!(agent.ends_with("agent-1"));
+        assert!(agent.to_string_lossy().contains("agents"));
+
+        let worker = agent_path("my-worker");
+        assert!(worker.ends_with("my-worker"));
     }
 }

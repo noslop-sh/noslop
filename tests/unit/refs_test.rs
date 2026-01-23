@@ -555,3 +555,268 @@ fn test_refs_primary_topic() {
     let task2 = TaskRefs::get(&id2).unwrap().unwrap();
     assert_eq!(task2.primary_topic(), None);
 }
+
+// =============================================================================
+// TASK CLAIMING OPERATIONS (Multi-Agent Support)
+// =============================================================================
+
+#[test]
+#[serial(cwd)]
+fn test_refs_claim_task() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task to claim", None).unwrap();
+
+    // Initially not claimed
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert!(task.claimed_by.is_none());
+
+    // Claim the task
+    let claimed = TaskRefs::claim(&id, "agent-1").unwrap();
+    assert!(claimed);
+
+    // Verify claim
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.claimed_by, Some("agent-1".to_string()));
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_claim_already_claimed_same_agent() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task", None).unwrap();
+
+    // Claim by agent-1
+    TaskRefs::claim(&id, "agent-1").unwrap();
+
+    // Claiming again by same agent should succeed
+    let claimed = TaskRefs::claim(&id, "agent-1").unwrap();
+    assert!(claimed);
+
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.claimed_by, Some("agent-1".to_string()));
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_claim_already_claimed_different_agent() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task", None).unwrap();
+
+    // Claim by agent-1
+    TaskRefs::claim(&id, "agent-1").unwrap();
+
+    // Claiming by different agent should fail
+    let result = TaskRefs::claim(&id, "agent-2");
+    assert!(result.is_err());
+    assert!(result.unwrap_err().to_string().contains("already claimed"));
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_claim_nonexistent_task() {
+    let _temp = setup();
+
+    let claimed = TaskRefs::claim("FAKE-999", "agent-1").unwrap();
+    assert!(!claimed);
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_release_task() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task to release", None).unwrap();
+    TaskRefs::claim(&id, "agent-1").unwrap();
+
+    // Verify claimed
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert!(task.claimed_by.is_some());
+
+    // Release the claim
+    let released = TaskRefs::release(&id).unwrap();
+    assert!(released);
+
+    // Verify released
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert!(task.claimed_by.is_none());
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_release_nonexistent_task() {
+    let _temp = setup();
+
+    let released = TaskRefs::release("FAKE-999").unwrap();
+    assert!(!released);
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_is_claimed() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task", None).unwrap();
+
+    // Initially not claimed
+    assert!(!TaskRefs::is_claimed(&id).unwrap());
+
+    // Claim it
+    TaskRefs::claim(&id, "agent-1").unwrap();
+
+    // Now claimed
+    assert!(TaskRefs::is_claimed(&id).unwrap());
+
+    // Release it
+    TaskRefs::release(&id).unwrap();
+
+    // No longer claimed
+    assert!(!TaskRefs::is_claimed(&id).unwrap());
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_get_claimed_by() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task", None).unwrap();
+
+    // Initially no claimer
+    assert!(TaskRefs::get_claimed_by(&id).unwrap().is_none());
+
+    // Claim it
+    TaskRefs::claim(&id, "agent-1").unwrap();
+
+    // Check claimer
+    assert_eq!(TaskRefs::get_claimed_by(&id).unwrap(), Some("agent-1".to_string()));
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_list_by_agent() {
+    let _temp = setup();
+
+    let id1 = TaskRefs::create("Task 1", None).unwrap();
+    let id2 = TaskRefs::create("Task 2", None).unwrap();
+    let id3 = TaskRefs::create("Task 3", None).unwrap();
+
+    // Claim tasks by different agents
+    TaskRefs::claim(&id1, "agent-1").unwrap();
+    TaskRefs::claim(&id2, "agent-1").unwrap();
+    TaskRefs::claim(&id3, "agent-2").unwrap();
+
+    // List tasks by agent-1
+    let agent1_tasks = TaskRefs::list_by_agent("agent-1").unwrap();
+    assert_eq!(agent1_tasks.len(), 2);
+    let ids: Vec<_> = agent1_tasks.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(ids.contains(&id1.as_str()));
+    assert!(ids.contains(&id2.as_str()));
+
+    // List tasks by agent-2
+    let agent2_tasks = TaskRefs::list_by_agent("agent-2").unwrap();
+    assert_eq!(agent2_tasks.len(), 1);
+    assert_eq!(agent2_tasks[0].0, id3);
+
+    // List tasks by non-existent agent
+    let agent3_tasks = TaskRefs::list_by_agent("agent-3").unwrap();
+    assert!(agent3_tasks.is_empty());
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_list_unclaimed() {
+    let _temp = setup();
+
+    let id1 = TaskRefs::create("Task 1", None).unwrap();
+    let id2 = TaskRefs::create("Task 2", None).unwrap();
+    let id3 = TaskRefs::create("Task 3", None).unwrap();
+
+    // Claim one task
+    TaskRefs::claim(&id1, "agent-1").unwrap();
+
+    // List unclaimed - should have 2 tasks
+    let unclaimed = TaskRefs::list_unclaimed().unwrap();
+    assert_eq!(unclaimed.len(), 2);
+    let ids: Vec<_> = unclaimed.iter().map(|(id, _)| id.as_str()).collect();
+    assert!(ids.contains(&id2.as_str()));
+    assert!(ids.contains(&id3.as_str()));
+    assert!(!ids.contains(&id1.as_str()));
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_list_unclaimed_excludes_done() {
+    let _temp = setup();
+
+    let id1 = TaskRefs::create("Task 1", None).unwrap();
+    let id2 = TaskRefs::create("Task 2", None).unwrap();
+
+    // Mark one as done
+    TaskRefs::set_status(&id1, "done").unwrap();
+
+    // List unclaimed - done tasks should be excluded
+    let unclaimed = TaskRefs::list_unclaimed().unwrap();
+    assert_eq!(unclaimed.len(), 1);
+    assert_eq!(unclaimed[0].0, id2);
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_start_claims_task() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task to start", None).unwrap();
+
+    // Start the task (without agent name, uses default behavior)
+    TaskRefs::start(&id).unwrap();
+
+    // Task should be started
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.status, "in_progress");
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_complete_releases_claim() {
+    let _temp = setup();
+
+    let id = TaskRefs::create("Task to complete", None).unwrap();
+
+    // Claim and start the task
+    TaskRefs::claim(&id, "agent-1").unwrap();
+    TaskRefs::set_status(&id, "in_progress").unwrap();
+    TaskRefs::set_current(&id).unwrap();
+
+    // Verify claimed
+    assert!(TaskRefs::is_claimed(&id).unwrap());
+
+    // Complete the task
+    TaskRefs::complete(&id).unwrap();
+
+    // Verify claim released
+    let task = TaskRefs::get(&id).unwrap().unwrap();
+    assert_eq!(task.status, "done");
+    assert!(task.claimed_by.is_none());
+}
+
+#[test]
+#[serial(cwd)]
+fn test_refs_next_pending_unblocked_skips_claimed() {
+    let _temp = setup();
+
+    let id1 = TaskRefs::create("High priority claimed", Some("p0")).unwrap();
+    let id2 = TaskRefs::create("Lower priority unclaimed", Some("p1")).unwrap();
+
+    // Set both to pending
+    TaskRefs::set_status(&id1, "pending").unwrap();
+    TaskRefs::set_status(&id2, "pending").unwrap();
+
+    // Claim the high priority one
+    TaskRefs::claim(&id1, "agent-1").unwrap();
+
+    // next_pending_unblocked should skip the claimed task
+    let next = TaskRefs::next_pending_unblocked().unwrap().unwrap();
+    assert_eq!(next.0, id2);
+}

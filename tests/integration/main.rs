@@ -4,6 +4,7 @@
 //! testing the full cycle of: init → check add → verify → check run
 
 // Include lifecycle tests from the same directory
+mod agent_test;
 mod lifecycle_test;
 
 use assert_cmd::cargo;

@@ -100,6 +100,15 @@ pub enum Command {
     /// Show current status (branch, tasks, checks)
     Status,
 
+    /// Manage AI agents (spawn, list, kill)
+    ///
+    /// Agents work in isolated workspaces (git worktrees) on tasks.
+    /// Each agent has its own branch and can work independently.
+    Agent {
+        #[command(subcommand)]
+        action: AgentAction,
+    },
+
     /// Start local web UI for task and check management
     #[cfg(feature = "ui")]
     Ui {
@@ -232,6 +241,56 @@ pub enum TaskAction {
     },
 }
 
+#[derive(Subcommand, Debug)]
+pub enum AgentAction {
+    /// Spawn one or more agents
+    ///
+    /// Creates isolated workspaces (git worktrees) for agents to work in.
+    /// By default, assigns the next pending task to each agent.
+    Spawn {
+        /// Agent name (default: auto-generated like agent-1, agent-2)
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// Number of agents to spawn
+        #[arg(short, long)]
+        count: Option<u32>,
+
+        /// Don't use tmux for session management
+        #[arg(long)]
+        no_tmux: bool,
+
+        /// Create agent without assigning a task
+        #[arg(long)]
+        idle: bool,
+    },
+
+    /// List all agents
+    List,
+
+    /// Stop an agent and remove its workspace
+    Kill {
+        /// Agent name
+        name: String,
+
+        /// Force remove even with uncommitted changes
+        #[arg(long)]
+        force: bool,
+    },
+
+    /// Show status of current agent
+    Status,
+
+    /// Assign a specific task to an agent
+    Assign {
+        /// Agent name
+        name: String,
+
+        /// Task ID to assign
+        task_id: String,
+    },
+}
+
 /// Run the CLI
 pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -264,6 +323,7 @@ pub fn run() -> anyhow::Result<()> {
             Ok(())
         },
         Some(Command::Task { action }) => commands::task_cmd(action, output_mode),
+        Some(Command::Agent { action }) => commands::agent_cmd(action, output_mode),
         Some(Command::Status) => commands::status(output_mode),
         #[cfg(feature = "ui")]
         Some(Command::Ui { port, open }) => commands::ui(port, open),

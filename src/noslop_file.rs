@@ -18,6 +18,10 @@ pub struct NoslopFile {
     #[serde(default)]
     pub project: ProjectConfig,
 
+    /// Agent configuration for multi-agent workflows
+    #[serde(default)]
+    pub agent: AgentConfig,
+
     /// Checks defined in this file via [[check]] sections
     #[serde(default, rename = "check")]
     pub checks: Vec<CheckEntry>,
@@ -110,6 +114,40 @@ pub struct TopicEntry {
     pub scope: Vec<String>,
     /// When created (RFC3339)
     pub created_at: String,
+}
+
+/// Agent configuration for multi-agent workflows
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
+pub struct AgentConfig {
+    /// Command to run for the AI agent (e.g., "claude", "codex", "cursor")
+    pub command: String,
+
+    /// Whether to use tmux for session management
+    pub use_tmux: bool,
+
+    /// Additional arguments to pass to the agent command
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub args: Vec<String>,
+
+    /// Auto-assign next task when spawning an agent
+    #[serde(default = "default_auto_assign")]
+    pub auto_assign: bool,
+}
+
+const fn default_auto_assign() -> bool {
+    true
+}
+
+impl Default for AgentConfig {
+    fn default() -> Self {
+        Self {
+            command: "claude".to_string(),
+            use_tmux: true,
+            args: Vec::new(),
+            auto_assign: true,
+        }
+    }
 }
 
 /// Find all .noslop.toml files from path up to repo root
@@ -320,6 +358,29 @@ fn format_noslop_file(file: &NoslopFile) -> String {
     if file.project.prefix != "NOS" {
         out.push_str("[project]\n");
         let _ = writeln!(out, "prefix = \"{}\"", file.project.prefix);
+        out.push('\n');
+    }
+
+    // Add agent config if non-default
+    let default_agent = AgentConfig::default();
+    if file.agent.command != default_agent.command
+        || file.agent.use_tmux != default_agent.use_tmux
+        || !file.agent.args.is_empty()
+        || file.agent.auto_assign != default_agent.auto_assign
+    {
+        out.push_str("[agent]\n");
+        if file.agent.command != default_agent.command {
+            let _ = writeln!(out, "command = \"{}\"", file.agent.command);
+        }
+        if file.agent.use_tmux != default_agent.use_tmux {
+            let _ = writeln!(out, "use_tmux = {}", file.agent.use_tmux);
+        }
+        if !file.agent.args.is_empty() {
+            let _ = writeln!(out, "args = {:?}", file.agent.args);
+        }
+        if file.agent.auto_assign != default_agent.auto_assign {
+            let _ = writeln!(out, "auto_assign = {}", file.agent.auto_assign);
+        }
         out.push('\n');
     }
 

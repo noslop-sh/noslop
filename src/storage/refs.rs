@@ -1,15 +1,16 @@
 //! Git-like refs storage for tasks
 //!
 //! Stores tasks as individual files, like git refs:
-//! - .noslop/HEAD - current active task
-//! - .noslop/refs/tasks/TSK-1 - task data
+//! - .noslop/HEAD - current active task (per-agent)
+//! - .noslop/refs/tasks/TSK-1 - task data (shared)
 //!
 //! Simple, atomic, no complex parsing.
 //!
-//! WORKTREE SUPPORT:
-//! When running from a git worktree, .noslop/ is always resolved
-//! relative to the MAIN worktree, not the linked one. This ensures
-//! all worktrees share the same task state.
+//! MULTI-AGENT SUPPORT:
+//! - Task definitions are shared across all agents (in main worktree)
+//! - Each agent has its own HEAD (current task)
+//! - Tasks can be "claimed" by an agent to prevent double-assignment
+//! - The `claimed_by` field stores the agent name that owns the task
 
 use std::fs;
 
@@ -59,6 +60,11 @@ pub struct TaskRef {
     /// Scope patterns (files this task touches)
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub scope: Vec<String>,
+    /// Agent name that has claimed this task.
+    /// Set when an agent starts working on the task.
+    /// Prevents multiple agents from working on the same task.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claimed_by: Option<String>,
 }
 
 /// Helper struct for deserializing with backwards compatibility
@@ -92,6 +98,9 @@ struct TaskRefHelper {
     /// Scope patterns (files this task touches)
     #[serde(default)]
     scope: Vec<String>,
+    /// Agent that has claimed this task
+    #[serde(default)]
+    claimed_by: Option<String>,
 }
 
 impl<'de> Deserialize<'de> for TaskRef {
@@ -123,6 +132,7 @@ impl<'de> Deserialize<'de> for TaskRef {
             completed_at: helper.completed_at,
             topics,
             scope: helper.scope,
+            claimed_by: helper.claimed_by,
         })
     }
 }
@@ -149,6 +159,7 @@ impl TaskRef {
             completed_at: None,
             topics: Vec::new(),
             scope: Vec::new(),
+            claimed_by: None,
         }
     }
 
@@ -169,6 +180,7 @@ impl TaskRef {
             completed_at: None,
             topics,
             scope: Vec::new(),
+            claimed_by: None,
         }
     }
 
@@ -324,27 +336,85 @@ impl TaskRefs {
         }
     }
 
-    /// Start a task: set to `in_progress`, make current, auto-link to branch if unlinked
-    /// This is the canonical way to start a task - use this instead of `set_status` + `set_current`
+    /// Start a task: claim it, set to `in_progress`, make current, auto-link to branch
+    ///
+    /// This is the canonical way to start a task. It will:
+    /// 1. Check if the task is already claimed by another agent (returns error)
+    /// 2. Claim the task for the current agent
+    /// 3. Set status to `in_progress`
+    /// 4. Set this task as current (HEAD)
+    /// 5. Auto-link to current git branch if unlinked
+    ///
     /// Returns `Ok(true)` if task was found and started, `Ok(false)` if task not found.
-    /// The optional branch name is returned separately via `get()` if needed.
+    /// Returns `Err` if the task is already claimed by a different agent.
     pub fn start(id: &str) -> anyhow::Result<bool> {
-        let Some(task) = Self::get(id)? else {
+        Self::start_with_agent(id, None)
+    }
+
+    /// Start a task with a specific agent name.
+    ///
+    /// If `agent_name` is None, uses the current agent's name (derived from worktree).
+    pub fn start_with_agent(id: &str, agent_name: Option<&str>) -> anyhow::Result<bool> {
+        let Some(mut task) = Self::get(id)? else {
             return Ok(false);
         };
 
-        // Set status and current
-        Self::set_status(id, "in_progress")?;
-        Self::set_current(id)?;
+        // Determine agent name
+        let current_agent = agent_name.map(String::from).or_else(Self::get_current_agent_name);
+
+        // Check if already claimed by another agent
+        if let Some(ref claimed) = task.claimed_by
+            && current_agent.as_ref() != Some(claimed)
+        {
+            anyhow::bail!(
+                "Task {id} is already claimed by agent '{claimed}'. \
+                 Use 'noslop agent kill {claimed}' to release it first."
+            );
+        }
+
+        // Claim the task
+        task.claimed_by = current_agent;
+
+        // Set status and timestamp
+        let now = chrono::Utc::now().to_rfc3339();
+        task.status = "in_progress".to_string();
+        if task.started_at.is_none() {
+            task.started_at = Some(now);
+        }
 
         // Auto-link to current branch if task is unlinked
         if task.branch.is_none()
             && let Some(branch) = Self::get_current_git_branch()
         {
-            Self::link_branch(id, Some(&branch))?;
+            task.branch = Some(branch);
         }
 
+        Self::write_task(id, &task)?;
+        Self::set_current(id)?;
+
         Ok(true)
+    }
+
+    /// Get the current agent name (derived from worktree path or main).
+    fn get_current_agent_name() -> Option<String> {
+        let agent_root = paths::agent_root();
+        let agents_dir = paths::agents_dir();
+
+        // Check if we're in an agent worktree
+        if let Ok(agent_root_canonical) = agent_root.canonicalize()
+            && let Ok(agents_dir_canonical) = agents_dir.canonicalize()
+            && let Ok(relative) = agent_root_canonical.strip_prefix(&agents_dir_canonical)
+            && let Some(name) = relative.components().next()
+        {
+            return Some(name.as_os_str().to_string_lossy().to_string());
+        }
+
+        // We're in the main worktree
+        if !paths::is_agent() {
+            return Some("main".to_string());
+        }
+
+        None
     }
 
     /// Move task to backlog: set status, unlink branch, clear current if needed
@@ -365,14 +435,24 @@ impl TaskRefs {
         Ok(true)
     }
 
-    /// Complete a task: set to done, clear current if needed
+    /// Complete a task: set to done, release claim, clear current if needed
     /// This is the canonical way to complete a task
     pub fn complete(id: &str) -> anyhow::Result<bool> {
-        if Self::get(id)?.is_none() {
+        let Some(mut task) = Self::get(id)? else {
             return Ok(false);
+        };
+
+        // Set status and timestamp
+        let now = chrono::Utc::now().to_rfc3339();
+        task.status = "done".to_string();
+        if task.completed_at.is_none() {
+            task.completed_at = Some(now);
         }
 
-        Self::set_status(id, "done")?;
+        // Release the claim
+        task.claimed_by = None;
+
+        Self::write_task(id, &task)?;
 
         // Clear current if this was the current task
         if Self::current()?.as_deref() == Some(id) {
@@ -387,6 +467,68 @@ impl TaskRefs {
         let repo = git2::Repository::discover(".").ok()?;
         let head = repo.head().ok()?;
         head.shorthand().map(String::from)
+    }
+
+    // === Task claiming operations ===
+
+    /// Claim a task for an agent without starting it.
+    ///
+    /// Useful for reserving a task when spawning an agent.
+    /// Returns `Err` if already claimed by a different agent.
+    pub fn claim(id: &str, agent_name: &str) -> anyhow::Result<bool> {
+        let Some(mut task) = Self::get(id)? else {
+            return Ok(false);
+        };
+
+        if let Some(ref claimed) = task.claimed_by {
+            if claimed != agent_name {
+                anyhow::bail!("Task {id} is already claimed by agent '{claimed}'");
+            }
+            return Ok(true); // Already claimed by this agent
+        }
+
+        task.claimed_by = Some(agent_name.to_string());
+        Self::write_task(id, &task)?;
+        Ok(true)
+    }
+
+    /// Release claim on a task without completing it.
+    ///
+    /// Used when an agent is stopped or killed.
+    pub fn release(id: &str) -> anyhow::Result<bool> {
+        let Some(mut task) = Self::get(id)? else {
+            return Ok(false);
+        };
+
+        task.claimed_by = None;
+        Self::write_task(id, &task)?;
+        Ok(true)
+    }
+
+    /// Check if a task is claimed by any agent.
+    pub fn is_claimed(id: &str) -> anyhow::Result<bool> {
+        Ok(Self::get(id)?.is_some_and(|t| t.claimed_by.is_some()))
+    }
+
+    /// Get the agent name that has claimed a task.
+    pub fn get_claimed_by(id: &str) -> anyhow::Result<Option<String>> {
+        Ok(Self::get(id)?.and_then(|t| t.claimed_by))
+    }
+
+    /// List all tasks claimed by a specific agent.
+    pub fn list_by_agent(agent_name: &str) -> anyhow::Result<Vec<(String, TaskRef)>> {
+        Ok(Self::list()?
+            .into_iter()
+            .filter(|(_, t)| t.claimed_by.as_deref() == Some(agent_name))
+            .collect())
+    }
+
+    /// List all unclaimed tasks (available for agents to pick up).
+    pub fn list_unclaimed() -> anyhow::Result<Vec<(String, TaskRef)>> {
+        Ok(Self::list()?
+            .into_iter()
+            .filter(|(_, t)| t.claimed_by.is_none() && t.status != "done")
+            .collect())
     }
 
     /// Link or unlink a task to a git branch
@@ -588,10 +730,12 @@ impl TaskRefs {
     pub fn next_pending_unblocked() -> anyhow::Result<Option<(String, TaskRef)>> {
         let tasks = Self::list()?;
 
-        // Find pending tasks that are not blocked
+        // Find pending tasks that are not blocked and not claimed
         let mut candidates: Vec<_> = tasks
             .iter()
-            .filter(|(_, task)| task.status == "pending" && !task.is_blocked(&tasks))
+            .filter(|(_, task)| {
+                task.status == "pending" && !task.is_blocked(&tasks) && task.claimed_by.is_none()
+            })
             .cloned()
             .collect();
 

@@ -1,6 +1,7 @@
 //! Command implementations
 
 mod add_trailers;
+mod agent;
 mod check;
 mod check_cmd;
 mod clear_staged;
@@ -13,6 +14,7 @@ mod ui;
 mod verify;
 
 pub use add_trailers::add_trailers;
+pub use agent::agent_cmd;
 pub use check::check_run;
 pub use check_cmd::check_cmd;
 pub use clear_staged::clear_staged;
