@@ -1,4 +1,4 @@
-.PHONY: help build test lint fmt check clean install-hooks install uninstall
+.PHONY: help build test lint fmt check clean install-hooks install uninstall dev dev-setup dev-teardown
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -76,6 +76,40 @@ run: ## Run the CLI
 
 watch: ## Watch for changes and rebuild
 	cargo watch -x build
+
+dev-setup: ## Set up development symlink (points global noslop to debug binary)
+	@echo "Setting up development environment..."
+	@cargo build
+	@if [ -L "$(HOME)/.cargo/bin/noslop" ] || [ -e "$(HOME)/.cargo/bin/noslop" ]; then \
+		echo "Backing up existing noslop to ~/.cargo/bin/noslop.bak"; \
+		mv "$(HOME)/.cargo/bin/noslop" "$(HOME)/.cargo/bin/noslop.bak"; \
+	fi
+	@ln -sf "$(CURDIR)/target/debug/noslop" "$(HOME)/.cargo/bin/noslop"
+	@echo "✓ Symlinked ~/.cargo/bin/noslop -> $(CURDIR)/target/debug/noslop"
+	@echo ""
+	@echo "Global 'noslop' now points to your development build."
+	@echo "Run 'make dev' to start watching for changes."
+
+dev-teardown: ## Remove development symlink and restore original noslop
+	@echo "Tearing down development environment..."
+	@if [ -L "$(HOME)/.cargo/bin/noslop" ]; then \
+		rm "$(HOME)/.cargo/bin/noslop"; \
+		echo "✓ Removed development symlink"; \
+	fi
+	@if [ -e "$(HOME)/.cargo/bin/noslop.bak" ]; then \
+		mv "$(HOME)/.cargo/bin/noslop.bak" "$(HOME)/.cargo/bin/noslop"; \
+		echo "✓ Restored original noslop from backup"; \
+	else \
+		echo "No backup found. Run 'make install' to reinstall noslop."; \
+	fi
+
+dev: dev-setup ## Start development mode with hot reload (global noslop = this repo)
+	@command -v cargo-watch >/dev/null 2>&1 || { echo "Installing cargo-watch..."; cargo install cargo-watch; }
+	@echo ""
+	@echo "Starting hot reload... (Ctrl+C to stop)"
+	@echo "The global 'noslop' command now uses your development build."
+	@echo ""
+	@cargo watch -x build
 
 doc: ## Generate documentation
 	cargo doc --no-deps --open
