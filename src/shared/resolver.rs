@@ -6,7 +6,7 @@
 //! # Examples
 //!
 //! ```no_run
-//! use noslop::target::Target;
+//! use noslop::core::models::Target;
 //! use noslop::resolver::Resolver;
 //!
 //! let resolver = Resolver::new(".").unwrap();
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use thiserror::Error;
 use walkdir::WalkDir;
 
-use crate::target::{Fragment, Target};
+use crate::core::models::{Fragment, Target};
 
 /// Errors that can occur during resolution
 #[derive(Debug, Error)]

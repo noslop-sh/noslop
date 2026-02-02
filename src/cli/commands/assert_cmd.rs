@@ -2,10 +2,9 @@
 
 use std::path::Path;
 
-use noslop::output::OutputMode;
-
-use crate::cli::AssertAction;
+use crate::cli::app::AssertAction;
 use crate::noslop_file;
+use noslop::output::OutputMode;
 
 /// Handle assert subcommands
 pub fn assert_cmd(action: AssertAction, _mode: OutputMode) -> anyhow::Result<()> {

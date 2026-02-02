@@ -1,6 +1,6 @@
 //! Tests for storage module (trailer and file storage)
 
-use noslop::models::Attestation;
+use noslop::core::models::Attestation;
 use noslop::storage::{
     AttestationStore, Backend, TrailerAttestationStore, trailer::append_trailers,
 };

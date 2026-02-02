@@ -5,8 +5,8 @@
 
 use std::path::PathBuf;
 
+use noslop::core::models::Target;
 use noslop::resolver::{ResolveError, Resolver};
-use noslop::target::Target;
 
 use crate::common::TestRepo;
 

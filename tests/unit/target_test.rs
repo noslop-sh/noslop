@@ -3,7 +3,7 @@
 //! Target handles parsing and matching of file path specifications with optional
 //! fragment identifiers (line numbers, ranges, symbols).
 
-use noslop::target::{Fragment, Target};
+use noslop::core::models::{Fragment, Target};
 
 // =============================================================================
 // Parsing Tests

@@ -1,11 +1,9 @@
 //! Check assertions for staged changes
 
+use crate::{git, noslop_file};
+use noslop::core::models::Severity;
 use noslop::output::{AssertionMatch, CheckResult, OutputMode};
-
-use crate::git;
-use crate::models::Severity;
-use crate::noslop_file;
-use crate::storage;
+use noslop::storage;
 
 /// Check assertions for staged changes (pre-commit hook)
 pub fn check(ci: bool, mode: OutputMode) -> anyhow::Result<()> {

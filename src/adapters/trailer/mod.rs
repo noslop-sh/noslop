@@ -1,15 +1,16 @@
-//! Commit message trailer storage
+//! Commit trailer attestation storage
 //!
-//! Stores attestations as git commit message trailers:
-//!   Noslop-Attest: <assertion> | <message> | <by>
+//! Implements `AttestationStore` using git commit trailers.
+//! Stores attestations as:
+//!   `Noslop-Attest: <assertion> | <message> | <by>`
 //!
 //! This is the most portable format - visible in GitHub, GitLab, etc.
 
 use std::process::Command;
 
-use super::AttestationStore;
-use super::file::FileStore;
-use crate::models::Attestation;
+use crate::adapters::file::FileStore;
+use crate::core::models::Attestation;
+use crate::core::ports::AttestationStore;
 
 const ATTEST_TRAILER: &str = "Noslop-Attest";
 

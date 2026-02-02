@@ -9,7 +9,7 @@
 //! # Examples
 //!
 //! ```
-//! use noslop::target::{Target, Fragment};
+//! use noslop::core::models::{Target, Fragment};
 //!
 //! // Exact file
 //! let t = Target::parse("src/auth.rs").unwrap();

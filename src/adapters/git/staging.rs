@@ -1,8 +1,14 @@
 //! Staged file detection
+//!
+//! Provides utilities for detecting files staged for commit.
 
 use std::process::Command;
 
 /// Get list of staged files
+///
+/// # Errors
+///
+/// Returns an error if git command fails.
 pub fn get_staged_files() -> anyhow::Result<Vec<String>> {
     let output = Command::new("git").args(["diff", "--cached", "--name-only"]).output()?;
 
