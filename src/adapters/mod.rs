@@ -2,9 +2,9 @@
 //!
 //! This module contains concrete implementations that handle I/O:
 //!
-//! - [`file`] - JSON file attestation staging storage
+//! - [`mod@file`] - JSON file attestation staging storage
 //! - [`git`] - Git operations (hooks, staging, version control)
-//! - [`toml`] - `.noslop.toml` file parsing and writing
+//! - [`mod@toml`] - `.noslop.toml` file parsing and writing
 //! - [`trailer`] - Commit trailer attestation storage
 
 pub mod file;

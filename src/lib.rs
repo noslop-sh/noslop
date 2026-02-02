@@ -1,8 +1,42 @@
-//! noslop - A CLI tool to maintain high code and documentation quality in AI-assisted
-//! development
+//! noslop - Pre-commit assertions with attestation tracking
 //!
-//! This library provides the core functionality for tracking code provenance,
-//! enforcing quality checks, and managing an extensible plugin ecosystem.
+//! This library provides the core functionality for:
+//! - Defining assertions that must be reviewed when code changes
+//! - Tracking attestations that prove review happened
+//! - Integrating with git hooks for enforcement
+//!
+//! # Architecture
+//!
+//! The library follows a hexagonal (ports & adapters) architecture:
+//!
+//! - [`core`] - Pure domain logic with no I/O dependencies
+//!   - [`core::models`] - Domain types (Assertion, Attestation, Severity)
+//!   - [`core::ports`] - Trait interfaces for I/O operations
+//!   - [`core::services`] - Pure business logic (matching, checking)
+//!
+//! - [`adapters`] - I/O implementations of port traits
+//!   - [`adapters::toml`] - TOML file handling for assertions
+//!   - [`adapters::git`] - Git integration (hooks, staging)
+//!   - [`adapters::trailer`] - Commit trailer storage for attestations
+//!   - [`adapters::file`] - JSON file storage for staging
+//!
+//! - [`shared`] - Cross-cutting utilities
+//!   - [`shared::parser`] - Code parsing utilities
+//!   - [`shared::resolver`] - File resolution utilities
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use noslop::core::models::{Assertion, Attestation, Severity};
+//! use noslop::adapters::TomlAssertionRepository;
+//! use noslop::core::ports::AssertionRepository;
+//!
+//! // Create a repository for assertions
+//! let repo = TomlAssertionRepository::current_dir()?;
+//!
+//! // Find assertions for changed files
+//! let assertions = repo.find_for_files(&["src/main.rs".to_string()])?;
+//! ```
 
 // Deny all clippy warnings in this crate
 #![deny(
@@ -28,15 +62,22 @@
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-// New hexagonal architecture modules
+// Core hexagonal architecture modules
 pub mod adapters;
 pub mod core;
 pub mod shared;
 
-// Legacy modules (will be migrated in later phases)
+// Output formatting (used by CLI and tests)
 pub mod output;
+
+// Storage abstraction (facade over adapters)
 pub mod storage;
 
-// Re-exports for backwards compatibility during migration
+// Re-exports for convenience
+pub use core::models::{Assertion, Attestation, Severity};
+pub use core::ports::{AssertionRepository, AttestationStore, VersionControl};
+pub use core::services::{CheckResult, check_assertions, matches_target};
+
+// Re-exports for backwards compatibility
 pub use shared::parser;
 pub use shared::resolver;
