@@ -2,105 +2,19 @@
 //!
 //! Scans for .noslop.toml files from a path up to the repo root,
 //! collecting all assertions that apply.
+//!
+//! This module delegates to `noslop::adapters::toml` for the actual implementation.
 
-use std::fs;
-use std::path::{Path, PathBuf};
-
-use serde::Deserialize;
-
+use noslop::adapters::toml::add_assertion as adapter_add_assertion;
+use noslop::adapters::toml::generate_prefix_from_repo as adapter_generate_prefix;
 use noslop::core::models::{Assertion, Severity};
+use noslop::core::services::matches_target;
 
-/// A .noslop.toml file structure
-#[derive(Debug, Deserialize)]
-pub struct NoslopFile {
-    /// Project configuration
-    #[serde(default)]
-    pub project: ProjectConfig,
-
-    /// Assertions in this file
-    #[serde(default, rename = "assert")]
-    pub assertions: Vec<AssertionEntry>,
-}
-
-/// Project-level configuration
-#[derive(Debug, Deserialize)]
-#[serde(default)]
-pub struct ProjectConfig {
-    /// 3-letter prefix for assertion IDs (e.g., "NSL" for noslop-123)
-    pub prefix: String,
-
-    /// Next assertion ID number
-    #[serde(skip)]
-    pub next_id: u32,
-}
-
-impl Default for ProjectConfig {
-    fn default() -> Self {
-        Self {
-            prefix: "AST".to_string(), // Fallback if not set
-            next_id: 1,
-        }
-    }
-}
-
-/// An assertion entry in .noslop.toml
-#[derive(Debug, Deserialize)]
-pub struct AssertionEntry {
-    /// Optional custom ID (if not provided, will be auto-generated as PREFIX-N)
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub id: Option<String>,
-
-    /// Target pattern (glob or path)
-    pub target: String,
-    /// The assertion message
-    pub message: String,
-    /// Severity: info, warn, block
-    #[serde(default = "default_severity")]
-    pub severity: String,
-    /// Optional tags
-    #[serde(default)]
-    pub tags: Vec<String>,
-}
-
-fn default_severity() -> String {
-    "block".to_string()
-}
-
-/// Find all .noslop.toml files from path up to repo root
-pub fn find_noslop_files(from: &Path) -> Vec<PathBuf> {
-    let mut files = Vec::new();
-    let mut current = from.to_path_buf();
-
-    // Normalize: if it's a file, start from parent
-    if current.is_file() {
-        current = current.parent().unwrap_or(from).to_path_buf();
-    }
-
-    loop {
-        let noslop_file = current.join(".noslop.toml");
-        if noslop_file.exists() {
-            files.push(noslop_file);
-        }
-
-        // Stop at repo root (.git) or filesystem root
-        if current.join(".git").exists() || current.parent().is_none() {
-            break;
-        }
-
-        current = current.parent().unwrap().to_path_buf();
-    }
-
-    // Reverse so root comes first (assertions stack up)
-    files.reverse();
-    files
-}
-
-/// Load assertions from a .noslop.toml file
-pub fn load_file(path: &Path) -> anyhow::Result<NoslopFile> {
-    let content = fs::read_to_string(path)?;
-    let file: NoslopFile = toml::from_str(&content)?;
-    Ok(file)
-}
+// Re-export types for backwards compatibility (some may be unused but kept for external use)
+#[allow(unused_imports)]
+pub use noslop::adapters::toml::{
+    AssertionEntry, NoslopFile, ProjectConfig, find_noslop_files, load_file,
+};
 
 /// Load all assertions applicable to a set of files
 pub fn load_assertions_for_files(files: &[String]) -> anyhow::Result<Vec<(Assertion, String)>> {
@@ -136,177 +50,15 @@ pub fn load_assertions_for_files(files: &[String]) -> anyhow::Result<Vec<(Assert
     Ok(result)
 }
 
-/// Check if a target pattern matches a file
-fn matches_target(target: &str, file: &str, noslop_dir: &Path, cwd: &Path) -> bool {
-    // Get relative path from noslop_dir
-    let file_abs = cwd.join(file);
-    let file_rel = file_abs
-        .strip_prefix(noslop_dir)
-        .map(|p| p.to_string_lossy().to_string())
-        .unwrap_or_else(|_| file.to_string());
-
-    // Simple matching for now
-    if target == "*" {
-        return true;
-    }
-
-    // Glob-style: *.rs matches any .rs file
-    if target.starts_with("*.") {
-        let ext = &target[1..]; // ".rs"
-        return file_rel.ends_with(ext);
-    }
-
-    // Glob-style: dir/*.ext matches files in dir with extension
-    if let Some(star_pos) = target.find("/*") {
-        let prefix = &target[..star_pos + 1]; // "src/"
-        let suffix = &target[star_pos + 2..]; // ".rs" or ""
-
-        // File must start with prefix
-        if !file_rel.starts_with(prefix) && !file.starts_with(prefix) {
-            return false;
-        }
-
-        // Get the part after prefix
-        let remainder = file_rel
-            .strip_prefix(prefix)
-            .or_else(|| file.strip_prefix(prefix))
-            .unwrap_or("");
-
-        // For /*.ext, remainder must not contain / (direct children only) and must end with ext
-        if !remainder.contains('/') {
-            if suffix.is_empty() || suffix == "*" {
-                return true;
-            }
-            if suffix.starts_with('.') {
-                return remainder.ends_with(suffix);
-            }
-        }
-        return false;
-    }
-
-    // Glob-style: dir/**/*.ext matches all files recursively
-    if let Some(doublestar_pos) = target.find("/**") {
-        let prefix = &target[..doublestar_pos + 1]; // "src/"
-        let suffix = target.strip_suffix(".rs").map(|_| ".rs").unwrap_or("");
-
-        if (file_rel.starts_with(prefix) || file.starts_with(prefix)) && file_rel.ends_with(suffix)
-        {
-            return true;
-        }
-    }
-
-    // Exact or prefix match
-    file_rel == target || file_rel.starts_with(target) || file.contains(target)
-}
-
 /// Create or update a .noslop.toml file with a new assertion
 pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Result<String> {
-    let path = Path::new(".noslop.toml");
-
-    let mut file = if path.exists() {
-        load_file(path)?
-    } else {
-        NoslopFile {
-            project: ProjectConfig::default(),
-            assertions: Vec::new(),
-        }
-    };
-
-    // Calculate next ID number (max existing ID + 1)
-    let next_num = file
-        .assertions
-        .iter()
-        .filter_map(|a| a.id.as_ref())
-        .filter_map(|id| {
-            // Parse PREFIX-123 format
-            id.split('-').nth(1).and_then(|n| n.parse::<u32>().ok())
-        })
-        .max()
-        .map(|n| n + 1)
-        .unwrap_or(1);
-
-    // Generate JIRA-style ID
-    let generated_id = format!("{}-{}", file.project.prefix, next_num);
-
-    let entry = AssertionEntry {
-        id: Some(generated_id.clone()),
-        target: target.to_string(),
-        message: message.to_string(),
-        severity: severity.to_string(),
-        tags: Vec::new(),
-    };
-
-    file.assertions.push(entry);
-
-    // Write back
-    let content = format_noslop_file(&file);
-    fs::write(path, content)?;
-
-    Ok(generated_id)
-}
-
-/// Format a NoslopFile as TOML
-fn format_noslop_file(file: &NoslopFile) -> String {
-    let mut out = String::new();
-    out.push_str("# noslop assertions\n\n");
-
-    // Add project config if prefix is not default
-    if file.project.prefix != "AST" {
-        out.push_str("[project]\n");
-        out.push_str(&format!("prefix = \"{}\"\n\n", file.project.prefix));
-    }
-
-    for entry in &file.assertions {
-        out.push_str("[[assert]]\n");
-        if let Some(id) = &entry.id {
-            out.push_str(&format!("id = \"{}\"\n", id));
-        }
-        out.push_str(&format!("target = \"{}\"\n", entry.target));
-        out.push_str(&format!("message = \"{}\"\n", entry.message));
-        out.push_str(&format!("severity = \"{}\"\n", entry.severity));
-        if !entry.tags.is_empty() {
-            out.push_str(&format!("tags = {:?}\n", entry.tags));
-        }
-        out.push('\n');
-    }
-
-    out
+    adapter_add_assertion(target, message, severity)
 }
 
 /// Generate a 3-letter prefix from git repository name
+///
 /// Examples: "noslop" -> "NOS", "my-awesome-project" -> "MAP"
 pub fn generate_prefix_from_repo() -> String {
     use crate::git;
-    let repo_name = git::get_repo_name();
-    generate_3_letter_prefix(&repo_name)
-}
-
-/// Generate a 3-letter acronym from a project name
-/// Examples:
-/// - "noslop" -> "NSL"
-/// - "my-awesome-project" -> "MAP"
-/// - "ab" -> "AB"
-fn generate_3_letter_prefix(name: &str) -> String {
-    // Remove special chars and split by separators
-    let words: Vec<&str> =
-        name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).collect();
-
-    let prefix = if words.len() >= 3 {
-        // Take first letter of first 3 words
-        words.iter().take(3).filter_map(|w| w.chars().next()).collect()
-    } else if words.len() == 2 {
-        // Two words: first letter of each + second letter of first
-        let mut chars: Vec<char> = words.iter().filter_map(|w| w.chars().next()).collect();
-        if let Some(second) = words[0].chars().nth(1) {
-            chars.insert(1, second);
-        }
-        chars.into_iter().collect()
-    } else if !words.is_empty() {
-        // Single word: take first 3 letters
-        words[0].chars().take(3).collect()
-    } else {
-        "AST".to_string() // Fallback
-    };
-
-    prefix.to_uppercase()
+    adapter_generate_prefix(&git::get_repo_name())
 }

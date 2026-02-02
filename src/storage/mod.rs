@@ -3,33 +3,27 @@
 //! Provides pluggable backends:
 //! - `trailer`: Commit message trailers (default, most portable)
 //! - `file`: JSON files in .noslop/ (fallback)
-//! - `notes`: Git notes (optional, requires config)
+//!
+//! This module re-exports from `crate::adapters` for backwards compatibility.
 
 #![allow(dead_code)]
 
-/// File-based storage for staging attestations
-pub mod file;
-/// Commit trailer storage for attestations
-pub mod trailer;
+// Re-export the AttestationStore trait from ports
+pub use crate::core::ports::AttestationStore;
 
-use crate::core::models::Attestation;
+// Re-export implementations from adapters
+pub use crate::adapters::file::FileStore;
+pub use crate::adapters::trailer::{TrailerAttestationStore, append_trailers};
 
-/// Storage backend for attestations
-pub trait AttestationStore: Send + Sync {
-    /// Stage an attestation (pending until commit)
-    fn stage(&self, attestation: &Attestation) -> anyhow::Result<()>;
+// Keep file and trailer as submodules for backwards compatibility
+pub mod file {
+    //! File-based storage re-exports
+    pub use crate::adapters::file::FileStore;
+}
 
-    /// Get all staged attestations
-    fn staged(&self) -> anyhow::Result<Vec<Attestation>>;
-
-    /// Clear staged attestations (after commit)
-    fn clear_staged(&self) -> anyhow::Result<()>;
-
-    /// Format attestations for commit message trailer
-    fn format_trailers(&self, attestations: &[Attestation]) -> String;
-
-    /// Parse attestations from commit message
-    fn parse_from_commit(&self, commit_sha: &str) -> anyhow::Result<Vec<Attestation>>;
+pub mod trailer {
+    //! Trailer storage re-exports
+    pub use crate::adapters::trailer::{TrailerAttestationStore, append_trailers};
 }
 
 /// Storage backend type
@@ -61,6 +55,3 @@ pub fn attestation_store() -> Box<dyn AttestationStore> {
     // Config-based selection can come later
     Box::new(TrailerAttestationStore::new())
 }
-
-// Re-export implementations for direct use
-pub use trailer::TrailerAttestationStore;

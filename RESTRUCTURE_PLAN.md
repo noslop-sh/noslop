@@ -140,29 +140,42 @@ Extract pure business logic from commands and noslop_file.rs.
 
 ---
 
-## Phase 6: Migrate Adapters
+## Phase 6: Migrate Adapters ✅ COMPLETED
 
 Move I/O implementations to adapters/.
 
-- [ ] 6.1 Create `src/adapters/toml/parser.rs`
-  - [ ] Move `NoslopFile`, `AssertionEntry`, `ProjectConfig` structs
-  - [ ] Move `load_file`, `find_noslop_files` functions
-- [ ] 6.2 Create `src/adapters/toml/writer.rs`
-  - [ ] Move `add_assertion`, `format_noslop_file` functions
-- [ ] 6.3 Create `src/adapters/toml/repository.rs`
-  - [ ] Implement `AssertionRepository` trait
-  - [ ] Compose parser + writer + matcher
-- [ ] 6.4 Move `src/storage/trailer.rs` → `src/adapters/trailer/mod.rs`
-  - [ ] Implement `AttestationStore` trait
-- [ ] 6.5 Move `src/storage/file.rs` → `src/adapters/file/mod.rs`
-  - [ ] Implement `AttestationStore` trait
-- [ ] 6.6 Move `src/git/` → `src/adapters/git/`
-  - [ ] `hooks.rs` - hook installation
-  - [ ] `staging.rs` - staged file detection
-  - [ ] `mod.rs` - implement `VersionControl` trait
-- [ ] 6.7 Delete old `src/storage/`, `src/git/`, `src/noslop_file.rs`
-- [ ] 6.8 Create `src/adapters/mod.rs` with re-exports
-- [ ] 6.9 Update imports and run tests
+- [x] 6.1 Create `src/adapters/toml/parser.rs`
+  - [x] Move `NoslopFile`, `AssertionEntry`, `ProjectConfig` structs
+  - [x] Move `load_file`, `find_noslop_files` functions
+- [x] 6.2 Create `src/adapters/toml/writer.rs`
+  - [x] Move `add_assertion`, `format_noslop_file`, `generate_prefix_from_repo` functions
+  - [x] Use `std::fmt::Write` instead of `push_str(&format!(...))` (per clippy)
+- [x] 6.3 Create `src/adapters/toml/repository.rs`
+  - [x] Implement `AssertionRepository` trait
+  - [x] Compose parser + writer + matcher
+- [x] 6.4 Create `src/adapters/trailer/mod.rs`
+  - [x] Implement `AttestationStore` trait using commit trailers
+  - [x] Delegate staging to FileStore
+- [x] 6.5 Create `src/adapters/file/mod.rs`
+  - [x] Implement file-based staging storage
+- [x] 6.6 Create `src/adapters/git/`
+  - [x] `hooks.rs` - hook installation (pre-commit, commit-msg, post-commit)
+  - [x] `staging.rs` - staged file detection
+  - [x] `mod.rs` - implement `VersionControl` trait with `GitVersionControl` struct
+- [x] 6.7 Update old modules to re-export from adapters
+  - [x] `src/storage/mod.rs` re-exports from `adapters/file` and `adapters/trailer`
+  - [x] `src/git/mod.rs` re-exports from `adapters/git`
+  - [x] `src/noslop_file.rs` re-exports from `adapters/toml`
+  - [x] Deleted old implementation files: `storage/file.rs`, `storage/trailer.rs`, `git/hooks.rs`, `git/staged.rs`
+- [x] 6.8 Create `src/adapters/mod.rs` with re-exports
+- [x] 6.9 Update imports and run tests
+
+**Notes**:
+
+- Binary modules use `noslop::adapters::...`, library modules use `crate::adapters::...`
+- Old modules kept as facades for backwards compatibility (re-export from adapters)
+- Added `#[allow(unused_imports)]` for intentional re-exports
+- All 140 tests still pass
 
 ---
 
