@@ -142,24 +142,16 @@ jobs:
             noslop init --help
             echo ""
 
-            echo "$ noslop status --help"
-            noslop status --help
+            echo "$ noslop check --help"
+            noslop check --help
             echo ""
 
-            echo "$ noslop guard --help"
-            noslop guard --help
+            echo "$ noslop assert --help"
+            noslop assert --help
             echo ""
 
-            echo "$ noslop blame --help"
-            noslop blame --help
-            echo ""
-
-            echo "$ noslop commit --help"
-            noslop commit --help
-            echo ""
-
-            echo "$ noslop plugin --help"
-            noslop plugin --help
+            echo "$ noslop attest --help"
+            noslop attest --help
             echo ""
 
             echo "✓ All commands executed successfully"
