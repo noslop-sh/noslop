@@ -2,7 +2,7 @@
 //!
 //! Defines the interface for staging and persisting attestations.
 
-use crate::models::Attestation;
+use super::super::models::Attestation;
 
 /// Storage backend for attestations
 ///

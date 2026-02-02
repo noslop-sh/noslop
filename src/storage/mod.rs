@@ -12,7 +12,7 @@ pub mod file;
 /// Commit trailer storage for attestations
 pub mod trailer;
 
-use crate::models::Attestation;
+use crate::core::models::Attestation;
 
 /// Storage backend for attestations
 pub trait AttestationStore: Send + Sync {

@@ -5,7 +5,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::models::Attestation;
+use crate::core::models::Attestation;
 
 const STAGED_ATTESTATIONS_PATH: &str = ".noslop/staged-attestations.json";
 

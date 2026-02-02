@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
 
-use crate::models::{Assertion, Severity};
+use noslop::core::models::{Assertion, Severity};
 
 /// A .noslop.toml file structure
 #[derive(Debug, Deserialize)]

@@ -33,10 +33,8 @@ pub mod adapters;
 pub mod core;
 pub mod shared;
 
-// Legacy modules (will be migrated)
-pub mod models;
+// Legacy modules (will be migrated in later phases)
 pub mod output;
 pub mod parser;
 pub mod resolver;
 pub mod storage;
-pub mod target;

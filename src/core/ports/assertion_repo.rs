@@ -2,7 +2,7 @@
 //!
 //! Defines the interface for loading and managing assertions.
 
-use crate::models::{Assertion, Severity};
+use super::super::models::{Assertion, Severity};
 
 /// Repository for managing assertions
 ///

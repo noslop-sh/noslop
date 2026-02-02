@@ -2,8 +2,8 @@
 
 use noslop::output::OutputMode;
 
-use crate::models::Attestation;
-use crate::storage;
+use noslop::core::models::Attestation;
+use noslop::storage;
 
 /// Attest to an assertion
 pub fn attest(assertion_ref: &str, message: &str, _mode: OutputMode) -> anyhow::Result<()> {

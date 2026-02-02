@@ -16,7 +16,7 @@ pub fn add_trailers(commit_msg_file: &str) -> anyhow::Result<()> {
 
 /// Add attestation trailers in a specific directory (for testing)
 fn add_trailers_in(base_dir: &Path, commit_msg_file: &str) -> anyhow::Result<()> {
-    use crate::models::Attestation;
+    use noslop::core::models::Attestation;
 
     let msg_path = Path::new(commit_msg_file);
     if !msg_path.exists() {

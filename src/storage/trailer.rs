@@ -9,7 +9,7 @@ use std::process::Command;
 
 use super::AttestationStore;
 use super::file::FileStore;
-use crate::models::Attestation;
+use crate::core::models::Attestation;
 
 const ATTEST_TRAILER: &str = "Noslop-Attest";
 

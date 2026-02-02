@@ -40,20 +40,28 @@ Create the new directory skeleton without moving code yet.
 
 ---
 
-## Phase 2: Define Port Traits
+## Phase 2: Define Port Traits ✅ COMPLETED
 
 Define the interfaces before moving implementations.
 
-- [ ] 2.1 Create `src/core/ports/assertion_repo.rs`
-  - [ ] Define `AssertionRepository` trait
-  - [ ] Methods: `find_for_files`, `add`, `remove`, `list`
-- [ ] 2.2 Create `src/core/ports/attestation_store.rs`
-  - [ ] Define `AttestationStore` trait (move from storage/mod.rs)
-  - [ ] Methods: `stage`, `staged`, `clear_staged`, `format_trailers`
-- [ ] 2.3 Create `src/core/ports/vcs.rs`
-  - [ ] Define `VersionControl` trait
-  - [ ] Methods: `staged_files`, `repo_name`, `install_hooks`
-- [ ] 2.4 Export ports from `src/core/ports/mod.rs`
+- [x] 2.1 Create `src/core/ports/assertion_repo.rs`
+  - [x] Define `AssertionRepository` trait
+  - [x] Methods: `find_for_files`, `add`, `remove`, `list`, `list_filtered`
+- [x] 2.2 Create `src/core/ports/attestation_store.rs`
+  - [x] Define `AttestationStore` trait (ported from storage/mod.rs)
+  - [x] Methods: `stage`, `staged`, `clear_staged`, `format_trailers`, `parse_from_commit`
+  - [x] Added `StorageBackend` enum (renamed from `Backend`)
+- [x] 2.3 Create `src/core/ports/vcs.rs`
+  - [x] Define `VersionControl` trait
+  - [x] Methods: `staged_files`, `repo_name`, `repo_root`, `install_hooks`, `is_inside_repo`, `current_branch`
+- [x] 2.4 Export ports from `src/core/ports/mod.rs`
+
+**Notes**:
+- Port traits currently import from `crate::models` (legacy) - will switch to `crate::core::models` in Phase 3
+- All traits are `Send + Sync` for future async support
+- Placeholder modules created for adapters, models, services, shared (will be populated in later phases)
+
+**Commit**: `ebf5c10` - "refactor: Phase 2 - Define port traits for hexagonal architecture"
 
 ---
 
