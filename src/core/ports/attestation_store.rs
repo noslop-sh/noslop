@@ -8,6 +8,7 @@ use super::super::models::Attestation;
 ///
 /// Implementations handle how attestations are staged during development
 /// and persisted in commits (e.g., via trailers, git notes, files).
+#[cfg_attr(test, mockall::automock)]
 pub trait AttestationStore: Send + Sync {
     /// Stage an attestation (pending until commit)
     ///

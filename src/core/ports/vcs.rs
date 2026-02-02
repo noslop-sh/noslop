@@ -7,6 +7,7 @@ use std::path::Path;
 /// Version control system abstraction
 ///
 /// Implementations handle interactions with git or other VCS systems.
+#[cfg_attr(test, mockall::automock)]
 pub trait VersionControl: Send + Sync {
     /// Get list of staged files (ready to be committed)
     fn staged_files(&self) -> anyhow::Result<Vec<String>>;
