@@ -2,7 +2,7 @@
 
 use clap::{Parser, Subcommand};
 
-use crate::commands;
+use super::commands;
 use noslop::output::OutputMode;
 
 /// noslop - Pre-commit assertions with attestation tracking

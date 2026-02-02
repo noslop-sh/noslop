@@ -1,7 +1,6 @@
 //! noslop - Pre-commit assertions with attestation tracking
 
 mod cli;
-mod commands;
 mod git;
 mod noslop_file;
 
