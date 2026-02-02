@@ -35,6 +35,8 @@ pub mod shared;
 
 // Legacy modules (will be migrated in later phases)
 pub mod output;
-pub mod parser;
-pub mod resolver;
 pub mod storage;
+
+// Re-exports for backwards compatibility during migration
+pub use shared::parser;
+pub use shared::resolver;
