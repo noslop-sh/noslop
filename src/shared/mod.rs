@@ -3,7 +3,5 @@
 //! - `glob.rs` - Glob pattern matching utilities
 //! - `resolver.rs` - File path resolution
 //! - `parser/` - Token and pattern parsing
-
-pub mod glob;
-pub mod parser;
-pub mod resolver;
+//!
+//! Will be populated in Phase 4.

@@ -11,31 +11,32 @@ This document outlines the migration from the current flat structure to a hexago
 
 ---
 
-## Phase 1: Directory Structure Setup
+## Phase 1: Directory Structure Setup ✅ COMPLETED
 
 Create the new directory skeleton without moving code yet.
 
-- [ ] 1.1 Create `src/core/` directory structure
-  - [ ] `src/core/mod.rs`
-  - [ ] `src/core/models/mod.rs`
-  - [ ] `src/core/services/mod.rs`
-  - [ ] `src/core/ports/mod.rs`
-- [ ] 1.2 Create `src/adapters/` directory structure
-  - [ ] `src/adapters/mod.rs`
-  - [ ] `src/adapters/toml/mod.rs`
-  - [ ] `src/adapters/git/mod.rs`
-  - [ ] `src/adapters/trailer/mod.rs`
-  - [ ] `src/adapters/file/mod.rs`
-- [ ] 1.3 Create `src/cli/` directory structure
-  - [ ] `src/cli/mod.rs`
-  - [ ] `src/cli/commands/mod.rs`
-- [ ] 1.4 Create `src/shared/` directory structure
-  - [ ] `src/shared/mod.rs`
-  - [ ] `src/shared/parser/mod.rs`
-- [ ] 1.5 Create new test directory structure
-  - [ ] `tests/common/mod.rs`
-  - [ ] `tests/common/fixtures.rs`
-  - [ ] `tests/common/git_repo.rs`
+- [x] 1.1 Create `src/core/` directory structure
+  - [x] `src/core/mod.rs`
+  - [x] `src/core/models/mod.rs`
+  - [x] `src/core/services/mod.rs`
+  - [x] `src/core/ports/mod.rs`
+- [x] 1.2 Create `src/adapters/` directory structure
+  - [x] `src/adapters/mod.rs`
+  - [x] `src/adapters/toml/mod.rs`
+  - [x] `src/adapters/git/mod.rs`
+  - [x] `src/adapters/trailer/mod.rs`
+  - [x] `src/adapters/file/mod.rs`
+- [x] 1.3 Create `src/cli/` directory structure
+  - **DEFERRED to Phase 7**: Cannot create `src/cli/mod.rs` while `src/cli.rs` exists (Rust module conflict)
+- [x] 1.4 Create `src/shared/` directory structure
+  - [x] `src/shared/mod.rs`
+  - [x] `src/shared/parser/mod.rs`
+- [x] 1.5 Create new test directory structure
+  - [x] `tests/common/mod.rs`
+  - [x] `tests/common/fixtures.rs` - with AssertionBuilder, AttestationBuilder
+  - [x] `tests/common/git_repo.rs` - with TempGitRepo helper
+
+**Commit**: `77037b4` - "refactor: Phase 1 - Create hexagonal architecture directory skeleton"
 
 ---
 

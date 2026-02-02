@@ -6,8 +6,11 @@
 //! - `git/` - Git operations (hooks, staging)
 //! - `trailer/` - Commit trailer attestation storage
 //! - `file/` - JSON file attestation storage
+//!
+//! These will be populated in Phase 6 when we migrate existing code.
 
-pub mod file;
-pub mod git;
-pub mod toml;
-pub mod trailer;
+// Placeholder modules - will be populated in Phase 6
+// pub mod file;
+// pub mod git;
+// pub mod toml;
+// pub mod trailer;

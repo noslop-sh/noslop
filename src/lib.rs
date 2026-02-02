@@ -28,6 +28,12 @@
 /// Library version
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+// New hexagonal architecture modules
+pub mod adapters;
+pub mod core;
+pub mod shared;
+
+// Legacy modules (will be migrated)
 pub mod models;
 pub mod output;
 pub mod parser;
