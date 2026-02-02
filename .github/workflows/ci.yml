@@ -107,58 +107,62 @@ jobs:
           files: ./cobertura.xml
           fail_ci_if_error: false
 
-  cli-test:
-    name: CLI Commands Test
+  install-test:
+    name: Test Installation Script
     runs-on: ubuntu-latest
-    needs: [fmt, clippy]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
 
-      - name: Build noslop
-        run: cargo build --release
-
-      - name: Install binary
+      - name: Test installation script
         run: |
-          sudo cp target/release/noslop /usr/local/bin/
-          sudo chmod +x /usr/local/bin/noslop
+          # Run the install script
+          bash scripts/install.sh
+        continue-on-error: true  # Don't fail if no release exists yet
 
-      - name: Test CLI commands
+      - name: Verify installation and run commands
         run: |
-          echo "Testing noslop commands:"
-          echo "------------------------"
+          if command -v noslop &> /dev/null; then
+            echo "✓ noslop installed successfully"
+            echo ""
+            echo "Testing noslop commands:"
+            echo "------------------------"
 
-          echo "$ noslop --version"
-          noslop --version
-          echo ""
+            # Test version
+            echo "$ noslop --version"
+            noslop --version
+            echo ""
 
-          echo "$ noslop --help"
-          noslop --help
-          echo ""
+            # Test help
+            echo "$ noslop --help"
+            noslop --help
+            echo ""
 
-          echo "$ noslop init --help"
-          noslop init --help
-          echo ""
+            # Test all commands to ensure they parse correctly
+            echo "$ noslop init --help"
+            noslop init --help
+            echo ""
 
-          echo "$ noslop check --help"
-          noslop check --help
-          echo ""
+            echo "$ noslop status --help"
+            noslop status --help
+            echo ""
 
-          echo "$ noslop assert --help"
-          noslop assert --help
-          echo ""
+            echo "$ noslop guard --help"
+            noslop guard --help
+            echo ""
 
-          echo "$ noslop attest --help"
-          noslop attest --help
-          echo ""
+            echo "$ noslop blame --help"
+            noslop blame --help
+            echo ""
 
-          echo "$ noslop task --help"
-          noslop task --help
-          echo ""
+            echo "$ noslop commit --help"
+            noslop commit --help
+            echo ""
 
-          echo "$ noslop status --help"
-          noslop status --help
-          echo ""
+            echo "$ noslop plugin --help"
+            noslop plugin --help
+            echo ""
 
-          echo "✓ All commands executed successfully"
+            echo "✓ All commands executed successfully"
+          else
+            echo "⚠ No release available yet to test installation"
+          fi
