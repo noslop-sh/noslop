@@ -24,6 +24,3 @@ mod storage_test;
 
 #[path = "unit/target_test.rs"]
 mod target_test;
-
-#[path = "unit/task_test.rs"]
-mod task_test;
