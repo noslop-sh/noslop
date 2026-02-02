@@ -65,58 +65,78 @@ Define the interfaces before moving implementations.
 
 ---
 
-## Phase 3: Migrate Core Models
+## Phase 3: Migrate Core Models ✅ COMPLETED
 
 Move and refactor domain types.
 
-- [ ] 3.1 Move `src/models/assertion.rs` → `src/core/models/assertion.rs`
-  - [ ] Keep struct and impl blocks
-  - [ ] Remove any I/O dependencies
-- [ ] 3.2 Move `src/models/attestation.rs` → `src/core/models/attestation.rs`
-- [ ] 3.3 Extract `Severity` enum to `src/core/models/severity.rs`
-- [ ] 3.4 Move `src/target.rs` → `src/core/models/target.rs`
-  - [ ] This is pure parsing logic, belongs in core
-- [ ] 3.5 Create `src/core/models/mod.rs` with re-exports
-- [ ] 3.6 Delete old `src/models/` directory
-- [ ] 3.7 Update all imports throughout codebase
-- [ ] 3.8 Run tests to verify no regressions
+- [x] 3.1 Move `src/models/assertion.rs` → `src/core/models/assertion.rs`
+  - [x] Keep struct and impl blocks
+  - [x] Remove any I/O dependencies
+- [x] 3.2 Move `src/models/attestation.rs` → `src/core/models/attestation.rs`
+- [x] 3.3 Extract `Severity` enum to `src/core/models/severity.rs`
+  - [x] Used `#[derive(Default)]` with `#[default]` attribute per clippy
+- [x] 3.4 Move `src/target.rs` → `src/core/models/target.rs`
+  - [x] This is pure parsing logic, belongs in core
+- [x] 3.5 Create `src/core/models/mod.rs` with re-exports
+- [x] 3.6 Delete old `src/models/` directory
+- [x] 3.7 Update all imports throughout codebase
+  - [x] Binary modules use `noslop::core::models`
+  - [x] Library modules use `crate::core::models`
+- [x] 3.8 Run tests to verify no regressions
+
+**Notes**:
+
+- Clean migration with no backwards compatibility (per user request)
+- Had to attest to NOS-2 assertion for changes to check.rs
+
+**Commit**: `3998a2d` - "refactor: Phase 3 - Migrate core models to core/models/"
 
 ---
 
-## Phase 4: Migrate Shared Utilities
+## Phase 4: Migrate Shared Utilities ✅ COMPLETED
 
 Move cross-cutting code that doesn't fit domain or adapters.
 
-- [ ] 4.1 Move `src/resolver.rs` → `src/shared/resolver.rs`
-- [ ] 4.2 Move `src/parser/` → `src/shared/parser/`
-  - [ ] `token.rs`
-  - [ ] `pattern.rs`
-  - [ ] `mod.rs`
-- [ ] 4.3 Extract glob utilities from `noslop_file.rs` → `src/shared/glob.rs`
-  - [ ] `matches_target` function (pure logic part)
-  - [ ] Glob pattern compilation
-- [ ] 4.4 Create `src/shared/mod.rs` with re-exports
-- [ ] 4.5 Update imports and run tests
+- [x] 4.1 Move `src/resolver.rs` → `src/shared/resolver.rs`
+- [x] 4.2 Move `src/parser/` → `src/shared/parser/`
+  - [x] `token.rs`
+  - [x] `pattern.rs`
+  - [x] `mod.rs`
+- [x] 4.3 Extract glob utilities from `noslop_file.rs` → `src/shared/glob.rs`
+  - **DEFERRED**: Glob matching moved to core services in Phase 5 instead
+- [x] 4.4 Create `src/shared/mod.rs` with re-exports
+- [x] 4.5 Update imports and run tests
+- [x] Added re-exports in lib.rs for backwards compatibility
+
+**Commit**: `4456b11` - "refactor: Phase 4 - Migrate shared utilities"
 
 ---
 
-## Phase 5: Create Core Services
+## Phase 5: Create Core Services ✅ COMPLETED
 
 Extract pure business logic from commands and noslop_file.rs.
 
-- [ ] 5.1 Create `src/core/services/matcher.rs`
-  - [ ] Extract `matches_target` logic from `noslop_file.rs`
-  - [ ] Make it a pure function: `(pattern, file, base_dir) -> bool`
-  - [ ] No filesystem access - just string matching
-- [ ] 5.2 Create `src/core/services/checker.rs`
-  - [ ] Extract check logic from `commands/check.rs`
-  - [ ] Generic over port traits: `CheckService<A, S, V>`
-  - [ ] Pure orchestration: get files → match assertions → check attestations
-- [ ] 5.3 Create `src/core/services/mod.rs`
-- [ ] 5.4 Define `CheckResult` in core (not output.rs)
-  - [ ] Move data structure, keep rendering in cli/output.rs
-- [ ] 5.5 Write unit tests for matcher with mock data
-- [ ] 5.6 Write unit tests for checker with mock ports
+- [x] 5.1 Create `src/core/services/matcher.rs`
+  - [x] Implemented `matches_target` as pure function: `(pattern, file, base_dir, cwd) -> bool`
+  - [x] Supports: `*`, `*.ext`, `dir/*.ext`, `dir/**/*.ext`, exact/prefix matches
+  - [x] No filesystem access - just string matching
+- [x] 5.2 Create `src/core/services/checker.rs`
+  - [x] Created `CheckResult` and `AssertionCheckResult` structs
+  - [x] Implemented `check_assertions()` function - pure orchestration
+  - [x] Implemented `is_assertion_attested()` helper function
+  - [x] Added convenience constructors: `CheckResult::no_staged_files()`, `CheckResult::no_assertions()`
+- [x] 5.3 Create `src/core/services/mod.rs` with re-exports
+- [x] 5.4 Define `CheckResult` in core (not output.rs)
+  - [x] Note: output.rs still has its own version; will consolidate in Phase 7
+- [x] 5.5 Write unit tests for matcher with mock data (6 tests)
+- [x] 5.6 Write unit tests for checker with mock ports (4 tests)
+
+**Notes**:
+
+- Used `Vec::new()` instead of `vec![]` for `const fn` constructors (per clippy)
+- Used `map_or_else` instead of `map().unwrap_or_else()` (per clippy)
+- Used inclusive ranges `..=pos` instead of `..pos + 1` (per clippy)
+- All 140 tests pass (10 in services, 107 unit, 21 integration, 2 doctests)
 
 ---
 
