@@ -1,4 +1,4 @@
-.PHONY: help build test lint fmt check clean install-hooks install uninstall dev dev-setup dev-teardown
+.PHONY: help build test test-unit test-adapter test-integration test-lib lint fmt check clean install-hooks install uninstall dev dev-setup dev-teardown
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -12,8 +12,20 @@ build: ## Build the project
 build-release: ## Build the project in release mode
 	cargo build --release
 
-test: ## Run tests
+test: ## Run all tests
 	cargo test
+
+test-unit: ## Run unit tests only (tests/unit/)
+	cargo test --test unit
+
+test-adapter: ## Run adapter tests only (tests/adapter/)
+	cargo test --test adapter
+
+test-integration: ## Run integration tests only (tests/integration/)
+	cargo test --test integration
+
+test-lib: ## Run library tests only (inline tests in src/)
+	cargo test --lib
 
 test-verbose: ## Run tests with verbose output
 	cargo test -- --nocapture
