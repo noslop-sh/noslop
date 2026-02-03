@@ -16,7 +16,7 @@ Teach AI agents (and humans) codebase conventions through automated feedback at 
 
 ## In Progress
 
-Current feature branch: none
+Current feature branch: `fix/glob-applies-to`
 
 ---
 

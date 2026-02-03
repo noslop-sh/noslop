@@ -7,6 +7,9 @@
 #[allow(dead_code)]
 mod common;
 
+#[path = "unit/check_test.rs"]
+mod check_test;
+
 #[path = "unit/cli_test.rs"]
 mod cli_test;
 

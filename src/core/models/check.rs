@@ -5,7 +5,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::Severity;
+use super::{Severity, Target};
 
 /// A check attached to a file or pattern
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,12 +43,16 @@ impl Check {
     }
 
     /// Check if this check applies to a given file path
+    ///
+    /// Supports exact paths and glob patterns via the Target model.
     #[must_use]
-    #[allow(dead_code)] // Used in tests, will be wired up when Target integration is complete
     pub fn applies_to(&self, path: &str) -> bool {
-        // Simple matching for now - exact or prefix
-        // TODO: Support glob patterns via Target
-        path == self.target || path.starts_with(&self.target) || self.target.contains(path)
+        // Parse target as a Target to get full glob support
+        // Fall back to simple string matching if parsing fails
+        Target::parse(&self.target).map_or_else(
+            |_| path == self.target || path.starts_with(&self.target),
+            |target| target.matches(path),
+        )
     }
 }
 
