@@ -31,9 +31,7 @@ Features are worked sequentially. Each item becomes a branch (`feature/<name>`),
 
 ### 2. Check Engine
 
-- [ ] **feature/conditional-checks** - Logic expressions (`when: "branch != 'main'"`) or prompt-based evaluation
-- [ ] **feature/ast-parsing** - Generic grammar support (tree-sitter) with SLM fallback
-- [ ] **feature/semantic-targets** - Target by symbol (`src/auth.rs#fn:login`)
+- [ ] **feature/smart-checks** - Prompt-based evaluation (`prompt: "Does this affect auth?"`) and conditional logic (`when: "branch != 'main'"`)
 
 ### 3. Core CLI
 
@@ -52,8 +50,9 @@ Features are worked sequentially. Each item becomes a branch (`feature/<name>`),
 
 ---
 
-## Future (post v0.2.0)
+## Future (v0.3.0+)
 
+- [ ] **Codebase indexing** - AST-based understanding (tree-sitter) to feed context into prompts
 - [ ] VS Code extension
 - [ ] MCP server
 - [ ] GitHub PR comments
