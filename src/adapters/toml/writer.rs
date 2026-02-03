@@ -6,14 +6,14 @@ use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 
-use super::parser::{AssertionEntry, NoslopFile, ProjectConfig, load_file};
+use super::parser::{CheckEntry, NoslopFile, ProjectConfig, load_file};
 
-/// Create or update a .noslop.toml file with a new assertion
+/// Create or update a .noslop.toml file with a new check
 ///
 /// # Errors
 ///
 /// Returns an error if the file cannot be read or written.
-pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Result<String> {
+pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<String> {
     let path = Path::new(".noslop.toml");
 
     let mut file = if path.exists() {
@@ -21,15 +21,15 @@ pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Res
     } else {
         NoslopFile {
             project: ProjectConfig::default(),
-            assertions: Vec::new(),
+            checks: Vec::new(),
         }
     };
 
     // Calculate next ID number (max existing ID + 1)
     let next_num = file
-        .assertions
+        .checks
         .iter()
-        .filter_map(|a| a.id.as_ref())
+        .filter_map(|c| c.id.as_ref())
         .filter_map(|id| {
             // Parse PREFIX-123 format
             id.split('-').nth(1).and_then(|n| n.parse::<u32>().ok())
@@ -40,7 +40,7 @@ pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Res
     // Generate JIRA-style ID
     let generated_id = format!("{}-{}", file.project.prefix, next_num);
 
-    let entry = AssertionEntry {
+    let entry = CheckEntry {
         id: Some(generated_id.clone()),
         target: target.to_string(),
         message: message.to_string(),
@@ -48,7 +48,7 @@ pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Res
         tags: Vec::new(),
     };
 
-    file.assertions.push(entry);
+    file.checks.push(entry);
 
     // Write back
     let content = format_noslop_file(&file);
@@ -61,17 +61,17 @@ pub fn add_assertion(target: &str, message: &str, severity: &str) -> anyhow::Res
 #[must_use]
 pub fn format_noslop_file(file: &NoslopFile) -> String {
     let mut out = String::new();
-    out.push_str("# noslop assertions\n\n");
+    out.push_str("# noslop checks\n\n");
 
     // Add project config if prefix is not default
-    if file.project.prefix != "AST" {
+    if file.project.prefix != "CHK" {
         out.push_str("[project]\n");
         let _ = writeln!(out, "prefix = \"{}\"", file.project.prefix);
         out.push('\n');
     }
 
-    for entry in &file.assertions {
-        out.push_str("[[assert]]\n");
+    for entry in &file.checks {
+        out.push_str("[[check]]\n");
         if let Some(id) = &entry.id {
             let _ = writeln!(out, "id = \"{id}\"");
         }
@@ -120,7 +120,7 @@ fn generate_3_letter_prefix(name: &str) -> String {
         // Single word: take first 3 letters
         words[0].chars().take(3).collect()
     } else {
-        "AST".to_string() // Fallback
+        "CHK".to_string() // Fallback
     };
 
     prefix.to_uppercase()

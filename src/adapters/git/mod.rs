@@ -13,7 +13,7 @@ use std::process::Command;
 
 use crate::core::ports::VersionControl;
 
-pub use hooks::{install_commit_msg, install_post_commit, install_pre_commit};
+pub use hooks::{install_commit_msg, install_post_commit, install_pre_commit, remove_noslop_hooks};
 pub use staging::get_staged_files;
 
 /// Git-based version control implementation
@@ -71,7 +71,7 @@ impl VersionControl for GitVersionControl {
 
     fn install_hooks(&self, force: bool) -> anyhow::Result<()> {
         if force {
-            // TODO: Remove existing hooks first if force is true
+            remove_noslop_hooks()?;
         }
         install_pre_commit()?;
         install_commit_msg()?;

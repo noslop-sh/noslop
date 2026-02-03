@@ -1,36 +1,36 @@
-//! Assertion model
+//! Check model
 //!
-//! An assertion declares: "When this code changes, this must be considered."
-//! Think of it as a review-time test that requires human/LLM attestation.
+//! A check declares: "When this code changes, this must be considered."
+//! Think of it as a review-time test that requires human/LLM acknowledgment.
 
 use serde::{Deserialize, Serialize};
 
-use super::Severity;
+use super::{Severity, Target};
 
-/// An assertion attached to a file or pattern
+/// A check attached to a file or pattern
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Assertion {
+pub struct Check {
     /// Unique identifier (generated)
     pub id: String,
 
     /// Target path or pattern (e.g., "src/auth.rs" or "src/**/*.rs")
     pub target: String,
 
-    /// The assertion message - what must be considered
+    /// The check message - what must be considered
     pub message: String,
 
     /// Severity: "info", "warn", "block"
     pub severity: Severity,
 
-    /// Commit SHA that introduced this assertion
+    /// Commit SHA that introduced this check
     pub introduced_by: Option<String>,
 
-    /// When this assertion was created
+    /// When this check was created
     pub created_at: String,
 }
 
-impl Assertion {
-    /// Create a new assertion with optional custom ID (from TOML)
+impl Check {
+    /// Create a new check with optional custom ID (from TOML)
     pub fn new(id: Option<String>, target: String, message: String, severity: Severity) -> Self {
         Self {
             id: id.unwrap_or_else(generate_id),
@@ -42,18 +42,22 @@ impl Assertion {
         }
     }
 
-    /// Check if this assertion applies to a given file path
+    /// Check if this check applies to a given file path
+    ///
+    /// Supports exact paths and glob patterns via the Target model.
     #[must_use]
-    #[allow(dead_code)] // Used in tests, will be wired up when Target integration is complete
     pub fn applies_to(&self, path: &str) -> bool {
-        // Simple matching for now - exact or prefix
-        // TODO: Support glob patterns via Target
-        path == self.target || path.starts_with(&self.target) || self.target.contains(path)
+        // Parse target as a Target to get full glob support
+        // Fall back to simple string matching if parsing fails
+        Target::parse(&self.target).map_or_else(
+            |_| path == self.target || path.starts_with(&self.target),
+            |target| target.matches(path),
+        )
     }
 }
 
 fn generate_id() -> String {
     use std::time::{SystemTime, UNIX_EPOCH};
     let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
-    format!("a{ts:x}")
+    format!("c{ts:x}")
 }

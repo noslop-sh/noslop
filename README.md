@@ -26,7 +26,7 @@ noslop creates a feedback loop that teaches agents your conventions at commit ti
 Agent commits → noslop intercepts → Agent gets guidance → Agent self-corrects
 ```
 
-The agent fixes the issue, attests that it addressed the guidance, and commits. No review round-trip. No repeating yourself.
+The agent fixes the issue, acknowledges that it addressed the guidance, and commits. No review round-trip. No repeating yourself.
 
 ## The Feedback Loop
 
@@ -35,8 +35,8 @@ Here's what makes noslop different from linters or pre-commit hooks:
 1. **Agent writes code** that works but misses a convention
 2. **Agent tries to commit** → noslop intercepts with relevant context
 3. **Agent reads the guidance** ("Did you import in `__init__.py`?")
-4. **Agent self-corrects** and attests it addressed the issue
-5. **You spot a new pattern** agents keep missing → add an assertion
+4. **Agent self-corrects** and acknowledges it addressed the issue
+5. **You spot a new pattern** agents keep missing → add a check
 6. **Your `.noslop.toml` grows** into institutional memory
 
 Over time, you're not just blocking bad commits - you're building a context layer that makes agents smarter about *your* codebase.
@@ -53,24 +53,24 @@ cd your-project
 noslop init
 ```
 
-## Defining Assertions
+## Defining Checks
 
-Add assertions for patterns that trip up agents:
+Add checks for patterns that trip up agents:
 
 ```toml
 # .noslop.toml
 
-[[assert]]
+[[check]]
 target = "migrations/versions/*.py"
 message = "Generated with alembic revision --autogenerate?"
 severity = "block"
 
-[[assert]]
+[[check]]
 target = "models/**/*.py"
 message = "Imported in models/__init__.py?"
 severity = "block"
 
-[[assert]]
+[[check]]
 target = "api/public/*_router.py"
 message = "Rate limiting decorator added?"
 severity = "block"
@@ -81,7 +81,7 @@ When an agent commits changes to these paths:
 ```text
 $ git commit -m "Add User model"
 
-BLOCKED: 2 unattested assertions
+BLOCKED: 2 unacknowledged checks
 
   [DB-1] models/user.py
          Imported in models/__init__.py?
@@ -89,36 +89,36 @@ BLOCKED: 2 unattested assertions
   [DB-2] migrations/versions/abc123_add_user.py
          Generated with alembic revision --autogenerate?
 
-To proceed: noslop attest <id> -m "verification"
+To proceed: noslop ack <id> -m "verification"
 ```
 
-The agent sees exactly what it missed, fixes it, and attests:
+The agent sees exactly what it missed, fixes it, and acknowledges:
 
 ```bash
-noslop attest DB-1 -m "Added import to models/__init__.py"
-noslop attest DB-2 -m "Regenerated with alembic --autogenerate"
+noslop ack DB-1 -m "Added import to models/__init__.py"
+noslop ack DB-2 -m "Regenerated with alembic --autogenerate"
 git commit -m "Add User model"  # Now succeeds
 ```
 
-## Attestations as Learning Records
+## Acknowledgments as Learning Records
 
-Attestations aren't just checkboxes - they're a record of what the agent acknowledged and how it addressed the guidance. They're stored as git trailers, visible in your commit history:
+Acknowledgments aren't just checkboxes - they're a record of what the agent acknowledged and how it addressed the guidance. They're stored as git trailers, visible in your commit history:
 
 ```text
 Add User model
 
-Noslop-Attest: DB-1 | Added import to models/__init__.py | claude-3-opus
-Noslop-Attest: DB-2 | Regenerated with alembic --autogenerate | claude-3-opus
+Noslop-Ack: DB-1 | Added import to models/__init__.py | claude-3-opus
+Noslop-Ack: DB-2 | Regenerated with alembic --autogenerate | claude-3-opus
 ```
 
 ## Building Your Context Layer
 
 Every time you catch an agent missing something in review, ask yourself: *"Could I have told the agent this at commit time?"*
 
-If yes, add an assertion:
+If yes, add a check:
 
 ```bash
-noslop assert add "config/prod.yaml" \
+noslop check add "config/prod.yaml" \
   -m "Production config changes need #ops-review approval" \
   --severity block
 ```
@@ -126,9 +126,9 @@ noslop assert add "config/prod.yaml" \
 Your `.noslop.toml` becomes a living document - institutional knowledge that compounds over time:
 
 ```text
-Week 1: Agent forgets __init__.py imports     → Add assertion
-Week 2: Agent forgets rate limiting           → Add assertion
-Week 3: Agent hand-writes migrations          → Add assertion
+Week 1: Agent forgets __init__.py imports     → Add check
+Week 2: Agent forgets rate limiting           → Add check
+Week 3: Agent hand-writes migrations          → Add check
 Week 4: Agent handles all three automatically
 ```
 
@@ -145,7 +145,7 @@ target = "config/prod.yaml"             # Specific file
 
 ## Severity Levels
 
-- **block** - Commit blocked until attested (for hard requirements)
+- **block** - Commit blocked until acknowledged (for hard requirements)
 - **warn** - Warning shown, commit proceeds (for soft guidelines)
 - **info** - Informational context (for helpful reminders)
 
@@ -153,11 +153,11 @@ target = "config/prod.yaml"             # Specific file
 
 ```bash
 noslop init                              # Set up in repo
-noslop assert add <target> -m <message>  # Add assertion
-noslop assert list                       # List all assertions
-noslop assert remove <id>                # Remove assertion
-noslop attest <id> -m <message>          # Attest to assertion
-noslop check                             # Check staged files
+noslop check add <target> -m <message>   # Add check
+noslop check list                        # List all checks
+noslop check remove <id>                 # Remove check
+noslop ack <id> -m <message>             # Acknowledge a check
+noslop check                             # Validate staged files
 ```
 
 ## Why "noslop"?

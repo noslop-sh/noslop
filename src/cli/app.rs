@@ -5,15 +5,15 @@ use clap::{Parser, Subcommand};
 use super::commands;
 use noslop::output::OutputMode;
 
-/// noslop - Pre-commit assertions with attestation tracking
+/// noslop - Pre-commit checks with acknowledgment tracking
 #[derive(Parser, Debug)]
 #[command(
     name = "noslop",
     version,
-    about = "Pre-commit assertions with attestation tracking",
+    about = "Pre-commit checks with acknowledgment tracking",
     long_about = "Enforce code review considerations via pre-commit hooks.\n\n\
-                  Assertions declare what must be reviewed when files change.\n\
-                  Attestations prove the review happened before committing."
+                  Checks declare what must be reviewed when files change.\n\
+                  Acknowledgments prove the review happened before committing."
 )]
 pub struct Cli {
     /// Enable verbose output
@@ -37,37 +37,34 @@ pub enum Command {
         force: bool,
     },
 
-    /// Check assertions for staged changes (used by pre-commit hook)
+    /// Check for unacknowledged checks in staged changes, or manage checks
     Check {
         /// Run in CI mode (stricter, non-interactive)
         #[arg(long)]
         ci: bool,
-    },
 
-    /// Manage assertions (declare what must be considered when code changes)
-    Assert {
         #[command(subcommand)]
-        action: AssertAction,
+        action: Option<CheckAction>,
     },
 
-    /// Attest to assertions (prove something was considered)
-    Attest {
-        /// Assertion ID to attest to
+    /// Acknowledge a check (prove something was considered)
+    Ack {
+        /// Check ID to acknowledge
         id: String,
 
-        /// Attestation message
+        /// Acknowledgment message
         #[arg(short, long)]
         message: String,
     },
 
-    /// Add attestation trailers to commit message (used by prepare-commit-msg hook)
+    /// Add acknowledgment trailers to commit message (used by commit-msg hook)
     #[command(hide = true)]
     AddTrailers {
         /// Path to commit message file
         commit_msg_file: String,
     },
 
-    /// Clear staged attestations (used by post-commit hook)
+    /// Clear staged acknowledgments (used by post-commit hook)
     #[command(hide = true)]
     ClearStaged,
 
@@ -76,13 +73,13 @@ pub enum Command {
 }
 
 #[derive(Subcommand, Debug)]
-pub enum AssertAction {
-    /// Add an assertion
+pub enum CheckAction {
+    /// Add a check
     Add {
-        /// File or pattern this assertion applies to
+        /// File or pattern this check applies to
         target: String,
 
-        /// The assertion message
+        /// The check message
         #[arg(short, long)]
         message: String,
 
@@ -91,16 +88,16 @@ pub enum AssertAction {
         severity: String,
     },
 
-    /// List assertions
+    /// List checks
     List {
         /// Filter by file
         #[arg(short, long)]
         target: Option<String>,
     },
 
-    /// Remove an assertion
+    /// Remove a check
     Remove {
-        /// Assertion ID
+        /// Check ID
         id: String,
     },
 }
@@ -123,9 +120,12 @@ pub fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::Init { force }) => commands::init(force, output_mode),
-        Some(Command::Check { ci }) => commands::check(ci, output_mode),
-        Some(Command::Assert { action }) => commands::assert_cmd(action, output_mode),
-        Some(Command::Attest { id, message }) => commands::attest(&id, &message, output_mode),
+        Some(Command::Check { action: None, ci }) => commands::check_validate(ci, output_mode),
+        Some(Command::Check {
+            action: Some(action),
+            ..
+        }) => commands::check_manage(action, output_mode),
+        Some(Command::Ack { id, message }) => commands::ack(&id, &message, output_mode),
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),
         Some(Command::Version) => {

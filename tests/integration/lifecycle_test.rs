@@ -1,9 +1,9 @@
-//! Integration tests for the full attestation lifecycle
+//! Integration tests for the full acknowledgment lifecycle
 //!
 //! Tests the complete flow:
-//! 1. User attests to assertion
+//! 1. User acknowledges a check
 //! 2. User commits (with -m or editor)
-//! 3. Hooks add trailers and clear staged attestations
+//! 3. Hooks add trailers and clear staged acknowledgments
 //! 4. Cross-branch contamination is prevented
 
 use assert_cmd::Command;
@@ -116,9 +116,9 @@ fn test_full_lifecycle_with_commit_m() {
     let temp_dir = setup_repo();
     let repo_path = temp_dir.path();
 
-    // Add an assertion (will get auto-assigned ID: AST-1)
+    // Add a check (will get auto-assigned ID: CHK-1)
     noslop_in(repo_path)
-        .args(["assert", "add", "*.rs", "-m", "Review Rust changes", "-s", "block"])
+        .args(["check", "add", "*.rs", "-m", "Review Rust changes", "-s", "block"])
         .assert()
         .success();
 
@@ -126,33 +126,30 @@ fn test_full_lifecycle_with_commit_m() {
     fs::write(repo_path.join("test.rs"), "fn main() {}").unwrap();
     git_in(repo_path, &["add", "test.rs"]).output().unwrap();
 
-    // Attest (use the actual ID from .noslop.toml: AST-1)
+    // Acknowledge (use the actual ID from .noslop.toml: CHK-1)
     noslop_in(repo_path)
-        .args(["attest", "AST-1", "-m", "Reviewed test file"])
+        .args(["ack", "CHK-1", "-m", "Reviewed test file"])
         .assert()
         .success();
 
-    // Verify staged attestations exist
-    let attestations_file = repo_path.join(".noslop/staged-attestations.json");
-    assert!(attestations_file.exists());
+    // Verify staged acknowledgments exist
+    let acks_file = repo_path.join(".noslop/staged-acks.json");
+    assert!(acks_file.exists());
 
     // Commit with -m (triggers hooks)
     let output = git_in(repo_path, &["commit", "-m", "Add test file"]).output().unwrap();
     assert!(output.status.success(), "Commit should succeed");
 
-    // Verify staged attestations were cleared
-    assert!(
-        !attestations_file.exists(),
-        "Staged attestations should be cleared after commit"
-    );
+    // Verify staged acknowledgments were cleared
+    assert!(!acks_file.exists(), "Staged acknowledgments should be cleared after commit");
 
     // Verify commit message contains trailer
     let log_output = git_in(repo_path, &["log", "-1", "--pretty=format:%B"]).output().unwrap();
     let commit_msg = String::from_utf8(log_output.stdout).unwrap();
 
     assert!(
-        commit_msg.contains("Noslop-Attest: AST-1 | Reviewed test file | human"),
-        "Commit message should contain attestation trailer. Got: {}",
+        commit_msg.contains("Noslop-Ack: CHK-1 | Reviewed test file | human"),
+        "Commit message should contain acknowledgment trailer. Got: {}",
         commit_msg
     );
 }
@@ -162,9 +159,9 @@ fn test_cross_branch_no_contamination() {
     let temp_dir = setup_repo();
     let repo_path = temp_dir.path();
 
-    // Add an assertion
+    // Add a check
     noslop_in(repo_path)
-        .args(["assert", "add", "*.rs", "-m", "Review Rust changes", "-s", "block"])
+        .args(["check", "add", "*.rs", "-m", "Review Rust changes", "-s", "block"])
         .assert()
         .success();
 
@@ -172,19 +169,19 @@ fn test_cross_branch_no_contamination() {
     fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
     git_in(repo_path, &["add", "main.rs"]).output().unwrap();
 
-    // Attest on main
+    // Acknowledge on main
     noslop_in(repo_path)
-        .args(["attest", "AST-1", "-m", "Main branch changes"])
+        .args(["ack", "CHK-1", "-m", "Main branch changes"])
         .assert()
         .success();
 
-    let attestations_file = repo_path.join(".noslop/staged-attestations.json");
-    assert!(attestations_file.exists());
+    let acks_file = repo_path.join(".noslop/staged-acks.json");
+    assert!(acks_file.exists());
 
-    // Create and switch to new branch (attestations should NOT follow)
+    // Create and switch to new branch (acknowledgments should NOT follow)
     git_in(repo_path, &["checkout", "-b", "feature"]).output().unwrap();
 
-    // The staged-attestations.json persists because it's untracked
+    // The staged-acks.json persists because it's untracked
     // This is the BUG we're testing for - but after hooks are installed,
     // commits will clear it
 
@@ -192,22 +189,22 @@ fn test_cross_branch_no_contamination() {
     fs::write(repo_path.join("feature.rs"), "fn feature() {}").unwrap();
     git_in(repo_path, &["add", "feature.rs"]).output().unwrap();
 
-    // Check should fail because AST-1 still applies but we don't have proper attestation for THIS file
-    // The old attestation from main branch is contaminating feature branch
+    // Check should fail because CHK-1 still applies but we don't have proper acknowledgment for THIS file
+    // The old acknowledgment from main branch is contaminating feature branch
     let _check_output = noslop_in(repo_path).arg("check").output().unwrap();
 
-    // With the bug, this might incorrectly pass because old attestation exists
+    // With the bug, this might incorrectly pass because old acknowledgment exists
     // With the fix (post-commit clearing), each branch starts clean
 
     // For this test, we simulate the fix by manually clearing
-    fs::remove_file(&attestations_file).ok();
+    fs::remove_file(&acks_file).ok();
 
-    // Now attestation should be required
+    // Now acknowledgment should be required
     noslop_in(repo_path).arg("check").assert().failure();
 
-    // Attest for feature branch
+    // Acknowledge for feature branch
     noslop_in(repo_path)
-        .args(["attest", "AST-1", "-m", "Feature branch changes"])
+        .args(["ack", "CHK-1", "-m", "Feature branch changes"])
         .assert()
         .success();
 
@@ -216,10 +213,10 @@ fn test_cross_branch_no_contamination() {
 
     assert!(output.status.success());
 
-    // Verify attestations cleared
-    assert!(!attestations_file.exists());
+    // Verify acknowledgments cleared
+    assert!(!acks_file.exists());
 
-    // Verify correct attestation in commit message
+    // Verify correct acknowledgment in commit message
     let log_output = git_in(repo_path, &["log", "-1", "--pretty=format:%B"]).output().unwrap();
     let commit_msg = String::from_utf8(log_output.stdout).unwrap();
 
@@ -228,63 +225,63 @@ fn test_cross_branch_no_contamination() {
 }
 
 #[test]
-fn test_multiple_attestations_in_commit() {
+fn test_multiple_acks_in_commit() {
     let temp_dir = setup_repo();
     let repo_path = temp_dir.path();
 
-    // Add multiple assertions
+    // Add multiple checks
     noslop_in(repo_path)
-        .args(["assert", "add", "src/*.rs", "-m", "Review source changes", "-s", "block"])
+        .args(["check", "add", "src/*.rs", "-m", "Review source changes", "-s", "block"])
         .assert()
         .success();
 
     noslop_in(repo_path)
-        .args(["assert", "add", "*.toml", "-m", "Review config changes", "-s", "warn"])
+        .args(["check", "add", "*.toml", "-m", "Review config changes", "-s", "warn"])
         .assert()
         .success();
 
-    // Create files that match both assertions
+    // Create files that match both checks
     fs::create_dir_all(repo_path.join("src")).unwrap();
     fs::write(repo_path.join("src/lib.rs"), "pub fn lib() {}").unwrap();
     fs::write(repo_path.join("Cargo.toml"), "[package]").unwrap();
 
     git_in(repo_path, &["add", "."]).output().unwrap();
 
-    // Attest to both (AST-1 for *.rs, AST-2 for *.toml)
+    // Acknowledge both (CHK-1 for *.rs, CHK-2 for *.toml)
     noslop_in(repo_path)
-        .args(["attest", "AST-1", "-m", "Reviewed source code"])
+        .args(["ack", "CHK-1", "-m", "Reviewed source code"])
         .assert()
         .success();
 
     noslop_in(repo_path)
-        .args(["attest", "AST-2", "-m", "Reviewed config"])
+        .args(["ack", "CHK-2", "-m", "Reviewed config"])
         .assert()
         .success();
 
     // Commit
     git_in(repo_path, &["commit", "-m", "Add library and config"]).output().unwrap();
 
-    // Verify both attestations in commit message
+    // Verify both acknowledgments in commit message
     let log_output = git_in(repo_path, &["log", "-1", "--pretty=format:%B"]).output().unwrap();
     let commit_msg = String::from_utf8(log_output.stdout).unwrap();
 
-    assert!(commit_msg.contains("Noslop-Attest: AST-1 | Reviewed source code | human"));
-    assert!(commit_msg.contains("Noslop-Attest: AST-2 | Reviewed config | human"));
+    assert!(commit_msg.contains("Noslop-Ack: CHK-1 | Reviewed source code | human"));
+    assert!(commit_msg.contains("Noslop-Ack: CHK-2 | Reviewed config | human"));
 
     // Verify cleared
-    assert!(!repo_path.join(".noslop/staged-attestations.json").exists());
+    assert!(!repo_path.join(".noslop/staged-acks.json").exists());
 }
 
 #[test]
-fn test_commit_without_attestations() {
+fn test_commit_without_acks() {
     let temp_dir = setup_repo();
     let repo_path = temp_dir.path();
 
-    // Create a file that doesn't match any assertions
+    // Create a file that doesn't match any checks
     fs::write(repo_path.join("README.md"), "# Test").unwrap();
     git_in(repo_path, &["add", "README.md"]).output().unwrap();
 
-    // Commit should succeed (no assertions apply)
+    // Commit should succeed (no checks apply)
     let output = git_in(repo_path, &["commit", "-m", "Add README"]).output().unwrap();
 
     assert!(output.status.success());
@@ -293,17 +290,17 @@ fn test_commit_without_attestations() {
     let log_output = git_in(repo_path, &["log", "-1", "--pretty=format:%B"]).output().unwrap();
     let commit_msg = String::from_utf8(log_output.stdout).unwrap();
 
-    assert!(!commit_msg.contains("Noslop-Attest"));
+    assert!(!commit_msg.contains("Noslop-Ack"));
 }
 
 #[test]
-fn test_commit_blocked_without_attestation() {
+fn test_commit_blocked_without_ack() {
     let temp_dir = setup_repo();
     let repo_path = temp_dir.path();
 
-    // Add blocking assertion
+    // Add blocking check
     noslop_in(repo_path)
-        .args(["assert", "add", "*.rs", "-m", "Must review Rust code", "-s", "block"])
+        .args(["check", "add", "*.rs", "-m", "Must review Rust code", "-s", "block"])
         .assert()
         .success();
 
@@ -311,7 +308,7 @@ fn test_commit_blocked_without_attestation() {
     fs::write(repo_path.join("test.rs"), "fn test() {}").unwrap();
     git_in(repo_path, &["add", "test.rs"]).output().unwrap();
 
-    // Try to commit WITHOUT attestation - should fail
+    // Try to commit WITHOUT acknowledgment - should fail
     let output = git_in(repo_path, &["commit", "-m", "Add test"]).output().unwrap();
 
     assert!(!output.status.success(), "Commit should be blocked");

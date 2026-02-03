@@ -14,19 +14,19 @@ pub struct NoslopFile {
     #[serde(default)]
     pub project: ProjectConfig,
 
-    /// Assertions in this file
-    #[serde(default, rename = "assert")]
-    pub assertions: Vec<AssertionEntry>,
+    /// Checks in this file
+    #[serde(default, rename = "check")]
+    pub checks: Vec<CheckEntry>,
 }
 
 /// Project-level configuration
 #[derive(Debug, Deserialize)]
 #[serde(default)]
 pub struct ProjectConfig {
-    /// 3-letter prefix for assertion IDs (e.g., "NSL" for noslop-123)
+    /// 3-letter prefix for check IDs (e.g., "NSL" for noslop-123)
     pub prefix: String,
 
-    /// Next assertion ID number
+    /// Next check ID number
     #[serde(skip)]
     pub next_id: u32,
 }
@@ -34,15 +34,15 @@ pub struct ProjectConfig {
 impl Default for ProjectConfig {
     fn default() -> Self {
         Self {
-            prefix: "AST".to_string(), // Fallback if not set
+            prefix: "CHK".to_string(), // Fallback if not set
             next_id: 1,
         }
     }
 }
 
-/// An assertion entry in .noslop.toml
+/// A check entry in .noslop.toml
 #[derive(Debug, Deserialize)]
-pub struct AssertionEntry {
+pub struct CheckEntry {
     /// Optional custom ID (if not provided, will be auto-generated as PREFIX-N)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -50,7 +50,7 @@ pub struct AssertionEntry {
     /// Target pattern (glob or path)
     pub target: String,
 
-    /// The assertion message
+    /// The check message
     pub message: String,
 
     /// Severity: info, warn, block
@@ -96,12 +96,12 @@ pub fn find_noslop_files(from: &Path) -> Vec<PathBuf> {
         }
     }
 
-    // Reverse so root comes first (assertions stack up)
+    // Reverse so root comes first (checks stack up)
     files.reverse();
     files
 }
 
-/// Load assertions from a .noslop.toml file
+/// Load checks from a .noslop.toml file
 ///
 /// # Errors
 ///

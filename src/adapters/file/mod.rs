@@ -1,27 +1,27 @@
-//! File-based attestation storage
+//! File-based acknowledgment storage
 //!
-//! Used for staging attestations before commit.
+//! Used for staging acknowledgments before commit.
 //! Files live in `.noslop/` directory.
 
 use std::fs;
 use std::path::Path;
 
-use crate::core::models::Attestation;
+use crate::core::models::Acknowledgment;
 
-const STAGED_ATTESTATIONS_PATH: &str = ".noslop/staged-attestations.json";
+const STAGED_ACKS_PATH: &str = ".noslop/staged-acks.json";
 
-/// File-based storage for staging attestations
+/// File-based storage for staging acknowledgments
 #[derive(Debug, Clone, Copy)]
 pub struct FileStore;
 
 impl FileStore {
-    /// Load staged attestations from file
+    /// Load staged acknowledgments from file
     ///
     /// # Errors
     ///
     /// Returns an error if the file exists but cannot be read or parsed.
-    pub fn load_staged_attestations() -> anyhow::Result<Vec<Attestation>> {
-        let path = Path::new(STAGED_ATTESTATIONS_PATH);
+    pub fn load_staged_acks() -> anyhow::Result<Vec<Acknowledgment>> {
+        let path = Path::new(STAGED_ACKS_PATH);
         if !path.exists() {
             return Ok(Vec::new());
         }
@@ -29,28 +29,28 @@ impl FileStore {
         Ok(serde_json::from_str(&content)?)
     }
 
-    /// Save staged attestations to file
+    /// Save staged acknowledgments to file
     ///
     /// # Errors
     ///
     /// Returns an error if the file cannot be written.
-    pub fn save_staged_attestations(attestations: &[Attestation]) -> anyhow::Result<()> {
+    pub fn save_staged_acks(acks: &[Acknowledgment]) -> anyhow::Result<()> {
         // Ensure directory exists
-        if let Some(parent) = Path::new(STAGED_ATTESTATIONS_PATH).parent() {
+        if let Some(parent) = Path::new(STAGED_ACKS_PATH).parent() {
             fs::create_dir_all(parent)?;
         }
-        let content = serde_json::to_string_pretty(attestations)?;
-        fs::write(STAGED_ATTESTATIONS_PATH, content)?;
+        let content = serde_json::to_string_pretty(acks)?;
+        fs::write(STAGED_ACKS_PATH, content)?;
         Ok(())
     }
 
-    /// Clear staged attestations
+    /// Clear staged acknowledgments
     ///
     /// # Errors
     ///
     /// Returns an error if the file exists but cannot be deleted.
-    pub fn clear_staged_attestations() -> anyhow::Result<()> {
-        let path = Path::new(STAGED_ATTESTATIONS_PATH);
+    pub fn clear_staged_acks() -> anyhow::Result<()> {
+        let path = Path::new(STAGED_ACKS_PATH);
         if path.exists() {
             fs::remove_file(path)?;
         }

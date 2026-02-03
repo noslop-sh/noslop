@@ -1,10 +1,10 @@
-//! Assertion severity levels
+//! Check severity levels
 //!
-//! Defines how strictly an assertion should be enforced.
+//! Defines how strictly a check should be enforced.
 
 use serde::{Deserialize, Serialize};
 
-/// Assertion severity levels
+/// Check severity levels
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
@@ -12,7 +12,7 @@ pub enum Severity {
     Info,
     /// Warning - shown prominently, doesn't block
     Warn,
-    /// Blocking - must be attested before commit
+    /// Blocking - must be acknowledged before commit
     #[default]
     Block,
 }
