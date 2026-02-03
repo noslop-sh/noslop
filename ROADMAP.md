@@ -16,7 +16,7 @@ Teach AI agents (and humans) codebase conventions through automated feedback at 
 
 ## In Progress
 
-Current feature branch: `fix/force-hook-reinstall`
+Current feature branch: none
 
 ---
 
@@ -26,7 +26,7 @@ Features are worked sequentially. Each item becomes a branch (`feature/<name>`),
 
 ### 1. Bug Fixes
 
-- [ ] **fix/force-hook-reinstall** - Fix `--force` hook reinstall ([mod.rs:74](src/adapters/git/mod.rs#L74))
+- [x] **fix/force-hook-reinstall** - Fix `--force` hook reinstall ✓
 - [ ] **fix/glob-applies-to** - Glob pattern support in `applies_to()` ([check.rs:50](src/core/models/check.rs#L50))
 
 ### 2. Check Engine
