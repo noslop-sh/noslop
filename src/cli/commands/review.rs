@@ -1,9 +1,10 @@
 //! Review management commands
 
 use noslop::adapters::FileReviewStore;
-use noslop::core::models::{DiffPosition, Review};
+use noslop::core::models::{Acknowledgment, DiffPosition, Review};
 use noslop::core::ports::ReviewStore;
 use noslop::output::OutputMode;
+use noslop::storage;
 use serde::Serialize;
 
 use crate::cli::app::ReviewAction;
@@ -231,6 +232,29 @@ fn resolve_comment(
 fn close_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::Result<()> {
     let mut review = store.load(id)?.ok_or_else(|| anyhow::anyhow!("Review not found: {}", id))?;
 
+    // Check for unresolved comments
+    let open_count = review.open_comments().len();
+    if open_count > 0 {
+        anyhow::bail!(
+            "Cannot close review with {} unresolved comment(s). Resolve all comments first.",
+            open_count
+        );
+    }
+
+    // Stage acknowledgments for all resolved comments
+    let ack_store = storage::ack_store();
+    let mut staged_count = 0;
+
+    for comment in &review.comments {
+        let resolution_msg =
+            comment.resolution_message.clone().unwrap_or_else(|| "Resolved".to_string());
+
+        let ack =
+            Acknowledgment::new(comment.check.id.clone(), resolution_msg, "review".to_string());
+        ack_store.stage(&ack)?;
+        staged_count += 1;
+    }
+
     review.close();
     store.save(&review)?;
 
@@ -239,11 +263,18 @@ fn close_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::
             "{}",
             serde_json::json!({
                 "success": true,
-                "review_id": id
+                "review_id": id,
+                "staged_acks": staged_count
             })
         );
     } else {
         println!("Closed review: {}", id);
+        if staged_count > 0 {
+            println!(
+                "  Staged {} acknowledgment(s) - will be added as trailers on next commit",
+                staged_count
+            );
+        }
     }
     Ok(())
 }
