@@ -29,21 +29,17 @@ Features are worked sequentially. Each item becomes a branch (`feature/<name>`),
 - [x] **fix/force-hook-reinstall** - Fix `--force` hook reinstall ✓
 - [x] **fix/glob-applies-to** - Glob pattern support in `applies_to()` ✓
 
-### 2. Check Engine
-
-- [ ] **feature/smart-checks** - Prompt-based evaluation (`prompt: "Does this affect auth?"`) and conditional logic (`when: "branch != 'main'"`)
-
-### 3. Core CLI
+### 2. Core CLI
 
 - [ ] **feature/json-output** - JSON output (`--format=json`) for CI/agent consumption
 - [ ] **feature/doctor** - `noslop doctor` command to diagnose config and hook issues
 - [ ] **feature/bulk-ack** - Bulk ack (`noslop ack --all`)
 
-### 4. Integration
+### 3. Integration
 
 - [ ] **feature/github-action** - GitHub Actions action (`noslop-sh/noslop-action@v1`)
 
-### 5. Documentation
+### 4. Documentation
 
 - [ ] **docs/getting-started** - Getting started guide
 - [ ] **docs/agent-integration** - AI agent integration guide (Claude, Copilot, Cursor)
@@ -52,6 +48,7 @@ Features are worked sequentially. Each item becomes a branch (`feature/<name>`),
 
 ## Future (v0.3.0+)
 
+- [ ] **Smart checks** - Conditional logic, prompt-based evaluation (when we hit a real limitation)
 - [ ] **Codebase indexing** - AST-based understanding (tree-sitter) to feed context into prompts
 - [ ] VS Code extension
 - [ ] MCP server
