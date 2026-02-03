@@ -803,3 +803,246 @@ severity = "block"
         .success()
         .stdout(predicate::str::contains("No checks apply"));
 }
+
+// =============================================================================
+// REVIEW INTEGRATION TESTS
+// =============================================================================
+
+/// Test that open review comments block commits
+#[test]
+fn test_review_comment_blocks_commit() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Create initial file and commit
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Initial commit");
+
+    // Get commit SHA
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start a review (using HEAD as both base and head for simplicity)
+    let review_output = noslop()
+        .args(["review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Extract review ID from output
+    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let review_id = stdout
+        .lines()
+        .find(|l| l.contains("REV-"))
+        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
+        .expect("Should find review ID in output");
+
+    // Add a comment to the review targeting main.rs
+    noslop()
+        .args(["review", "comment", review_id, "main.rs", "-m", "Add error handling to main"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Modify the file and stage it
+    fs::write(repo_path.join("main.rs"), "fn main() { println!(\"updated\"); }").unwrap();
+    git_add(repo_path, "main.rs");
+
+    // Check should fail - blocked by open review comment
+    noslop()
+        .args(["check", "--ci"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("BLOCKED"))
+        .stdout(predicate::str::contains("Add error handling to main"));
+}
+
+/// Test that resolved review comments don't block commits
+#[test]
+fn test_resolved_review_comment_allows_commit() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Create initial file and commit
+    fs::write(repo_path.join("lib.rs"), "pub fn hello() {}").unwrap();
+    git_add(repo_path, "lib.rs");
+    git_commit(repo_path, "Initial commit");
+
+    // Get commit SHA
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start a review
+    let review_output = noslop()
+        .args(["review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Extract review ID from output
+    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let review_id = stdout
+        .lines()
+        .find(|l| l.contains("REV-"))
+        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
+        .expect("Should find review ID in output");
+
+    // Add a comment to the review
+    noslop()
+        .args(["review", "comment", review_id, "lib.rs", "-m", "Add documentation"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Resolve the comment
+    let comment_id = format!("{review_id}:1");
+    noslop()
+        .args(["review", "resolve", &comment_id, "-m", "Added doc comments"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Modify the file and stage it
+    fs::write(repo_path.join("lib.rs"), "/// Says hello\npub fn hello() {}").unwrap();
+    git_add(repo_path, "lib.rs");
+
+    // Check should pass - comment is resolved
+    noslop().args(["check", "--ci"]).current_dir(repo_path).assert().success();
+}
+
+/// Test that closing a review with open comments fails
+#[test]
+fn test_close_review_with_open_comments_fails() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Create initial file and commit
+    fs::write(repo_path.join("app.rs"), "fn app() {}").unwrap();
+    git_add(repo_path, "app.rs");
+    git_commit(repo_path, "Initial commit");
+
+    // Get commit SHA
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start a review
+    let review_output = noslop()
+        .args(["review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Extract review ID from output
+    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let review_id = stdout
+        .lines()
+        .find(|l| l.contains("REV-"))
+        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
+        .expect("Should find review ID in output");
+
+    // Add a comment but don't resolve it
+    noslop()
+        .args(["review", "comment", review_id, "app.rs", "-m", "Needs refactoring"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Try to close the review - should fail
+    noslop()
+        .args(["review", "close", review_id])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("unresolved comment"));
+}
+
+/// Test that closing a review stages acknowledgments
+#[test]
+fn test_close_review_stages_acknowledgments() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Create initial file and commit
+    fs::write(repo_path.join("utils.rs"), "pub fn util() {}").unwrap();
+    git_add(repo_path, "utils.rs");
+    git_commit(repo_path, "Initial commit");
+
+    // Get commit SHA
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start a review
+    let review_output = noslop()
+        .args(["review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Extract review ID from output
+    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let review_id = stdout
+        .lines()
+        .find(|l| l.contains("REV-"))
+        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
+        .expect("Should find review ID in output");
+
+    // Add and resolve a comment
+    noslop()
+        .args(["review", "comment", review_id, "utils.rs", "-m", "Add error handling"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let comment_id = format!("{review_id}:1");
+    noslop()
+        .args(["review", "resolve", &comment_id, "-m", "Added Result type"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Close the review
+    noslop()
+        .args(["review", "close", review_id])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Staged 1 acknowledgment"));
+
+    // Verify acknowledgment was staged
+    let staged_acks_path = repo_path.join(".noslop/staged-acks.json");
+    assert!(staged_acks_path.exists(), "staged-acks.json should exist");
+
+    let content = fs::read_to_string(&staged_acks_path).unwrap();
+    assert!(content.contains(&comment_id), "Should contain comment ID");
+    assert!(content.contains("Added Result type"), "Should contain resolution message");
+}

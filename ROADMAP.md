@@ -16,7 +16,19 @@ Teach AI agents (and humans) codebase conventions through automated feedback at 
 
 ## In Progress
 
-Current feature branch: none
+Current feature branch: `feature/review`
+
+### feature/review - Local Code Reviews
+
+GitHub-style inline code reviews that create checks.
+
+- [x] `Review` and `ReviewComment` models (ReviewComment extends Check)
+- [x] `DiffPosition` and `CommentStatus` types
+- [x] `ReviewStore` port trait
+- [x] `FileReviewStore` adapter (JSON in `.noslop/reviews/`)
+- [x] Review CLI commands (`start`, `comment`, `list`, `show`, `resolve`, `close`)
+- [x] Wire review checks into commit validation
+- [x] Persist checks as git trailers on review close
 
 ---
 
