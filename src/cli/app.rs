@@ -68,6 +68,12 @@ pub enum Command {
     #[command(hide = true)]
     ClearStaged,
 
+    /// Manage code reviews
+    Review {
+        #[command(subcommand)]
+        action: ReviewAction,
+    },
+
     /// Show version
     Version,
 }
@@ -102,6 +108,64 @@ pub enum CheckAction {
     },
 }
 
+#[derive(Subcommand, Debug)]
+pub enum ReviewAction {
+    /// Start a new review for a commit range
+    Start {
+        /// Base commit SHA (start of diff)
+        base: String,
+
+        /// Head commit SHA (end of diff)
+        head: String,
+    },
+
+    /// Add a comment to a review
+    Comment {
+        /// Review ID (e.g., REV-xxxx)
+        review_id: String,
+
+        /// Target file path
+        target: String,
+
+        /// Comment message
+        #[arg(short, long)]
+        message: String,
+
+        /// Line number (optional)
+        #[arg(short, long)]
+        line: Option<u32>,
+    },
+
+    /// List reviews
+    List {
+        /// Show only open reviews
+        #[arg(long)]
+        open: bool,
+    },
+
+    /// Show review details
+    Show {
+        /// Review ID
+        id: String,
+    },
+
+    /// Resolve a comment
+    Resolve {
+        /// Comment ID (e.g., REV-xxxx:1)
+        comment_id: String,
+
+        /// Resolution message
+        #[arg(short, long)]
+        message: Option<String>,
+    },
+
+    /// Close a review
+    Close {
+        /// Review ID
+        id: String,
+    },
+}
+
 /// Run the CLI
 pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -128,6 +192,7 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::Ack { id, message }) => commands::ack(&id, &message, output_mode),
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),
+        Some(Command::Review { action }) => commands::review(action, output_mode),
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {
                 println!(
