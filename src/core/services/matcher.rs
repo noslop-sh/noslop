@@ -1,4 +1,4 @@
-//! Target matcher service - matches assertion targets to files
+//! Target matcher service - matches check targets to files
 //!
 //! This module contains pure matching logic with no I/O dependencies.
 

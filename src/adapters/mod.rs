@@ -2,10 +2,10 @@
 //!
 //! This module contains concrete implementations that handle I/O:
 //!
-//! - [`mod@file`] - JSON file attestation staging storage
+//! - [`mod@file`] - JSON file acknowledgment staging storage
 //! - [`git`] - Git operations (hooks, staging, version control)
 //! - [`mod@toml`] - `.noslop.toml` file parsing and writing
-//! - [`trailer`] - Commit trailer attestation storage
+//! - [`trailer`] - Commit trailer acknowledgment storage
 
 pub mod file;
 pub mod git;
@@ -15,5 +15,5 @@ pub mod trailer;
 // Re-export main types for convenience
 pub use file::FileStore;
 pub use git::{GitVersionControl, get_repo_name};
-pub use toml::TomlAssertionRepository;
-pub use trailer::{TrailerAttestationStore, append_trailers};
+pub use toml::TomlCheckRepository;
+pub use trailer::{TrailerAckStore, append_trailers};

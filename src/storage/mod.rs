@@ -1,4 +1,4 @@
-//! Storage abstraction for attestations
+//! Storage abstraction for acknowledgments
 //!
 //! Provides pluggable backends:
 //! - `trailer`: Commit message trailers (default, most portable)
@@ -8,12 +8,12 @@
 
 #![allow(dead_code)]
 
-// Re-export the AttestationStore trait from ports
-pub use crate::core::ports::AttestationStore;
+// Re-export the AcknowledgmentStore trait from ports
+pub use crate::core::ports::AcknowledgmentStore;
 
 // Re-export implementations from adapters
 pub use crate::adapters::file::FileStore;
-pub use crate::adapters::trailer::{TrailerAttestationStore, append_trailers};
+pub use crate::adapters::trailer::{TrailerAckStore, append_trailers};
 
 // Keep file and trailer as submodules for backwards compatibility
 pub mod file {
@@ -23,7 +23,7 @@ pub mod file {
 
 pub mod trailer {
     //! Trailer storage re-exports
-    pub use crate::adapters::trailer::{TrailerAttestationStore, append_trailers};
+    pub use crate::adapters::trailer::{TrailerAckStore, append_trailers};
 }
 
 /// Storage backend type
@@ -48,10 +48,10 @@ impl std::str::FromStr for Backend {
     }
 }
 
-/// Get the configured attestation store
+/// Get the configured acknowledgment store
 #[must_use]
-pub fn attestation_store() -> Box<dyn AttestationStore> {
+pub fn ack_store() -> Box<dyn AcknowledgmentStore> {
     // For now, always use file for staging + trailer for finalized
     // Config-based selection can come later
-    Box::new(TrailerAttestationStore::new())
+    Box::new(TrailerAckStore::new())
 }

@@ -3,48 +3,48 @@
 //! These mocks provide configurable behavior for unit testing
 //! without real I/O operations.
 
-use noslop::core::models::{Assertion, Attestation, Severity};
-use noslop::core::ports::{AssertionRepository, AttestationStore, VersionControl};
+use noslop::core::models::{Acknowledgment, Check, Severity};
+use noslop::core::ports::{AcknowledgmentStore, CheckRepository, VersionControl};
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 
-/// Mock implementation of AssertionRepository
-pub struct MockAssertionRepository {
-    assertions: RefCell<Vec<Assertion>>,
+/// Mock implementation of CheckRepository
+pub struct MockCheckRepository {
+    checks: RefCell<Vec<Check>>,
 }
 
-impl MockAssertionRepository {
+impl MockCheckRepository {
     pub fn new() -> Self {
         Self {
-            assertions: RefCell::new(Vec::new()),
+            checks: RefCell::new(Vec::new()),
         }
     }
 
-    pub fn with_assertions(assertions: Vec<Assertion>) -> Self {
+    pub fn with_checks(checks: Vec<Check>) -> Self {
         Self {
-            assertions: RefCell::new(assertions),
+            checks: RefCell::new(checks),
         }
     }
 }
 
-impl Default for MockAssertionRepository {
+impl Default for MockCheckRepository {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AssertionRepository for MockAssertionRepository {
-    fn find_for_files(&self, files: &[String]) -> anyhow::Result<Vec<(Assertion, String)>> {
-        let assertions = self.assertions.borrow();
+impl CheckRepository for MockCheckRepository {
+    fn find_for_files(&self, files: &[String]) -> anyhow::Result<Vec<(Check, String)>> {
+        let checks = self.checks.borrow();
         let mut results = Vec::new();
-        for assertion in assertions.iter() {
+        for check in checks.iter() {
             for file in files {
                 // Simple matching: check if target matches file extension or exact match
-                if file.ends_with(&assertion.target.trim_start_matches('*'))
-                    || assertion.target == "*"
-                    || file == &assertion.target
+                if file.ends_with(&check.target.trim_start_matches('*'))
+                    || check.target == "*"
+                    || file == &check.target
                 {
-                    results.push((assertion.clone(), file.clone()));
+                    results.push((check.clone(), file.clone()));
                 }
             }
         }
@@ -52,59 +52,59 @@ impl AssertionRepository for MockAssertionRepository {
     }
 
     fn add(&self, target: &str, message: &str, severity: Severity) -> anyhow::Result<String> {
-        let id = format!("MOCK-{}", self.assertions.borrow().len() + 1);
-        let assertion = Assertion::new(
+        let id = format!("MOCK-{}", self.checks.borrow().len() + 1);
+        let check = Check::new(
             Some(id.clone()),
             target.to_string(),
             message.to_string(),
             severity,
         );
-        self.assertions.borrow_mut().push(assertion);
+        self.checks.borrow_mut().push(check);
         Ok(id)
     }
 
     fn remove(&self, id: &str) -> anyhow::Result<()> {
-        self.assertions.borrow_mut().retain(|a| a.id != id);
+        self.checks.borrow_mut().retain(|c| c.id != id);
         Ok(())
     }
 
-    fn list(&self) -> anyhow::Result<Vec<Assertion>> {
-        Ok(self.assertions.borrow().clone())
+    fn list(&self) -> anyhow::Result<Vec<Check>> {
+        Ok(self.checks.borrow().clone())
     }
 }
 
-/// Mock implementation of AttestationStore
-pub struct MockAttestationStore {
-    staged: RefCell<Vec<Attestation>>,
+/// Mock implementation of AcknowledgmentStore
+pub struct MockAckStore {
+    staged: RefCell<Vec<Acknowledgment>>,
 }
 
-impl MockAttestationStore {
+impl MockAckStore {
     pub fn new() -> Self {
         Self {
             staged: RefCell::new(Vec::new()),
         }
     }
 
-    pub fn with_staged(attestations: Vec<Attestation>) -> Self {
+    pub fn with_staged(acks: Vec<Acknowledgment>) -> Self {
         Self {
-            staged: RefCell::new(attestations),
+            staged: RefCell::new(acks),
         }
     }
 }
 
-impl Default for MockAttestationStore {
+impl Default for MockAckStore {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AttestationStore for MockAttestationStore {
-    fn stage(&self, attestation: &Attestation) -> anyhow::Result<()> {
-        self.staged.borrow_mut().push(attestation.clone());
+impl AcknowledgmentStore for MockAckStore {
+    fn stage(&self, ack: &Acknowledgment) -> anyhow::Result<()> {
+        self.staged.borrow_mut().push(ack.clone());
         Ok(())
     }
 
-    fn staged(&self) -> anyhow::Result<Vec<Attestation>> {
+    fn staged(&self) -> anyhow::Result<Vec<Acknowledgment>> {
         Ok(self.staged.borrow().clone())
     }
 
@@ -113,15 +113,15 @@ impl AttestationStore for MockAttestationStore {
         Ok(())
     }
 
-    fn format_trailers(&self, attestations: &[Attestation]) -> String {
-        attestations
+    fn format_trailers(&self, acks: &[Acknowledgment]) -> String {
+        acks
             .iter()
-            .map(|a| format!("Noslop-Attest: {} | {} | {}", a.assertion_id, a.message, a.attested_by))
+            .map(|a| format!("Noslop-Ack: {} | {} | {}", a.check_id, a.message, a.acknowledged_by))
             .collect::<Vec<_>>()
             .join("\n")
     }
 
-    fn parse_from_commit(&self, _commit_sha: &str) -> anyhow::Result<Vec<Attestation>> {
+    fn parse_from_commit(&self, _commit_sha: &str) -> anyhow::Result<Vec<Acknowledgment>> {
         // Mock: return empty for simplicity
         Ok(Vec::new())
     }
@@ -189,29 +189,29 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_mock_assertion_repo_add_and_list() {
-        let repo = MockAssertionRepository::new();
+    fn test_mock_check_repo_add_and_list() {
+        let repo = MockCheckRepository::new();
         let id = repo.add("*.rs", "Test message", Severity::Block).unwrap();
         assert!(id.starts_with("MOCK-"));
 
-        let assertions = repo.list().unwrap();
-        assert_eq!(assertions.len(), 1);
-        assert_eq!(assertions[0].message, "Test message");
+        let checks = repo.list().unwrap();
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].message, "Test message");
     }
 
     #[test]
-    fn test_mock_attestation_store_stage_and_retrieve() {
-        let store = MockAttestationStore::new();
-        let attestation = Attestation::new(
-            "AST-1".to_string(),
-            "Test attestation".to_string(),
+    fn test_mock_ack_store_stage_and_retrieve() {
+        let store = MockAckStore::new();
+        let ack = Acknowledgment::new(
+            "CHK-1".to_string(),
+            "Test acknowledgment".to_string(),
             "human".to_string(),
         );
-        store.stage(&attestation).unwrap();
+        store.stage(&ack).unwrap();
 
         let staged = store.staged().unwrap();
         assert_eq!(staged.len(), 1);
-        assert_eq!(staged[0].assertion_id, "AST-1");
+        assert_eq!(staged[0].check_id, "CHK-1");
     }
 
     #[test]

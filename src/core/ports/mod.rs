@@ -14,10 +14,10 @@
 //! - **Flexibility**: Swap implementations without changing business logic
 //! - **Clarity**: Clear boundaries between layers
 
-mod assertion_repo;
-mod attestation_store;
+mod acknowledgment_store;
+mod check_repo;
 mod vcs;
 
-pub use assertion_repo::AssertionRepository;
-pub use attestation_store::{AttestationStore, StorageBackend};
+pub use acknowledgment_store::{AcknowledgmentStore, StorageBackend};
+pub use check_repo::CheckRepository;
 pub use vcs::VersionControl;

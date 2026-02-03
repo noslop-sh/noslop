@@ -1,35 +1,35 @@
-//! Attestation store port
+//! Acknowledgment store port
 //!
-//! Defines the interface for staging and persisting attestations.
+//! Defines the interface for staging and persisting acknowledgments.
 
-use super::super::models::Attestation;
+use super::super::models::Acknowledgment;
 
-/// Storage backend for attestations
+/// Storage backend for acknowledgments
 ///
-/// Implementations handle how attestations are staged during development
+/// Implementations handle how acknowledgments are staged during development
 /// and persisted in commits (e.g., via trailers, git notes, files).
 #[cfg_attr(test, mockall::automock)]
-pub trait AttestationStore: Send + Sync {
-    /// Stage an attestation (pending until commit)
+pub trait AcknowledgmentStore: Send + Sync {
+    /// Stage an acknowledgment (pending until commit)
     ///
-    /// Staged attestations are temporary and will be cleared after commit.
-    fn stage(&self, attestation: &Attestation) -> anyhow::Result<()>;
+    /// Staged acknowledgments are temporary and will be cleared after commit.
+    fn stage(&self, ack: &Acknowledgment) -> anyhow::Result<()>;
 
-    /// Get all staged attestations
-    fn staged(&self) -> anyhow::Result<Vec<Attestation>>;
+    /// Get all staged acknowledgments
+    fn staged(&self) -> anyhow::Result<Vec<Acknowledgment>>;
 
-    /// Clear staged attestations (called after commit succeeds)
+    /// Clear staged acknowledgments (called after commit succeeds)
     fn clear_staged(&self) -> anyhow::Result<()>;
 
-    /// Format attestations for commit message trailer
+    /// Format acknowledgments for commit message trailer
     ///
     /// Returns a string suitable for appending to a commit message.
-    fn format_trailers(&self, attestations: &[Attestation]) -> String;
+    fn format_trailers(&self, acks: &[Acknowledgment]) -> String;
 
-    /// Parse attestations from a commit message
+    /// Parse acknowledgments from a commit message
     ///
-    /// Used to retrieve attestation history from past commits.
-    fn parse_from_commit(&self, commit_sha: &str) -> anyhow::Result<Vec<Attestation>>;
+    /// Used to retrieve acknowledgment history from past commits.
+    fn parse_from_commit(&self, commit_sha: &str) -> anyhow::Result<Vec<Acknowledgment>>;
 }
 
 /// Storage backend type enumeration

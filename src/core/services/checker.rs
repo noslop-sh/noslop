@@ -1,40 +1,40 @@
-//! Check service - orchestrates assertion checking
+//! Check service - orchestrates check validation
 //!
-//! This service contains the pure business logic for checking assertions
-//! against staged files and attestations.
+//! This service contains the pure business logic for checking checks
+//! against staged files and acknowledgments.
 
-use crate::core::models::{Assertion, Attestation, Severity};
+use crate::core::models::{Acknowledgment, Check, Severity};
 
 /// Result of a check operation
 #[derive(Debug, Clone)]
 pub struct CheckResult {
-    /// Whether the check passed (no blocking unattested assertions)
+    /// Whether the check passed (no blocking unacknowledged checks)
     pub passed: bool,
     /// Number of files checked
     pub files_checked: usize,
-    /// Blocking assertions that need attestation
-    pub blocking: Vec<AssertionCheckResult>,
-    /// Warning assertions (don't block but shown)
-    pub warnings: Vec<AssertionCheckResult>,
-    /// Assertions that have been attested
-    pub attested: Vec<AssertionCheckResult>,
+    /// Blocking checks that need acknowledgment
+    pub blocking: Vec<CheckItemResult>,
+    /// Warning checks (don't block but shown)
+    pub warnings: Vec<CheckItemResult>,
+    /// Checks that have been acknowledged
+    pub acknowledged: Vec<CheckItemResult>,
 }
 
-/// Result for a single assertion check
+/// Result for a single check item
 #[derive(Debug, Clone)]
-pub struct AssertionCheckResult {
-    /// The assertion ID
+pub struct CheckItemResult {
+    /// The check ID
     pub id: String,
     /// The file that matched
     pub file: String,
-    /// The assertion target pattern
+    /// The check target pattern
     pub target: String,
-    /// The assertion message
+    /// The check message
     pub message: String,
     /// Severity level
     pub severity: Severity,
-    /// Whether this assertion was attested
-    pub attested: bool,
+    /// Whether this check was acknowledged
+    pub acknowledged: bool,
 }
 
 impl CheckResult {
@@ -46,67 +46,67 @@ impl CheckResult {
             files_checked: 0,
             blocking: Vec::new(),
             warnings: Vec::new(),
-            attested: Vec::new(),
+            acknowledged: Vec::new(),
         }
     }
 
-    /// Create a result for when no assertions apply
+    /// Create a result for when no checks apply
     #[must_use]
-    pub const fn no_assertions(files_checked: usize) -> Self {
+    pub const fn no_checks(files_checked: usize) -> Self {
         Self {
             passed: true,
             files_checked,
             blocking: Vec::new(),
             warnings: Vec::new(),
-            attested: Vec::new(),
+            acknowledged: Vec::new(),
         }
     }
 }
 
-/// Check assertions against attestations
+/// Check checks against acknowledgments
 ///
 /// This is pure business logic with no I/O.
 ///
 /// # Arguments
 ///
-/// * `applicable` - List of `(assertion, matched_file)` pairs
-/// * `attestations` - List of staged attestations
+/// * `applicable` - List of `(check, matched_file)` pairs
+/// * `acks` - List of staged acknowledgments
 /// * `files_checked` - Number of files that were checked
 ///
 /// # Returns
 ///
-/// A `CheckResult` categorizing assertions into blocking/warnings/attested
+/// A `CheckResult` categorizing checks into blocking/warnings/acknowledged
 #[must_use]
-pub fn check_assertions(
-    applicable: &[(Assertion, String)],
-    attestations: &[Attestation],
+pub fn check_items(
+    applicable: &[(Check, String)],
+    acks: &[Acknowledgment],
     files_checked: usize,
 ) -> CheckResult {
     let mut blocking = Vec::new();
     let mut warnings = Vec::new();
-    let mut attested_list = Vec::new();
+    let mut acknowledged_list = Vec::new();
 
-    for (assertion, file) in applicable {
-        let is_attested = is_assertion_attested(assertion, attestations);
+    for (check, file) in applicable {
+        let is_acknowledged = is_check_acknowledged(check, acks);
 
-        let result = AssertionCheckResult {
-            id: assertion.id.clone(),
+        let result = CheckItemResult {
+            id: check.id.clone(),
             file: file.clone(),
-            target: assertion.target.clone(),
-            message: assertion.message.clone(),
-            severity: assertion.severity,
-            attested: is_attested,
+            target: check.target.clone(),
+            message: check.message.clone(),
+            severity: check.severity,
+            acknowledged: is_acknowledged,
         };
 
-        match assertion.severity {
-            Severity::Block if !is_attested => {
+        match check.severity {
+            Severity::Block if !is_acknowledged => {
                 blocking.push(result);
             },
-            Severity::Warn if !is_attested => {
+            Severity::Warn if !is_acknowledged => {
                 warnings.push(result);
             },
-            _ if is_attested => {
-                attested_list.push(result);
+            _ if is_acknowledged => {
+                acknowledged_list.push(result);
             },
             _ => {},
         }
@@ -119,21 +119,19 @@ pub fn check_assertions(
         files_checked,
         blocking,
         warnings,
-        attested: attested_list,
+        acknowledged: acknowledged_list,
     }
 }
 
-/// Check if an assertion has been attested
+/// Check if a check has been acknowledged
 ///
 /// Matching logic (priority order):
 /// 1. Exact ID match
-/// 2. Attestation ID contains assertion message
-/// 3. Attestation ID equals assertion target
-fn is_assertion_attested(assertion: &Assertion, attestations: &[Attestation]) -> bool {
-    attestations.iter().any(|a| {
-        a.assertion_id == assertion.id
-            || a.assertion_id.contains(&assertion.message)
-            || a.assertion_id == assertion.target
+/// 2. Ack ID contains check message
+/// 3. Ack ID equals check target
+fn is_check_acknowledged(check: &Check, acks: &[Acknowledgment]) -> bool {
+    acks.iter().any(|a| {
+        a.check_id == check.id || a.check_id.contains(&check.message) || a.check_id == check.target
     })
 }
 
@@ -141,58 +139,58 @@ fn is_assertion_attested(assertion: &Assertion, attestations: &[Attestation]) ->
 mod tests {
     use super::*;
 
-    fn make_assertion(id: &str, target: &str, message: &str, severity: Severity) -> Assertion {
-        Assertion::new(Some(id.to_string()), target.to_string(), message.to_string(), severity)
+    fn make_check(id: &str, target: &str, message: &str, severity: Severity) -> Check {
+        Check::new(Some(id.to_string()), target.to_string(), message.to_string(), severity)
     }
 
-    fn make_attestation(assertion_id: &str, message: &str) -> Attestation {
-        Attestation::new(assertion_id.to_string(), message.to_string(), "human".to_string())
+    fn make_ack(check_id: &str, message: &str) -> Acknowledgment {
+        Acknowledgment::new(check_id.to_string(), message.to_string(), "human".to_string())
     }
 
     #[test]
-    fn test_no_assertions_passes() {
-        let result = check_assertions(&[], &[], 5);
+    fn test_no_checks_passes() {
+        let result = check_items(&[], &[], 5);
         assert!(result.passed);
         assert_eq!(result.files_checked, 5);
         assert!(result.blocking.is_empty());
     }
 
     #[test]
-    fn test_unattested_blocking_fails() {
-        let assertions = vec![(
-            make_assertion("AST-1", "*.rs", "Review Rust", Severity::Block),
+    fn test_unacknowledged_blocking_fails() {
+        let checks = vec![(
+            make_check("CHK-1", "*.rs", "Review Rust", Severity::Block),
             "src/main.rs".to_string(),
         )];
-        let attestations = vec![];
+        let acks = vec![];
 
-        let result = check_assertions(&assertions, &attestations, 1);
+        let result = check_items(&checks, &acks, 1);
         assert!(!result.passed);
         assert_eq!(result.blocking.len(), 1);
     }
 
     #[test]
-    fn test_attested_blocking_passes() {
-        let assertions = vec![(
-            make_assertion("AST-1", "*.rs", "Review Rust", Severity::Block),
+    fn test_acknowledged_blocking_passes() {
+        let checks = vec![(
+            make_check("CHK-1", "*.rs", "Review Rust", Severity::Block),
             "src/main.rs".to_string(),
         )];
-        let attestations = vec![make_attestation("AST-1", "Reviewed")];
+        let acks = vec![make_ack("CHK-1", "Reviewed")];
 
-        let result = check_assertions(&assertions, &attestations, 1);
+        let result = check_items(&checks, &acks, 1);
         assert!(result.passed);
         assert!(result.blocking.is_empty());
-        assert_eq!(result.attested.len(), 1);
+        assert_eq!(result.acknowledged.len(), 1);
     }
 
     #[test]
-    fn test_unattested_warning_passes() {
-        let assertions = vec![(
-            make_assertion("AST-1", "*.rs", "Review Rust", Severity::Warn),
+    fn test_unacknowledged_warning_passes() {
+        let checks = vec![(
+            make_check("CHK-1", "*.rs", "Review Rust", Severity::Warn),
             "src/main.rs".to_string(),
         )];
-        let attestations = vec![];
+        let acks = vec![];
 
-        let result = check_assertions(&assertions, &attestations, 1);
+        let result = check_items(&checks, &acks, 1);
         assert!(result.passed);
         assert_eq!(result.warnings.len(), 1);
     }

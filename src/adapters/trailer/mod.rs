@@ -1,70 +1,69 @@
-//! Commit trailer attestation storage
+//! Commit trailer acknowledgment storage
 //!
-//! Implements `AttestationStore` using git commit trailers.
-//! Stores attestations as:
-//!   `Noslop-Attest: <assertion> | <message> | <by>`
+//! Implements `AcknowledgmentStore` using git commit trailers.
+//! Stores acknowledgments as:
+//!   `Noslop-Ack: <check> | <message> | <by>`
 //!
 //! This is the most portable format - visible in GitHub, GitLab, etc.
 
 use std::process::Command;
 
 use crate::adapters::file::FileStore;
-use crate::core::models::Attestation;
-use crate::core::ports::AttestationStore;
+use crate::core::models::Acknowledgment;
+use crate::core::ports::AcknowledgmentStore;
 
-const ATTEST_TRAILER: &str = "Noslop-Attest";
+const ACK_TRAILER: &str = "Noslop-Ack";
 
-/// Attestation store using commit trailers
+/// Acknowledgment store using commit trailers
 #[derive(Debug, Clone, Copy)]
-pub struct TrailerAttestationStore;
+pub struct TrailerAckStore;
 
-impl TrailerAttestationStore {
-    /// Create a new trailer attestation store
+impl TrailerAckStore {
+    /// Create a new trailer acknowledgment store
     #[must_use]
     pub const fn new() -> Self {
         Self
     }
 }
 
-impl Default for TrailerAttestationStore {
+impl Default for TrailerAckStore {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl AttestationStore for TrailerAttestationStore {
-    fn stage(&self, attestation: &Attestation) -> anyhow::Result<()> {
-        let mut staged = FileStore::load_staged_attestations()?;
-        staged.push(attestation.clone());
-        FileStore::save_staged_attestations(&staged)?;
+impl AcknowledgmentStore for TrailerAckStore {
+    fn stage(&self, ack: &Acknowledgment) -> anyhow::Result<()> {
+        let mut staged = FileStore::load_staged_acks()?;
+        staged.push(ack.clone());
+        FileStore::save_staged_acks(&staged)?;
         Ok(())
     }
 
-    fn staged(&self) -> anyhow::Result<Vec<Attestation>> {
-        FileStore::load_staged_attestations()
+    fn staged(&self) -> anyhow::Result<Vec<Acknowledgment>> {
+        FileStore::load_staged_acks()
     }
 
     fn clear_staged(&self) -> anyhow::Result<()> {
-        FileStore::clear_staged_attestations()
+        FileStore::clear_staged_acks()
     }
 
-    fn format_trailers(&self, attestations: &[Attestation]) -> String {
-        attestations
-            .iter()
+    fn format_trailers(&self, acks: &[Acknowledgment]) -> String {
+        acks.iter()
             .map(|a| {
                 format!(
                     "{}: {} | {} | {}",
-                    ATTEST_TRAILER,
-                    a.assertion_id,
+                    ACK_TRAILER,
+                    a.check_id,
                     a.message.replace('|', "-"),
-                    a.attested_by
+                    a.acknowledged_by
                 )
             })
             .collect::<Vec<_>>()
             .join("\n")
     }
 
-    fn parse_from_commit(&self, commit_sha: &str) -> anyhow::Result<Vec<Attestation>> {
+    fn parse_from_commit(&self, commit_sha: &str) -> anyhow::Result<Vec<Acknowledgment>> {
         let output = Command::new("git")
             .args(["log", "-1", "--format=%(trailers)", commit_sha])
             .output()?;
@@ -74,25 +73,25 @@ impl AttestationStore for TrailerAttestationStore {
         }
 
         let trailers = String::from_utf8_lossy(&output.stdout);
-        let mut attestations = Vec::new();
+        let mut acks = Vec::new();
 
         for line in trailers.lines() {
-            if let Some(value) = line.strip_prefix(&format!("{ATTEST_TRAILER}: "))
-                && let Some(attestation) = parse_attestation_trailer(value)
+            if let Some(value) = line.strip_prefix(&format!("{ACK_TRAILER}: "))
+                && let Some(ack) = parse_ack_trailer(value)
             {
-                attestations.push(attestation);
+                acks.push(ack);
             }
         }
 
-        Ok(attestations)
+        Ok(acks)
     }
 }
 
-/// Parse an attestation from trailer format: "assertion | message | by"
-fn parse_attestation_trailer(value: &str) -> Option<Attestation> {
+/// Parse an acknowledgment from trailer format: "check | message | by"
+fn parse_ack_trailer(value: &str) -> Option<Acknowledgment> {
     let parts: Vec<&str> = value.splitn(3, " | ").collect();
     if parts.len() >= 2 {
-        Some(Attestation::new(
+        Some(Acknowledgment::new(
             parts[0].trim().to_string(),
             parts[1].trim().to_string(),
             parts.get(2).map_or("unknown", |s| s.trim()).to_string(),

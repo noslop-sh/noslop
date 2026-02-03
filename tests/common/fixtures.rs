@@ -2,22 +2,22 @@
 //!
 //! Provides convenient builders for creating test data.
 
-use noslop::core::models::{Assertion, Attestation, Severity};
+use noslop::core::models::{Acknowledgment, Check, Severity};
 
-/// Builder for creating test assertions
-pub struct AssertionBuilder {
+/// Builder for creating test checks
+pub struct CheckBuilder {
     id: String,
     target: String,
     message: String,
     severity: Severity,
 }
 
-impl AssertionBuilder {
+impl CheckBuilder {
     pub fn new() -> Self {
         Self {
             id: "TEST-1".to_string(),
             target: "*.rs".to_string(),
-            message: "Test assertion".to_string(),
+            message: "Test check".to_string(),
             severity: Severity::Block,
         }
     }
@@ -42,35 +42,35 @@ impl AssertionBuilder {
         self
     }
 
-    pub fn build(self) -> Assertion {
-        Assertion::new(Some(self.id), self.target, self.message, self.severity)
+    pub fn build(self) -> Check {
+        Check::new(Some(self.id), self.target, self.message, self.severity)
     }
 }
 
-impl Default for AssertionBuilder {
+impl Default for CheckBuilder {
     fn default() -> Self {
         Self::new()
     }
 }
 
-/// Builder for creating test attestations
-pub struct AttestationBuilder {
-    assertion_id: String,
+/// Builder for creating test acknowledgments
+pub struct AckBuilder {
+    check_id: String,
     message: String,
-    attested_by: String,
+    acknowledged_by: String,
 }
 
-impl AttestationBuilder {
+impl AckBuilder {
     pub fn new() -> Self {
         Self {
-            assertion_id: "TEST-1".to_string(),
-            message: "Test attestation".to_string(),
-            attested_by: "human".to_string(),
+            check_id: "TEST-1".to_string(),
+            message: "Test acknowledgment".to_string(),
+            acknowledged_by: "human".to_string(),
         }
     }
 
-    pub fn assertion_id(mut self, id: &str) -> Self {
-        self.assertion_id = id.to_string();
+    pub fn check_id(mut self, id: &str) -> Self {
+        self.check_id = id.to_string();
         self
     }
 
@@ -79,17 +79,17 @@ impl AttestationBuilder {
         self
     }
 
-    pub fn attested_by(mut self, by: &str) -> Self {
-        self.attested_by = by.to_string();
+    pub fn acknowledged_by(mut self, by: &str) -> Self {
+        self.acknowledged_by = by.to_string();
         self
     }
 
-    pub fn build(self) -> Attestation {
-        Attestation::new(self.assertion_id, self.message, self.attested_by)
+    pub fn build(self) -> Acknowledgment {
+        Acknowledgment::new(self.check_id, self.message, self.acknowledged_by)
     }
 }
 
-impl Default for AttestationBuilder {
+impl Default for AckBuilder {
     fn default() -> Self {
         Self::new()
     }
