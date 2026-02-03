@@ -1,8 +1,8 @@
-//! noslop - Pre-commit assertions with attestation tracking
+//! noslop - Pre-commit checks with acknowledgment tracking
 //!
 //! This library provides the core functionality for:
-//! - Defining assertions that must be reviewed when code changes
-//! - Tracking attestations that prove review happened
+//! - Defining checks that must be reviewed when code changes
+//! - Tracking acknowledgments that prove review happened
 //! - Integrating with git hooks for enforcement
 //!
 //! # Architecture
@@ -10,14 +10,14 @@
 //! The library follows a hexagonal (ports & adapters) architecture:
 //!
 //! - [`core`] - Pure domain logic with no I/O dependencies
-//!   - [`core::models`] - Domain types (Assertion, Attestation, Severity)
+//!   - [`core::models`] - Domain types (Check, Acknowledgment, Severity)
 //!   - [`core::ports`] - Trait interfaces for I/O operations
 //!   - [`core::services`] - Pure business logic (matching, checking)
 //!
 //! - [`adapters`] - I/O implementations of port traits
-//!   - [`adapters::toml`] - TOML file handling for assertions
+//!   - [`adapters::toml`] - TOML file handling for checks
 //!   - [`adapters::git`] - Git integration (hooks, staging)
-//!   - [`adapters::trailer`] - Commit trailer storage for attestations
+//!   - [`adapters::trailer`] - Commit trailer storage for acknowledgments
 //!   - [`adapters::file`] - JSON file storage for staging
 //!
 //! - [`shared`] - Cross-cutting utilities
@@ -27,15 +27,15 @@
 //! # Example
 //!
 //! ```rust,ignore
-//! use noslop::core::models::{Assertion, Attestation, Severity};
-//! use noslop::adapters::TomlAssertionRepository;
-//! use noslop::core::ports::AssertionRepository;
+//! use noslop::core::models::{Check, Acknowledgment, Severity};
+//! use noslop::adapters::TomlCheckRepository;
+//! use noslop::core::ports::CheckRepository;
 //!
-//! // Create a repository for assertions
-//! let repo = TomlAssertionRepository::current_dir()?;
+//! // Create a repository for checks
+//! let repo = TomlCheckRepository::current_dir()?;
 //!
-//! // Find assertions for changed files
-//! let assertions = repo.find_for_files(&["src/main.rs".to_string()])?;
+//! // Find checks for changed files
+//! let checks = repo.find_for_files(&["src/main.rs".to_string()])?;
 //! ```
 
 // Deny all clippy warnings in this crate
@@ -74,9 +74,9 @@ pub mod output;
 pub mod storage;
 
 // Re-exports for convenience
-pub use core::models::{Assertion, Attestation, Severity};
-pub use core::ports::{AssertionRepository, AttestationStore, VersionControl};
-pub use core::services::{CheckResult, check_assertions, matches_target};
+pub use core::models::{Acknowledgment, Check, Severity};
+pub use core::ports::{AcknowledgmentStore, CheckRepository, VersionControl};
+pub use core::services::{CheckResult, check_items, matches_target};
 
 // Re-exports for backwards compatibility
 pub use shared::parser;

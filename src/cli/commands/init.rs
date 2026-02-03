@@ -23,19 +23,19 @@ pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
     let prefix = noslop_file::generate_prefix_from_repo();
     println!("  Generated project prefix: {prefix}");
 
-    // Create .noslop.toml with project config and example assertion
+    // Create .noslop.toml with project config and example check
     let noslop_toml = format!(
-        r#"# noslop assertions
+        r#"# noslop checks
 
 [project]
 prefix = "{prefix}"
 
-# Assertions are auto-assigned IDs like {prefix}-1, {prefix}-2, etc.
+# Checks are auto-assigned IDs like {prefix}-1, {prefix}-2, etc.
 # You can also specify custom IDs:
 #   id = "my-custom-id"
 
-# Example assertion (uncomment to use):
-# [[assert]]
+# Example check (uncomment to use):
+# [[check]]
 # target = "*.rs"
 # message = "Consider impact on public API"
 # severity = "warn"
@@ -44,7 +44,7 @@ prefix = "{prefix}"
     fs::write(noslop_path, noslop_toml)?;
     println!("  Created .noslop.toml");
 
-    // Create .noslop/ for attestations (pending until committed)
+    // Create .noslop/ for acknowledgments (pending until committed)
     fs::create_dir_all(".noslop")?;
     fs::write(".noslop/.gitkeep", "")?;
     println!("  Created .noslop/");
@@ -64,13 +64,13 @@ prefix = "{prefix}"
     if !found.is_empty() {
         let found_str: Vec<&str> = found.into_iter().copied().collect();
         println!("\n  Found: {}", found_str.join(", "));
-        println!("  Run 'noslop assert import' to extract assertions");
+        println!("  Run 'noslop check import' to extract checks");
     }
 
     println!("\nnoslop initialized!");
     println!("\nNext steps:");
-    println!("  noslop assert add <target> -m \"assertion\"");
-    println!("  git commit  # assertions will be checked");
+    println!("  noslop check add <target> -m \"message\"");
+    println!("  git commit  # checks will be validated");
 
     Ok(())
 }

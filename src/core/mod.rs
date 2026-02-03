@@ -17,8 +17,8 @@
 //!                        │       │             │
 //!                  ┌─────▼───────▼─────────────▼─────────┐
 //!                  │              Ports (Traits)          │
-//!                  │  AssertionRepository                 │
-//!                  │  AttestationStore                    │
+//!                  │  CheckRepository                     │
+//!                  │  AcknowledgmentStore                 │
 //!                  │  VersionControl                      │
 //!                  └─────────────────┬───────────────────┘
 //!                                    │
@@ -26,8 +26,8 @@
 //!                  │           Core (Pure Logic)         │
 //!                  │  ┌──────────┐  ┌────────────────┐   │
 //!                  │  │  Models  │  │    Services    │   │
-//!                  │  │Assertion │  │ check_assertions│  │
-//!                  │  │Attestation│ │ matches_target │   │
+//!                  │  │  Check   │  │  check_items   │   │
+//!                  │  │  Ack     │  │ matches_target │   │
 //!                  │  │ Target   │  └────────────────┘   │
 //!                  │  │ Severity │                       │
 //!                  │  └──────────┘                       │
@@ -36,8 +36,8 @@
 //!
 //! # Modules
 //!
-//! - [`models`] - Domain types (Assertion, Attestation, Target, Severity)
-//! - [`services`] - Business logic (`check_assertions`, `matches_target`)
+//! - [`models`] - Domain types (Check, Acknowledgment, Target, Severity)
+//! - [`services`] - Business logic (`check_items`, `matches_target`)
 //! - [`ports`] - Trait definitions for external dependencies
 //!
 //! # Usage
@@ -45,27 +45,27 @@
 //! The core module can be used independently of any I/O:
 //!
 //! ```
-//! use noslop::core::models::{Assertion, Attestation, Severity};
-//! use noslop::core::services::check_assertions;
+//! use noslop::core::models::{Check, Acknowledgment, Severity};
+//! use noslop::core::services::check_items;
 //!
 //! // Create test data
-//! let assertion = Assertion::new(
+//! let check = Check::new(
 //!     Some("TEST-1".to_string()),
 //!     "*.rs".to_string(),
 //!     "Review Rust code".to_string(),
 //!     Severity::Block,
 //! );
 //!
-//! let attestation = Attestation::new(
+//! let ack = Acknowledgment::new(
 //!     "TEST-1".to_string(),
 //!     "Reviewed".to_string(),
 //!     "human".to_string(),
 //! );
 //!
-//! // Check assertions - pure function, no I/O
-//! let result = check_assertions(
-//!     &[(assertion, "src/main.rs".to_string())],
-//!     &[attestation],
+//! // Check items - pure function, no I/O
+//! let result = check_items(
+//!     &[(check, "src/main.rs".to_string())],
+//!     &[ack],
 //!     1,
 //! );
 //!

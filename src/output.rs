@@ -22,61 +22,61 @@ pub struct CheckResult {
     pub passed: bool,
     /// Number of files checked
     pub files_checked: usize,
-    /// Assertions that are blocking (need attestation)
-    pub blocking: Vec<AssertionMatch>,
-    /// Assertions that are warnings
-    pub warnings: Vec<AssertionMatch>,
-    /// Assertions that were attested
-    pub attested: Vec<AssertionMatch>,
+    /// Checks that are blocking (need acknowledgment)
+    pub blocking: Vec<CheckMatch>,
+    /// Checks that are warnings
+    pub warnings: Vec<CheckMatch>,
+    /// Checks that were acknowledged
+    pub acknowledged: Vec<CheckMatch>,
 }
 
-/// An assertion matched to a file
+/// A check matched to a file
 #[derive(Debug, Serialize)]
-pub struct AssertionMatch {
-    /// The assertion ID (e.g., "NSL-1")
+pub struct CheckMatch {
+    /// The check ID (e.g., "NSL-1")
     pub id: String,
     /// The file that matched
     pub file: String,
-    /// The assertion target pattern
+    /// The check target pattern
     pub target: String,
-    /// The assertion message
+    /// The check message
     pub message: String,
     /// Severity level
     pub severity: String,
-    /// Whether this assertion was attested
-    pub attested: bool,
+    /// Whether this check was acknowledged
+    pub acknowledged: bool,
 }
 
-/// Result of an assert list operation
+/// Result of a check list operation
 #[derive(Debug, Serialize)]
-pub struct AssertListResult {
-    /// List of assertions
-    pub assertions: Vec<AssertionInfo>,
+pub struct CheckListResult {
+    /// List of checks
+    pub checks: Vec<CheckInfo>,
 }
 
-/// Information about an assertion
+/// Information about a check
 #[derive(Debug, Serialize)]
-pub struct AssertionInfo {
-    /// Assertion ID (<file:index> format)
+pub struct CheckInfo {
+    /// Check ID (<file:index> format)
     pub id: String,
     /// Target pattern
     pub target: String,
-    /// Assertion message
+    /// Check message
     pub message: String,
     /// Severity level
     pub severity: String,
-    /// Source file containing this assertion
+    /// Source file containing this check
     pub source_file: String,
 }
 
-/// Result of an attest operation
+/// Result of an ack operation
 #[derive(Debug, Serialize)]
-pub struct AttestResult {
-    /// Whether the attestation was successful
+pub struct AckResult {
+    /// Whether the acknowledgment was successful
     pub success: bool,
-    /// The assertion ID that was attested
-    pub assertion_id: String,
-    /// The attestation message
+    /// The check ID that was acknowledged
+    pub check_id: String,
+    /// The acknowledgment message
     pub message: String,
 }
 
@@ -106,8 +106,8 @@ impl CheckResult {
 
         println!("Checking {} staged file(s)...\n", self.files_checked);
 
-        if self.blocking.is_empty() && self.warnings.is_empty() && self.attested.is_empty() {
-            println!("No assertions apply. Commit may proceed.");
+        if self.blocking.is_empty() && self.warnings.is_empty() && self.acknowledged.is_empty() {
+            println!("No checks apply. Commit may proceed.");
             return;
         }
 
@@ -120,18 +120,18 @@ impl CheckResult {
         }
 
         if self.blocking.is_empty() {
-            println!("All assertions attested. Commit may proceed.");
+            println!("All checks acknowledged. Commit may proceed.");
         } else {
             println!("Blocking:");
             for m in &self.blocking {
                 println!("  [{}] {}", m.id, m.file);
                 println!("          {}\n", m.message);
             }
-            println!("BLOCKED: {} unattested assertion(s)\n", self.blocking.len());
-            println!("To attest: noslop attest <assertion-id> -m \"your attestation\"");
+            println!("BLOCKED: {} unacknowledged check(s)\n", self.blocking.len());
+            println!("To acknowledge: noslop ack <check-id> -m \"your acknowledgment\"");
             println!(
-                "Example:   noslop attest {} -m \"reviewed and verified\"",
-                self.blocking.first().map_or("NSL-1", |b| b.id.as_str())
+                "Example:        noslop ack {} -m \"reviewed and verified\"",
+                self.blocking.first().map_or("CHK-1", |b| b.id.as_str())
             );
         }
     }
@@ -141,7 +141,7 @@ impl CheckResult {
     }
 }
 
-impl AssertListResult {
+impl CheckListResult {
     /// Render the result based on output mode
     pub fn render(&self, mode: OutputMode) {
         match mode {
@@ -151,16 +151,16 @@ impl AssertListResult {
     }
 
     fn render_human(&self) {
-        if self.assertions.is_empty() {
-            println!("No assertions found.");
+        if self.checks.is_empty() {
+            println!("No checks found.");
             return;
         }
 
-        println!("Assertions:\n");
-        for a in &self.assertions {
-            println!("  [{}] {}", a.severity.to_uppercase(), a.target);
-            println!("  ID: {}", a.id);
-            println!("  {}\n", a.message);
+        println!("Checks:\n");
+        for c in &self.checks {
+            println!("  [{}] {}", c.severity.to_uppercase(), c.target);
+            println!("  ID: {}", c.id);
+            println!("  {}\n", c.message);
         }
     }
 
@@ -169,7 +169,7 @@ impl AssertListResult {
     }
 }
 
-impl AttestResult {
+impl AckResult {
     /// Render the result based on output mode
     pub fn render(&self, mode: OutputMode) {
         match mode {
@@ -180,10 +180,10 @@ impl AttestResult {
 
     fn render_human(&self) {
         if self.success {
-            println!("Attested: {}", self.assertion_id);
+            println!("Acknowledged: {}", self.check_id);
             println!("Message: {}", self.message);
         } else {
-            println!("Failed to attest: {}", self.message);
+            println!("Failed to acknowledge: {}", self.message);
         }
     }
 

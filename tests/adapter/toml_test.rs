@@ -1,6 +1,6 @@
-//! Tests for TOML adapter (assertion repository)
+//! Tests for TOML adapter (check repository)
 
-use noslop::adapters::toml::{AssertionEntry, find_noslop_files, load_file};
+use noslop::adapters::toml::{CheckEntry, find_noslop_files, load_file};
 use std::fs;
 use tempfile::TempDir;
 
@@ -15,17 +15,17 @@ fn test_parse_empty_file() {
     fs::write(&path, "# Empty noslop file\n").unwrap();
 
     let file = load_file(&path).unwrap();
-    assert!(file.assertions.is_empty());
+    assert!(file.checks.is_empty());
 }
 
 #[test]
-fn test_parse_single_assertion() {
+fn test_parse_single_check() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join(".noslop.toml");
     fs::write(
         &path,
         r#"
-[[assert]]
+[[check]]
 target = "*.rs"
 message = "Rust code must be reviewed"
 severity = "block"
@@ -34,25 +34,25 @@ severity = "block"
     .unwrap();
 
     let file = load_file(&path).unwrap();
-    assert_eq!(file.assertions.len(), 1);
-    assert_eq!(file.assertions[0].target, "*.rs");
-    assert_eq!(file.assertions[0].message, "Rust code must be reviewed");
-    assert_eq!(file.assertions[0].severity, "block");
+    assert_eq!(file.checks.len(), 1);
+    assert_eq!(file.checks[0].target, "*.rs");
+    assert_eq!(file.checks[0].message, "Rust code must be reviewed");
+    assert_eq!(file.checks[0].severity, "block");
 }
 
 #[test]
-fn test_parse_multiple_assertions() {
+fn test_parse_multiple_checks() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join(".noslop.toml");
     fs::write(
         &path,
         r#"
-[[assert]]
+[[check]]
 target = "*.rs"
 message = "Review Rust code"
 severity = "block"
 
-[[assert]]
+[[check]]
 target = "*.py"
 message = "Review Python code"
 severity = "warn"
@@ -61,19 +61,19 @@ severity = "warn"
     .unwrap();
 
     let file = load_file(&path).unwrap();
-    assert_eq!(file.assertions.len(), 2);
-    assert_eq!(file.assertions[0].severity, "block");
-    assert_eq!(file.assertions[1].severity, "warn");
+    assert_eq!(file.checks.len(), 2);
+    assert_eq!(file.checks[0].severity, "block");
+    assert_eq!(file.checks[1].severity, "warn");
 }
 
 #[test]
-fn test_parse_assertion_with_tags() {
+fn test_parse_check_with_tags() {
     let temp = TempDir::new().unwrap();
     let path = temp.path().join(".noslop.toml");
     fs::write(
         &path,
         r#"
-[[assert]]
+[[check]]
 target = "*.rs"
 message = "Security review required"
 severity = "block"
@@ -83,8 +83,8 @@ tags = ["security", "audit"]
     .unwrap();
 
     let file = load_file(&path).unwrap();
-    assert_eq!(file.assertions[0].tags.len(), 2);
-    assert!(file.assertions[0].tags.contains(&"security".to_string()));
+    assert_eq!(file.checks[0].tags.len(), 2);
+    assert!(file.checks[0].tags.contains(&"security".to_string()));
 }
 
 // =============================================================================
@@ -130,12 +130,12 @@ fn test_find_noslop_files_none_found() {
 }
 
 // =============================================================================
-// ASSERTION ENTRY TESTS
+// CHECK ENTRY TESTS
 // =============================================================================
 
 #[test]
-fn test_assertion_entry_fields() {
-    let entry = AssertionEntry {
+fn test_check_entry_fields() {
+    let entry = CheckEntry {
         id: Some("TEST-1".to_string()),
         target: "*.rs".to_string(),
         message: "Review".to_string(),
@@ -149,8 +149,8 @@ fn test_assertion_entry_fields() {
 }
 
 #[test]
-fn test_assertion_entry_optional_id() {
-    let entry = AssertionEntry {
+fn test_check_entry_optional_id() {
+    let entry = CheckEntry {
         id: None,
         target: "*.py".to_string(),
         message: "Review Python".to_string(),

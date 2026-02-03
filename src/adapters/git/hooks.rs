@@ -1,9 +1,9 @@
 //! Git hooks installation
 //!
 //! This module handles installation of git hooks for noslop:
-//! - pre-commit: Validates assertions are attested
-//! - commit-msg: Adds attestation trailers to commit message
-//! - post-commit: Clears staged attestations after commit
+//! - pre-commit: Validates checks are acknowledged
+//! - commit-msg: Adds acknowledgment trailers to commit message
+//! - post-commit: Clears staged acknowledgments after commit
 
 use std::fs;
 use std::path::Path;
@@ -22,7 +22,7 @@ pub fn install_pre_commit() -> anyhow::Result<()> {
     let hook_path = hooks_dir.join("pre-commit");
     let hook_content = r"#!/bin/sh
 # noslop pre-commit hook
-# Checks assertions are attested before allowing commit
+# Checks that checks are acknowledged before allowing commit
 
 noslop check
 ";
@@ -67,7 +67,7 @@ pub fn install_commit_msg() -> anyhow::Result<()> {
     #[allow(clippy::needless_raw_string_hashes)]
     let hook_content = r#"#!/bin/sh
 # noslop commit-msg hook
-# Adds attestation trailers to commit message
+# Adds acknowledgment trailers to commit message
 
 noslop add-trailers "$1"
 "#;
@@ -110,7 +110,7 @@ pub fn install_post_commit() -> anyhow::Result<()> {
     let hook_path = hooks_dir.join("post-commit");
     let hook_content = r"#!/bin/sh
 # noslop post-commit hook
-# Clears staged attestations after successful commit
+# Clears staged acknowledgments after successful commit
 
 noslop clear-staged
 ";
