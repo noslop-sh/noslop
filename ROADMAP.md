@@ -27,7 +27,7 @@ GitHub-style inline code reviews that create checks.
 - [x] `ReviewStore` port trait
 - [x] `FileReviewStore` adapter (JSON in `.noslop/reviews/`)
 - [x] Review CLI commands (`start`, `comment`, `list`, `show`, `resolve`, `close`)
-- [ ] Wire review checks into commit validation
+- [x] Wire review checks into commit validation
 - [ ] Persist checks as git trailers on review close
 
 ---

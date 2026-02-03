@@ -1,7 +1,9 @@
 //! Validate checks for staged changes
 
 use crate::{git, noslop_file};
+use noslop::adapters::FileReviewStore;
 use noslop::core::models::Severity;
+use noslop::core::ports::ReviewStore;
 use noslop::output::{CheckMatch, CheckResult, OutputMode};
 use noslop::storage;
 
@@ -23,7 +25,17 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
     }
 
     // Load checks from .noslop.toml files
-    let applicable = noslop_file::load_checks_for_files(&staged)?;
+    let mut applicable = noslop_file::load_checks_for_files(&staged)?;
+
+    // Also load open review comments that apply to staged files
+    let review_store = FileReviewStore::new();
+    for file in &staged {
+        for review in review_store.find_blocking_for_file(file)? {
+            for comment in review.open_comments_for_file(file) {
+                applicable.push((comment.check.clone(), file.clone()));
+            }
+        }
+    }
 
     if applicable.is_empty() {
         let result = CheckResult {

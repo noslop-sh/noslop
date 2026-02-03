@@ -803,3 +803,125 @@ severity = "block"
         .success()
         .stdout(predicate::str::contains("No checks apply"));
 }
+
+// =============================================================================
+// REVIEW INTEGRATION TESTS
+// =============================================================================
+
+/// Test that open review comments block commits
+#[test]
+fn test_review_comment_blocks_commit() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Create initial file and commit
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Initial commit");
+
+    // Get commit SHA
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start a review (using HEAD as both base and head for simplicity)
+    let review_output = noslop()
+        .args(["review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Extract review ID from output
+    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let review_id = stdout
+        .lines()
+        .find(|l| l.contains("REV-"))
+        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
+        .expect("Should find review ID in output");
+
+    // Add a comment to the review targeting main.rs
+    noslop()
+        .args(["review", "comment", review_id, "main.rs", "-m", "Add error handling to main"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Modify the file and stage it
+    fs::write(repo_path.join("main.rs"), "fn main() { println!(\"updated\"); }").unwrap();
+    git_add(repo_path, "main.rs");
+
+    // Check should fail - blocked by open review comment
+    noslop()
+        .args(["check", "--ci"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("BLOCKED"))
+        .stdout(predicate::str::contains("Add error handling to main"));
+}
+
+/// Test that resolved review comments don't block commits
+#[test]
+fn test_resolved_review_comment_allows_commit() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Create initial file and commit
+    fs::write(repo_path.join("lib.rs"), "pub fn hello() {}").unwrap();
+    git_add(repo_path, "lib.rs");
+    git_commit(repo_path, "Initial commit");
+
+    // Get commit SHA
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start a review
+    let review_output = noslop()
+        .args(["review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Extract review ID from output
+    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let review_id = stdout
+        .lines()
+        .find(|l| l.contains("REV-"))
+        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
+        .expect("Should find review ID in output");
+
+    // Add a comment to the review
+    noslop()
+        .args(["review", "comment", review_id, "lib.rs", "-m", "Add documentation"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Resolve the comment
+    let comment_id = format!("{review_id}:1");
+    noslop()
+        .args(["review", "resolve", &comment_id, "-m", "Added doc comments"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Modify the file and stage it
+    fs::write(repo_path.join("lib.rs"), "/// Says hello\npub fn hello() {}").unwrap();
+    git_add(repo_path, "lib.rs");
+
+    // Check should pass - comment is resolved
+    noslop().args(["check", "--ci"]).current_dir(repo_path).assert().success();
+}
