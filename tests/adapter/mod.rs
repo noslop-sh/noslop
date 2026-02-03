@@ -5,4 +5,5 @@
 //! - Git version control
 //! - Trailer attestation storage
 
+mod git_hooks_test;
 mod toml_test;
