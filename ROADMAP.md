@@ -16,7 +16,7 @@ Teach AI agents (and humans) codebase conventions through automated feedback at 
 
 ## In Progress
 
-Current feature branch: `fix/glob-applies-to`
+Current feature branch: none
 
 ---
 
@@ -27,7 +27,7 @@ Features are worked sequentially. Each item becomes a branch (`feature/<name>`),
 ### 1. Bug Fixes
 
 - [x] **fix/force-hook-reinstall** - Fix `--force` hook reinstall ✓
-- [ ] **fix/glob-applies-to** - Glob pattern support in `applies_to()` ([check.rs:50](src/core/models/check.rs#L50))
+- [x] **fix/glob-applies-to** - Glob pattern support in `applies_to()` ✓
 
 ### 2. Check Engine
 
