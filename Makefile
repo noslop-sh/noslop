@@ -1,4 +1,4 @@
-.PHONY: help build test test-unit test-adapter test-integration test-lib lint fmt check clean install-hooks install uninstall dev dev-setup dev-teardown
+.PHONY: help build test test-unit test-adapter test-integration test-lib lint fmt check clean install-hooks install uninstall dev dev-cli dev-setup dev-teardown dev-gui gui-build gui-fmt gui-fmt-check gui-lint gui-test gui-test-rust gui-test-all gui-typecheck gui-coverage gui-check check-all
 
 help: ## Show this help message
 	@echo 'Usage: make [target]'
@@ -115,10 +115,22 @@ dev-teardown: ## Remove development symlink and restore original noslop
 		echo "No backup found. Run 'make install' to reinstall noslop."; \
 	fi
 
-dev: dev-setup ## Start development mode with hot reload (global noslop = this repo)
+dev: dev-setup ## Start GUI + CLI development with hot reload
 	@command -v cargo-watch >/dev/null 2>&1 || { echo "Installing cargo-watch..."; cargo install cargo-watch; }
 	@echo ""
-	@echo "Starting hot reload... (Ctrl+C to stop)"
+	@echo "Starting GUI (Tauri dev) and CLI (cargo watch) in parallel..."
+	@echo "The global 'noslop' command now uses your development build."
+	@echo "Press Ctrl+C to stop both."
+	@echo ""
+	@trap 'kill 0' INT; \
+		(cd gui && pnpm tauri dev) & \
+		(cargo watch -x build) & \
+		wait
+
+dev-cli: dev-setup ## Start CLI only with hot reload (no GUI)
+	@command -v cargo-watch >/dev/null 2>&1 || { echo "Installing cargo-watch..."; cargo install cargo-watch; }
+	@echo ""
+	@echo "Starting CLI hot reload... (Ctrl+C to stop)"
 	@echo "The global 'noslop' command now uses your development build."
 	@echo ""
 	@cargo watch -x build
@@ -151,3 +163,49 @@ coverage-open: coverage ## Generate and open coverage report in browser
 coverage-check: ## Check if coverage meets minimum thresholds (80% line, 75% branch)
 	@echo "Checking coverage thresholds..."
 	@./scripts/coverage-check.sh
+
+# ==============================================================================
+# GUI (Tauri + Svelte) targets
+# ==============================================================================
+
+dev-gui: ## Start GUI only (Tauri + Svelte hot reload)
+	cd gui && pnpm tauri dev
+
+gui-build: ## Build GUI for production
+	cd gui && pnpm tauri build
+
+gui-fmt: ## Format GUI code (TypeScript + Rust)
+	cd gui && pnpm format
+	cd gui/src-tauri && cargo fmt
+
+gui-fmt-check: ## Check GUI code formatting
+	cd gui && pnpm format:check
+	cd gui/src-tauri && cargo fmt --check
+
+gui-lint: ## Lint GUI code (ESLint + Clippy)
+	cd gui && pnpm lint
+	cd gui/src-tauri && cargo clippy -- -D warnings
+
+gui-test: ## Run GUI frontend tests
+	cd gui && pnpm test
+
+gui-test-rust: ## Run GUI Rust backend tests
+	cd gui/src-tauri && cargo test -- --test-threads=1
+
+gui-test-all: gui-test gui-test-rust ## Run all GUI tests (frontend + backend)
+
+gui-typecheck: ## Run TypeScript type checking
+	cd gui && pnpm typecheck
+
+gui-coverage: ## Run GUI tests with coverage
+	cd gui && pnpm test:coverage
+
+gui-check: ## Run all GUI checks (format, lint, typecheck, test)
+	@echo "Running GUI checks..."
+	@make gui-fmt-check
+	@make gui-lint
+	@make gui-typecheck
+	@make gui-test-all
+	@echo "GUI checks passed!"
+
+check-all: check gui-check ## Run all checks for CLI + GUI
