@@ -26,8 +26,10 @@ The run loop is the core of noslop's autonomous agent capability. It reads a pla
 
 ### What `noslop run` adds
 
-- Structured progress file (`.noslop/progress.json`) instead of git-history-only memory
-- Failure memory (`.noslop/failures.jsonl`) to prevent repeating failed approaches
+- Git-history-only progress tracking -- git commits ARE the iteration memory
+- Atomic commit convention -- each iteration produces structured commits with metadata tags
+- Git-based failure memory -- `[STATUS: failed]` commits with `[ERROR]` and `[LESSON]` tags
+- Stacked PR flow -- clean, reviewable, revertable commit history
 - Graduated 4-level stuck escalation instead of binary 3/5 thresholds
 - Diff-based progress detection alongside task-count detection
 - Post-iteration test gates that feed failures into next iteration's context
@@ -42,11 +44,11 @@ src/
   core/
     models/
       plan.rs           # Plan, Task, TaskStatus, PlanFormat
-      progress.rs       # ProgressFile, IterationRecord
-      failure.rs        # FailureEntry
+      commit_info.rs    # CommitInfo, DiffStat (parsed from git history)
       run_config.rs     # RunConfig, StuckPolicy, TestGate
     ports/
       agent.rs          # AgentRuntime, AgentConfig (from 03-agent-port-design)
+      vcs.rs            # VersionControl trait (extended with commit history methods)
       plan_store.rs     # PlanStore trait -- read/write plan files
       test_runner.rs    # TestRunner trait -- execute project tests
     services/
@@ -161,164 +163,118 @@ impl Plan {
 }
 ```
 
-### Progress File (`src/core/models/progress.rs`)
+### Commit Info (`src/core/models/commit_info.rs`)
 
-The structured progress file replaces ralph's reliance on git history alone. It is the cross-iteration memory that Anthropic recommends.
-
-```rust
-use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
-
-/// Record of a single iteration's work
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct IterationRecord {
-    /// 1-based iteration number
-    pub iteration: u32,
-    /// Timestamp when the iteration started
-    pub started_at: DateTime<Utc>,
-    /// Timestamp when the iteration ended
-    pub ended_at: DateTime<Utc>,
-    /// Task the agent worked on (description)
-    pub task_attempted: Option<String>,
-    /// Whether the agent reported task completion
-    pub task_completed: bool,
-    /// Confidence score (1-5) if the agent provided one
-    pub confidence: Option<u8>,
-    /// Files modified during this iteration (from git diff)
-    pub files_modified: Vec<String>,
-    /// Lines changed (insertions + deletions, excluding plan/progress files)
-    pub lines_changed: u32,
-    /// Tasks done before this iteration
-    pub tasks_before: usize,
-    /// Tasks done after this iteration
-    pub tasks_after: usize,
-    /// Exit code from the agent invocation
-    pub agent_exit_code: i32,
-    /// Duration of agent invocation in seconds
-    pub duration_secs: f64,
-    /// Whether external test gate passed after this iteration
-    pub tests_passed: Option<bool>,
-    /// Summary of what happened (extracted from agent output or generated)
-    pub summary: String,
-}
-
-/// The structured progress file
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProgressFile {
-    /// Plan file path (relative to repo root)
-    pub plan_file: String,
-    /// Agent type used
-    pub agent_type: String,
-    /// When the run started
-    pub started_at: DateTime<Utc>,
-    /// Total iterations executed so far
-    pub iterations_completed: u32,
-    /// Maximum allowed iterations
-    pub max_iterations: u32,
-    /// Current stuck count
-    pub stuck_count: u32,
-    /// Current stuck escalation level
-    pub escalation_level: EscalationLevel,
-    /// All iteration records
-    pub iterations: Vec<IterationRecord>,
-    /// Decisions and architectural notes accumulated across iterations
-    pub decisions: Vec<String>,
-    /// What the next iteration should focus on
-    pub next_focus: Option<String>,
-}
-
-impl ProgressFile {
-    /// Create a new progress file for a fresh run
-    pub fn new(plan_file: &str, agent_type: &str, max_iterations: u32) -> Self {
-        Self {
-            plan_file: plan_file.to_string(),
-            agent_type: agent_type.to_string(),
-            started_at: Utc::now(),
-            iterations_completed: 0,
-            max_iterations,
-            stuck_count: 0,
-            escalation_level: EscalationLevel::None,
-            iterations: Vec::new(),
-            decisions: Vec::new(),
-            next_focus: None,
-        }
-    }
-
-    /// Push a completed iteration record and update counters
-    pub fn record_iteration(&mut self, record: IterationRecord) {
-        let made_progress = record.tasks_after > record.tasks_before;
-        if made_progress {
-            self.stuck_count = 0;
-            self.escalation_level = EscalationLevel::None;
-        } else {
-            self.stuck_count += 1;
-            self.escalation_level = EscalationLevel::from_stuck_count(self.stuck_count);
-        }
-        self.iterations_completed += 1;
-        self.iterations.push(record);
-    }
-}
-```
-
-### Failure Memory (`src/core/models/failure.rs`)
-
-Append-only log inspired by the Reflexion framework. Prevents agents from repeating failed approaches.
+Git history is the single source of truth for iteration progress. Instead of maintaining separate state files, each iteration produces an atomic commit with structured metadata tags in the commit message. The `CommitInfo` struct represents parsed information from these commits.
 
 ```rust
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 
-/// A single recorded failure
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct FailureEntry {
-    /// Iteration where the failure occurred
-    pub iteration: u32,
-    /// Task description that was attempted
-    pub task: String,
-    /// Description of the approach taken
-    pub approach: String,
-    /// Error message or failure description
-    pub error: String,
-    /// Lesson learned (what NOT to do again)
-    pub lesson: String,
-    /// Timestamp
+/// Structured information parsed from a git commit
+#[derive(Debug, Clone)]
+pub struct CommitInfo {
+    /// Short commit hash
+    pub id: String,
+    /// Full commit message
+    pub message: String,
+    /// Commit timestamp
     pub timestamp: DateTime<Utc>,
+    /// Files changed in this commit
+    pub files_changed: Vec<String>,
+    /// Lines added
+    pub insertions: u32,
+    /// Lines removed
+    pub deletions: u32,
 }
 
-/// Collection of failures for a run, backed by a JSONL file
+/// Aggregated diff statistics since a given commit
 #[derive(Debug, Clone, Default)]
-pub struct FailureLog {
-    pub entries: Vec<FailureEntry>,
+pub struct DiffStat {
+    /// Files changed
+    pub files: Vec<String>,
+    /// Total lines added
+    pub insertions: u32,
+    /// Total lines removed
+    pub deletions: u32,
 }
 
-impl FailureLog {
-    /// Filter failures relevant to a specific task
+impl CommitInfo {
+    /// Parse the `[TASK: N]` tag from the commit message, if present
     #[must_use]
-    pub fn for_task(&self, task_description: &str) -> Vec<&FailureEntry> {
-        self.entries
-            .iter()
-            .filter(|e| e.task == task_description)
-            .collect()
+    pub fn task_number(&self) -> Option<u32> {
+        let re = regex::Regex::new(r"\[TASK:\s*(\d+)\]").ok()?;
+        re.captures(&self.message)
+            .and_then(|c| c[1].parse().ok())
     }
 
-    /// Format failures as context for the agent prompt
+    /// Parse the `[STATUS: ...]` tag from the commit message
     #[must_use]
-    pub fn as_prompt_context(&self, task_description: &str) -> Option<String> {
-        let relevant = self.for_task(task_description);
-        if relevant.is_empty() {
-            return None;
-        }
-        let mut ctx = String::from("### Previous Failed Approaches for This Task\n\n");
-        for entry in &relevant {
-            ctx.push_str(&format!(
-                "- **Iteration {}**: Tried: {}. Failed: {}. Lesson: {}\n",
-                entry.iteration, entry.approach, entry.error, entry.lesson
-            ));
-        }
-        Some(ctx)
+    pub fn status(&self) -> Option<String> {
+        let re = regex::Regex::new(r"\[STATUS:\s*(\w+)\]").ok()?;
+        re.captures(&self.message)
+            .map(|c| c[1].to_string())
+    }
+
+    /// Whether this commit represents a failed iteration
+    #[must_use]
+    pub fn is_failure(&self) -> bool {
+        self.status().as_deref() == Some("failed")
+    }
+
+    /// Parse the `[ERROR: ...]` tag from the commit message
+    #[must_use]
+    pub fn error_message(&self) -> Option<String> {
+        let re = regex::Regex::new(r"\[ERROR:\s*(.+)\]").ok()?;
+        re.captures(&self.message)
+            .map(|c| c[1].to_string())
+    }
+
+    /// Parse the `[LESSON: ...]` tag from the commit message
+    #[must_use]
+    pub fn lesson(&self) -> Option<String> {
+        let re = regex::Regex::new(r"\[LESSON:\s*(.+)\]").ok()?;
+        re.captures(&self.message)
+            .map(|c| c[1].to_string())
+    }
+
+    /// Parse the `[CONFIDENCE: N]` tag from the commit message
+    #[must_use]
+    pub fn confidence(&self) -> Option<u8> {
+        let re = regex::Regex::new(r"\[CONFIDENCE:\s*(\d)\]").ok()?;
+        re.captures(&self.message)
+            .and_then(|c| c[1].parse::<u8>().ok())
+            .filter(|&n| (1..=5).contains(&n))
     }
 }
 ```
+
+#### Atomic Commit Convention
+
+Each iteration's checkpoint produces a structured commit message. The commit log doubles as a progress report.
+
+Successful iteration:
+
+```
+noslop: iteration 3 -- Add validation to user input
+
+[TASK: 3]
+[CONFIDENCE: 4]
+[STATUS: complete]
+[TEST: pass]
+```
+
+Failed iteration:
+
+```
+noslop: iteration 4 -- Implement rate limiter [FAILED]
+
+[TASK: 3]
+[STATUS: failed]
+[ERROR: Deadlock under concurrent access]
+[LESSON: Mutex-based approach deadlocks across await points]
+```
+
+The beauty of this approach: git history IS the memory. No state files to get out of sync. Each iteration's work is a clean atomic commit. You get stacked PR flow for free.
 
 ### Run Configuration (`src/core/models/run_config.rs`)
 
@@ -527,15 +483,52 @@ pub trait TestRunner: Send + Sync {
 }
 ```
 
+### VersionControl Trait Extensions (`src/core/ports/vcs.rs`)
+
+The existing `VersionControl` trait (defined in the VCS port design) is extended with methods for reading commit history. This is how the run loop accesses iteration memory -- through git history rather than state files.
+
+```rust
+use crate::core::models::{CommitInfo, DiffStat};
+
+// New methods added to the existing VersionControl trait:
+
+#[cfg_attr(test, mockall::automock)]
+pub trait VersionControl: Send + Sync {
+    // ... existing methods (checkpoint, etc.) ...
+
+    /// Retrieve the N most recent commits as structured data.
+    ///
+    /// Parses commit messages, timestamps, and diff stats for each commit.
+    /// Used by the run loop to build iteration context from git history.
+    fn recent_commits(&self, count: usize) -> anyhow::Result<Vec<CommitInfo>>;
+
+    /// Check whether the working tree is clean (no uncommitted changes).
+    fn is_clean(&self) -> anyhow::Result<bool>;
+
+    /// Stage all changes and commit with the given message.
+    ///
+    /// This is the atomic checkpoint that records each iteration's work.
+    /// The message should follow the structured commit convention:
+    /// `noslop: iteration N -- <summary>\n\n[TASK: N]\n[STATUS: ...]\n...`
+    fn commit_all(&self, message: &str) -> anyhow::Result<()>;
+
+    /// Get diff statistics since a given commit.
+    ///
+    /// Used for diff-based progress detection (detecting code churn
+    /// when task counts are not advancing).
+    fn diff_stat_since(&self, commit_id: &str) -> anyhow::Result<DiffStat>;
+}
+```
+
 ## Core Services
 
 ### Stuck Detector (`src/core/services/stuck_detector.rs`)
 
-Pure logic for graduated escalation. No I/O.
+Pure logic for graduated escalation. No I/O. Operates on `&[CommitInfo]` parsed from git history rather than a `ProgressFile`.
 
 ```rust
 use crate::core::models::{
-    EscalationLevel, IterationRecord, ProgressFile, StuckPolicy,
+    CommitInfo, EscalationLevel, StuckPolicy,
 };
 
 /// Outcome of stuck detection for a single iteration
@@ -553,25 +546,33 @@ pub struct StuckAssessment {
     pub prompt_injection: Option<String>,
 }
 
-/// Assess whether the run is stuck after an iteration completes.
+/// Assess whether the run is stuck based on recent commit history.
 ///
-/// Combines task-count progress (did done_count increase?) with
-/// diff-based progress detection (did meaningful code change?).
+/// Parses commit messages for `[TASK: N]` and `[STATUS: ...]` markers.
+/// Counts consecutive commits without task-count progress.
+/// Detects code churn (commits with file changes but no task completion).
 pub fn assess_stuck(
-    progress: &ProgressFile,
-    latest: &IterationRecord,
+    recent_commits: &[CommitInfo],
+    current_task: u32,
     policy: &StuckPolicy,
 ) -> StuckAssessment {
-    let made_task_progress = latest.tasks_after > latest.tasks_before;
+    // Count consecutive commits on the same task without completion
+    let stuck_count = recent_commits
+        .iter()
+        .take_while(|c| {
+            c.task_number() == Some(current_task)
+                && c.status().as_deref() != Some("complete")
+        })
+        .count() as u32;
 
-    // Diff-based: meaningful code changes = lines_changed > 0 on non-plan files
-    let has_code_churn = latest.lines_changed > 0 && !made_task_progress;
-
-    let stuck_count = if made_task_progress {
-        0
-    } else {
-        progress.stuck_count + 1
-    };
+    // Detect code churn: commits with file changes but no task completion
+    let has_code_churn = recent_commits
+        .first()
+        .map(|c| {
+            (c.insertions > 0 || c.deletions > 0)
+                && c.status().as_deref() != Some("complete")
+        })
+        .unwrap_or(false);
 
     let level = EscalationLevel::from_stuck_count_with_policy(stuck_count, policy);
     let should_terminate = level == EscalationLevel::DiagnosticExit;
@@ -621,8 +622,8 @@ fn build_escalation_prompt(
              2. Pick the cause most different from previous approaches\n\
              3. Only then implement a fix targeting that specific cause\n\
              \n\
-             It is unacceptable to retry the same approach. Read .noslop/failures.jsonl \
-             to see what has already been tried.\
+             It is unacceptable to retry the same approach. Review recent git commits \
+             for [STATUS: failed] entries to see what has already been tried.\
              {churn_warning}"
         )),
 
@@ -639,8 +640,7 @@ fn build_escalation_prompt(
 
         EscalationLevel::DiagnosticExit => Some(format!(
             "## FINAL ATTEMPT -- Diagnostic Mode\n\n\
-             This is your last iteration. Write a diagnostic report to \
-             .noslop/stuck-report.md covering:\n\
+             This is your last iteration. Output a diagnostic report covering:\n\
              - Task attempted and its requirements\n\
              - All approaches tried across previous iterations\n\
              - Specific error messages encountered\n\
@@ -789,7 +789,7 @@ Constructs the per-iteration prompt. Static parts come first (for prompt caching
 
 ````rust
 use crate::core::models::{
-    EscalationLevel, FailureLog, Plan, ProgressFile, RunConfig, Task,
+    CommitInfo, EscalationLevel, Plan, RunConfig, Task,
 };
 
 /// Context for building a single iteration's prompt
@@ -800,12 +800,8 @@ pub struct PromptContext<'a> {
     pub max_iterations: u32,
     /// The parsed plan
     pub plan: &'a Plan,
-    /// The progress file (if exists)
-    pub progress: Option<&'a ProgressFile>,
-    /// The failure log (if exists)
-    pub failure_log: Option<&'a FailureLog>,
-    /// Recent git activity (formatted string)
-    pub git_activity: String,
+    /// Recent commits from git history (from vcs.recent_commits(N))
+    pub recent_commits: &'a [CommitInfo],
     /// Test failure output from previous iteration (if any)
     pub test_failures: Option<String>,
     /// Stuck escalation prompt to inject (if any)
@@ -824,9 +820,9 @@ pub struct PromptContext<'a> {
 ///
 /// 1. Static prompt template (cacheable across all iterations)
 /// 2. Plan file path (stable)
-/// 3. Failure context for current task (semi-stable)
+/// 3. Failure context extracted from recent commits (semi-stable)
 /// 4. Escalation prompt (changes only when stuck)
-/// 5. Dynamic context: iteration number, plan status, git activity, test failures
+/// 5. Dynamic context: iteration number, plan status, recent commits, test failures
 pub fn build_iteration_prompt(ctx: &PromptContext<'_>) -> String {
     let mut prompt = String::with_capacity(8192);
 
@@ -844,13 +840,20 @@ pub fn build_iteration_prompt(ctx: &PromptContext<'_>) -> String {
 
     // --- Semi-static section ---
 
-    // Failure context for the current task
-    if let (Some(failure_log), Some(task)) =
-        (&ctx.failure_log, ctx.plan.next_incomplete())
-    {
-        if let Some(failure_ctx) = failure_log.as_prompt_context(&task.description) {
-            prompt.push_str("\n\n");
-            prompt.push_str(&failure_ctx);
+    // Failure context extracted from recent commits with [STATUS: failed]
+    let failed_commits: Vec<_> = ctx.recent_commits
+        .iter()
+        .filter(|c| c.is_failure())
+        .collect();
+    if !failed_commits.is_empty() {
+        prompt.push_str("\n\n### Previous Failed Approaches\n\n");
+        for commit in &failed_commits {
+            let error = commit.error_message().unwrap_or_default();
+            let lesson = commit.lesson().unwrap_or_default();
+            prompt.push_str(&format!(
+                "- **{}**: Error: {}. Lesson: {}\n",
+                commit.id, error, lesson
+            ));
         }
     }
 
@@ -885,32 +888,24 @@ pub fn build_iteration_prompt(ctx: &PromptContext<'_>) -> String {
         ctx.plan.total_count()
     ));
 
-    // Progress file summary
-    if let Some(progress) = ctx.progress {
-        if !progress.iterations.is_empty() {
-            prompt.push_str("### Recent Iteration History\n\n");
-            for record in progress.iterations.iter().rev().take(5) {
-                prompt.push_str(&format!(
-                    "- Iteration {}: {} ({})\n",
-                    record.iteration,
-                    record.summary,
-                    if record.task_completed {
-                        "completed"
-                    } else {
-                        "no completion"
-                    }
-                ));
-            }
-            prompt.push('\n');
+    // Recent iteration history from git commits
+    if !ctx.recent_commits.is_empty() {
+        prompt.push_str("### Recent Iteration History\n\n");
+        for commit in ctx.recent_commits.iter().take(10) {
+            let status = commit.status().unwrap_or_else(|| "unknown".to_string());
+            let first_line = commit.message.lines().next().unwrap_or("");
+            prompt.push_str(&format!(
+                "- `{}` {} (status: {}, +{} -{}, {} files)\n",
+                commit.id,
+                first_line,
+                status,
+                commit.insertions,
+                commit.deletions,
+                commit.files_changed.len(),
+            ));
         }
-        if let Some(focus) = &progress.next_focus {
-            prompt.push_str(&format!("### Suggested Focus\n{focus}\n\n"));
-        }
+        prompt.push('\n');
     }
-
-    prompt.push_str("### Recent Git Activity\n");
-    prompt.push_str(&ctx.git_activity);
-    prompt.push('\n');
 
     // Test failures from previous iteration
     if let Some(test_output) = &ctx.test_failures {
@@ -940,8 +935,8 @@ Find the first incomplete task and complete it. One task per iteration, no more.
 Before writing any code:
 
 1. Read the plan file completely. Understand the task you are about to work on.
-2. Check the iteration context below. Review what previous iterations committed.
-   If the same task was attempted before, read .noslop/failures.jsonl to understand
+2. Check the iteration context below. Review recent git commits for
+   `[STATUS: failed]` entries. If the same task was attempted before, understand
    what went wrong. It is unacceptable to repeat a previously failed approach.
 3. Discover the repository layout. Note which directories are git repos.
 4. Identify where tests live for this task. Run the relevant test suite BEFORE
@@ -978,16 +973,7 @@ Commit the plan file update as a separate commit.
 Output a status line:
 [RALPH:DONE task="<task description (first 80 chars)>" iteration=N]
 
-## Step 6: Update progress
-
-Update .noslop/progress.json with:
-- What you attempted this iteration
-- What succeeded or failed, and why
-- Key decisions made
-- What the next iteration should focus on
-
-If your implementation attempt FAILED, append to .noslop/failures.jsonl:
-{"iteration": N, "task": "...", "approach": "...", "error": "...", "lesson": "..."}
+Your changes will be committed atomically. Include [CONFIDENCE: N] in your output.
 
 ## Completion
 
@@ -1008,11 +994,8 @@ This is iteration 1. Before implementing any tasks, set up the working context:
 2. Explore the repository structure. Identify key files, test locations,
    and build systems.
 3. Run the existing test suite to establish a baseline.
-4. Create .noslop/progress.json documenting:
-   - Repository structure overview
-   - Test framework and how to run tests
-   - Build system and dependencies
-   - Key architectural patterns observed
+4. Review the git log to understand what has been done.
+   Your work will be committed atomically.
 5. Then proceed to the first incomplete task following the standard workflow below.
 
 ## Standard Workflow
@@ -1022,7 +1005,7 @@ Find the first incomplete task and complete it. One task per iteration, no more.
 ### Orient yourself
 
 1. Read the plan file completely.
-2. Check the iteration context below.
+2. Check the iteration context below. Review recent git commits for context.
 3. Identify where tests live for this task. Run them BEFORE making changes.
 
 ### Implement
@@ -1043,9 +1026,7 @@ Commit the plan file update separately.
 
 Output: [RALPH:DONE task="<description>" iteration=1]
 
-### Update progress
-
-Update .noslop/progress.json with what you learned and did.
+Your changes will be committed atomically. Include [CONFIDENCE: N] in your output.
 
 ## Completion
 
@@ -1062,10 +1043,9 @@ The central orchestration service. This is the Rust translation of ralph's main 
 ```rust
 use std::path::Path;
 use crate::core::models::{
-    EscalationLevel, FailureEntry, FailureLog, IterationRecord,
-    Plan, ProgressFile, RunConfig,
+    CommitInfo, EscalationLevel, Plan, RunConfig,
 };
-use crate::core::ports::{AgentRuntime, InvocationConfig, PlanStore, TestRunner};
+use crate::core::ports::{AgentRuntime, InvocationConfig, PlanStore, TestRunner, VersionControl};
 use crate::core::services::{prompt_builder, stuck_detector};
 
 /// Outcome of the entire run loop
@@ -1079,7 +1059,7 @@ pub enum RunOutcome {
     /// Agent reported it is stuck and cannot proceed
     Stuck {
         iterations_used: u32,
-        diagnostic_report: Option<String>,
+        diagnostic_output: Option<String>,
     },
     /// Reached maximum iterations without completion
     MaxIterationsReached {
@@ -1096,9 +1076,12 @@ pub enum RunOutcome {
 
 /// The main orchestrator for `noslop run`.
 ///
-/// Coordinates plan parsing, agent invocation, progress tracking,
-/// stuck detection, test gates, and post-loop review. All I/O is
-/// delegated to the injected trait objects.
+/// Coordinates plan parsing, agent invocation, stuck detection, test gates,
+/// and post-loop review. All I/O is delegated to the injected trait objects.
+///
+/// Progress is tracked entirely through git history. No separate state files.
+/// Each iteration produces an atomic commit with structured metadata tags.
+/// The commit log doubles as the progress report.
 pub struct RunLoop<'a> {
     runtime: &'a dyn AgentRuntime,
     plan_store: &'a dyn PlanStore,
@@ -1127,42 +1110,35 @@ impl<'a> RunLoop<'a> {
     /// Execute the full run loop.
     ///
     /// This is the Rust equivalent of ralph's main `for` loop.
+    /// All progress tracking is through git commits -- no state files.
     pub fn execute(&self) -> anyhow::Result<RunOutcome> {
-        // 1. Load initial state
+        // 1. Load initial state (plan only -- progress comes from git history)
         let mut plan = self.plan_store.load(&self.config.plan_file)?;
-        let mut progress = self.load_or_create_progress(&plan)?;
-        let mut failure_log = self.load_failure_log()?;
         let mut last_test_failures: Option<String> = None;
 
         // 2. Main iteration loop
         for iteration in 1..=self.config.max_iterations {
-            let started_at = chrono::Utc::now();
-
             // 2a. Reload plan (agent may have modified it)
             plan = self.plan_store.load(&self.config.plan_file)?;
             let tasks_before = plan.done_count();
 
-            // 2b. Build prompt context
-            let git_activity = self.vcs.recent_commits(5)?;
-            let escalation_prompt = progress
-                .escalation_level
-                .then(|| {
-                    stuck_detector::assess_stuck(
-                        &progress,
-                        progress.iterations.last().unwrap(),
-                        &self.config.stuck_policy,
-                    )
-                    .prompt_injection
-                })
-                .flatten();
+            // 2b. Read recent git history for context and stuck detection
+            let recent_commits = self.vcs.recent_commits(10)?;
+            let current_task = plan.done_count() as u32 + 1;
 
+            let assessment = stuck_detector::assess_stuck(
+                &recent_commits,
+                current_task,
+                &self.config.stuck_policy,
+            );
+            let escalation_prompt = assessment.prompt_injection.clone();
+
+            // 2c. Build prompt context (from git history, not state files)
             let ctx = prompt_builder::PromptContext {
                 iteration,
                 max_iterations: self.config.max_iterations,
                 plan: &plan,
-                progress: Some(&progress),
-                failure_log: Some(&failure_log),
-                git_activity,
+                recent_commits: &recent_commits,
                 test_failures: last_test_failures.take(),
                 escalation_prompt,
                 confidence_threshold: self.config.confidence_threshold,
@@ -1172,7 +1148,7 @@ impl<'a> RunLoop<'a> {
 
             let prompt = prompt_builder::build_iteration_prompt(&ctx);
 
-            // 2c. Invoke the agent
+            // 2d. Invoke the agent
             let invocation_config = InvocationConfig {
                 prompt,
                 working_dir: self.config.working_dir.clone(),
@@ -1182,18 +1158,57 @@ impl<'a> RunLoop<'a> {
 
             let result = self.runtime.invoke(&invocation_config)?;
             let output = self.runtime.parse_output(&result);
-            let ended_at = chrono::Utc::now();
 
-            // 2d. Log output
+            // 2e. Log output
             self.append_to_log(iteration, &output.raw_output)?;
 
-            // 2e. Safety checkpoint
-            self.vcs.checkpoint(&format!(
-                "ralph: iteration {} checkpoint",
-                iteration
-            ))?;
+            // 2f. Reload plan to measure progress
+            plan = self.plan_store.load(&self.config.plan_file)?;
+            let tasks_after = plan.done_count();
+            let made_progress = tasks_after > tasks_before;
 
-            // 2f. Check for plan completion signal
+            // 2g. Build structured commit message and commit atomically
+            let confidence = parse_confidence(&output.raw_output);
+            let task_desc = output
+                .completed_task
+                .clone()
+                .unwrap_or_else(|| "work in progress".to_string());
+
+            let status = if output.raw_output.contains("<promise>STUCK</promise>") {
+                "stuck"
+            } else if made_progress {
+                "complete"
+            } else {
+                "failed"
+            };
+
+            let mut commit_msg = format!(
+                "noslop: iteration {} -- {}",
+                iteration,
+                task_desc,
+            );
+            if status == "failed" {
+                commit_msg.push_str(" [FAILED]");
+            }
+            commit_msg.push_str(&format!("\n\n[TASK: {}]", current_task));
+            if let Some(c) = confidence {
+                commit_msg.push_str(&format!("\n[CONFIDENCE: {}]", c));
+            }
+            commit_msg.push_str(&format!("\n[STATUS: {}]", status));
+
+            // Extract error/lesson from agent output for failed iterations
+            if status == "failed" {
+                if let Some(error) = extract_error(&output.raw_output) {
+                    commit_msg.push_str(&format!("\n[ERROR: {}]", error));
+                }
+                if let Some(lesson) = extract_lesson(&output.raw_output) {
+                    commit_msg.push_str(&format!("\n[LESSON: {}]", lesson));
+                }
+            }
+
+            self.vcs.commit_all(&commit_msg)?;
+
+            // 2h. Check for plan completion signal
             if output.plan_complete {
                 // Reload plan to verify
                 plan = self.plan_store.load(&self.config.plan_file)?;
@@ -1207,66 +1222,27 @@ impl<'a> RunLoop<'a> {
                 // Agent claimed complete but tasks remain -- continue
             }
 
-            // 2g. Check for stuck diagnostic signal
+            // 2i. Check for stuck diagnostic signal
             if output.raw_output.contains("<promise>STUCK</promise>") {
-                let diagnostic = self.read_diagnostic_report();
                 return Ok(RunOutcome::Stuck {
                     iterations_used: iteration,
-                    diagnostic_report: diagnostic,
+                    diagnostic_output: Some(output.raw_output),
                 });
             }
 
-            // 2h. Post-iteration test gate
-            let tests_passed = if let Some(test_runner) = self.test_runner {
+            // 2j. Post-iteration test gate
+            if let Some(test_runner) = self.test_runner {
                 let test_result = test_runner.run_tests(&self.config.working_dir)?;
                 if !test_result.passed {
                     last_test_failures = Some(test_result.output.clone());
                 }
-                Some(test_result.passed)
-            } else {
-                None
-            };
+            }
 
-            // 2i. Measure progress (task-count + diff-based)
-            plan = self.plan_store.load(&self.config.plan_file)?;
-            let tasks_after = plan.done_count();
-            let diff_stats = self.vcs.diff_stat_since_last_checkpoint()?;
-
-            // 2j. Record iteration
-            let record = IterationRecord {
-                iteration,
-                started_at,
-                ended_at,
-                task_attempted: output.completed_task.clone(),
-                task_completed: tasks_after > tasks_before,
-                confidence: parse_confidence(&output.raw_output),
-                files_modified: diff_stats.files,
-                lines_changed: diff_stats.lines_changed,
-                tasks_before,
-                tasks_after,
-                agent_exit_code: result.exit_code,
-                duration_secs: result.duration.as_secs_f64(),
-                tests_passed,
-                summary: output
-                    .completed_task
-                    .clone()
-                    .unwrap_or_else(|| "no task completed".to_string()),
-            };
-
-            // 2k. Stuck assessment
-            let assessment = stuck_detector::assess_stuck(
-                &progress,
-                &record,
-                &self.config.stuck_policy,
-            );
-
-            progress.record_iteration(record);
-            self.save_progress(&progress)?;
-
+            // 2k. Stuck termination check
             if assessment.should_terminate {
                 return Ok(RunOutcome::Stuck {
                     iterations_used: iteration,
-                    diagnostic_report: self.read_diagnostic_report(),
+                    diagnostic_output: Some(output.raw_output),
                 });
             }
         }
@@ -1280,28 +1256,10 @@ impl<'a> RunLoop<'a> {
         })
     }
 
-    // --- Private helper methods (each delegates to a port trait) ---
-
-    fn load_or_create_progress(&self, plan: &Plan) -> anyhow::Result<ProgressFile> {
-        // Load from .noslop/progress.json or create new
-        todo!("delegate to filesystem via VersionControl or a dedicated port")
-    }
-
-    fn save_progress(&self, progress: &ProgressFile) -> anyhow::Result<()> {
-        todo!("serialize to .noslop/progress.json")
-    }
-
-    fn load_failure_log(&self) -> anyhow::Result<FailureLog> {
-        // Load from .noslop/failures.jsonl (one JSON object per line)
-        todo!("delegate to filesystem")
-    }
+    // --- Private helper methods ---
 
     fn append_to_log(&self, iteration: u32, output: &str) -> anyhow::Result<()> {
         todo!("append to .ralph-log")
-    }
-
-    fn read_diagnostic_report(&self) -> Option<String> {
-        todo!("read .noslop/stuck-report.md if it exists")
     }
 
     fn run_post_loop_review(&self) -> anyhow::Result<()> {
@@ -1343,6 +1301,19 @@ fn parse_confidence(output: &str) -> Option<u8> {
     re.captures(output)
         .and_then(|c| c[1].parse::<u8>().ok())
         .filter(|&n| (1..=5).contains(&n))
+}
+
+/// Extract an error description from agent output.
+fn extract_error(output: &str) -> Option<String> {
+    // Look for error patterns in agent output
+    let re = regex::Regex::new(r"(?i)error:\s*(.+)").ok()?;
+    re.captures(output).map(|c| c[1].trim().to_string())
+}
+
+/// Extract a lesson learned from agent output.
+fn extract_lesson(output: &str) -> Option<String> {
+    let re = regex::Regex::new(r"(?i)lesson:\s*(.+)").ok()?;
+    re.captures(output).map(|c| c[1].trim().to_string())
 }
 ```
 
@@ -1453,14 +1424,14 @@ pub fn run(args: RunArgs) -> anyhow::Result<()> {
         }
         RunOutcome::Stuck {
             iterations_used,
-            diagnostic_report,
+            diagnostic_output,
         } => {
             println!(
                 "=== Stuck after {} iteration(s). ===",
                 iterations_used
             );
-            if let Some(report) = diagnostic_report {
-                println!("\nDiagnostic report:\n{}", report);
+            if let Some(output) = diagnostic_output {
+                println!("\nDiagnostic output:\n{}", output);
             }
         }
         RunOutcome::MaxIterationsReached {
@@ -1522,51 +1493,45 @@ Some(Command::Run(args)) => commands::run::run(args),
   .gitkeep
   staged-acks.json       # (existing) pending acknowledgments
   reviews/               # (existing) review session files
-  progress.json          # NEW: structured cross-iteration memory
-  failures.jsonl         # NEW: append-only failure log (one JSON per line)
-  stuck-report.md        # NEW: generated when escalation reaches level 4
   review.md              # NEW: post-loop review findings
 ```
 
-### `progress.json` Example
+No progress or failure state files. All iteration memory lives in git commit history via the atomic commit convention described above. The `VersionControl` trait methods (`recent_commits`, `commit_all`, `diff_stat_since`) provide access to this data.
 
-```json
-{
-  "plan_file": "plan.md",
-  "agent_type": "claude",
-  "started_at": "2026-02-13T10:30:00Z",
-  "iterations_completed": 3,
-  "max_iterations": 20,
-  "stuck_count": 0,
-  "escalation_level": "None",
-  "iterations": [
-    {
-      "iteration": 1,
-      "started_at": "2026-02-13T10:30:00Z",
-      "ended_at": "2026-02-13T10:35:22Z",
-      "task_attempted": "Set up project structure with Cargo.toml",
-      "task_completed": true,
-      "confidence": 5,
-      "files_modified": ["Cargo.toml", "src/main.rs", "src/lib.rs"],
-      "lines_changed": 45,
-      "tasks_before": 0,
-      "tasks_after": 1,
-      "agent_exit_code": 0,
-      "duration_secs": 322.0,
-      "tests_passed": true,
-      "summary": "Set up project structure with Cargo.toml"
-    }
-  ],
-  "decisions": ["Using workspace layout with separate crates for core and cli"],
-  "next_focus": "Implement the parser module (task 2)"
-}
+### Example: Reading Progress From Git History
+
+```
+$ git log --oneline --grep="noslop: iteration"
+
+a1b2c3d noslop: iteration 3 -- Add validation to user input
+f4e5d6c noslop: iteration 2 -- Implement parser module
+9a8b7c6 noslop: iteration 1 -- Set up project structure
 ```
 
-### `failures.jsonl` Example
+Each commit message contains structured tags that `CommitInfo` methods can parse:
 
-```jsonl
-{"iteration":4,"task":"Implement rate limiter","approach":"Used token bucket with mutex","error":"Deadlock under concurrent access in test_parallel_requests","lesson":"Mutex-based approach deadlocks when handler holds lock across await point. Use atomic operations or actor pattern instead.","timestamp":"2026-02-13T11:02:00Z"}
-{"iteration":5,"task":"Implement rate limiter","approach":"Switched to atomic counter with CAS loop","error":"Race condition: counter resets between check and decrement","lesson":"Atomic CAS loop needs to include both check and decrement in a single compare_exchange. Cannot split into separate load + store.","timestamp":"2026-02-13T11:15:00Z"}
+```
+$ git log -1 --format="%B" a1b2c3d
+
+noslop: iteration 3 -- Add validation to user input
+
+[TASK: 3]
+[CONFIDENCE: 4]
+[STATUS: complete]
+[TEST: pass]
+```
+
+Failed iterations are equally visible in the log:
+
+```
+$ git log -1 --format="%B" d7e8f9a
+
+noslop: iteration 4 -- Implement rate limiter [FAILED]
+
+[TASK: 3]
+[STATUS: failed]
+[ERROR: Deadlock under concurrent access in test_parallel_requests]
+[LESSON: Mutex-based approach deadlocks when handler holds lock across await point]
 ```
 
 ## Data Flow
@@ -1581,18 +1546,18 @@ Some(Command::Run(args)) => commands::run::run(args),
               |  Injection        |
               +---------+---------+
                         |
-         +--------------+--------------+
-         |              |              |
-   AgentRuntime    PlanStore     TestRunner
-   (port trait)    (port trait)  (port trait)
-         |              |              |
-         v              v              v
-  +------+------+ +----+----+ +-------+-------+
-  |ClaudeRuntime| |Markdown | |CargoTestRunner|
-  |CodexRuntime | |JsonPlan | |NpmTestRunner  |
-  +------+------+ +----+----+ +-------+-------+
-         |              |              |
-         +--------------+--------------+
+      +--------+--------+--------+--------+
+      |        |                 |        |
+ AgentRuntime PlanStore  VersionControl TestRunner
+ (port trait) (port)     (port trait)   (port trait)
+      |        |                 |        |
+      v        v                 v        v
+  +---+----+ +-+------+ +-------+-----+ +-+----------+
+  |Claude  | |Markdown| |GitVersion   | |CargoTest   |
+  |Codex   | |JsonPlan| |Control      | |NpmTest     |
+  +---+----+ +-+------+ +-------+-----+ +-+----------+
+      |        |                 |        |
+      +--------+--------+--------+--------+
                         |
                         v
               +---------+---------+
@@ -1601,14 +1566,14 @@ Some(Command::Run(args)) => commands::run::run(args),
               |                   |
               |  For each iter:   |
               |  1. Load plan     |  <--- PlanStore.load()
-              |  2. Build prompt  |  <--- prompt_builder (pure)
-              |  3. Invoke agent  |  <--- AgentRuntime.invoke()
-              |  4. Log output    |
-              |  5. Checkpoint    |  <--- VersionControl.checkpoint()
-              |  6. Check done    |  <--- AgentRuntime.parse_output()
-              |  7. Run tests     |  <--- TestRunner.run_tests()
-              |  8. Assess stuck  |  <--- stuck_detector (pure)
-              |  9. Record iter   |
+              |  2. Read history  |  <--- VersionControl.recent_commits()
+              |  3. Assess stuck  |  <--- stuck_detector (pure, from commits)
+              |  4. Build prompt  |  <--- prompt_builder (pure, from commits)
+              |  5. Invoke agent  |  <--- AgentRuntime.invoke()
+              |  6. Log output    |
+              |  7. Commit atomic |  <--- VersionControl.commit_all()
+              |  8. Check done    |  <--- AgentRuntime.parse_output()
+              |  9. Run tests     |  <--- TestRunner.run_tests()
               |                   |
               |  Post-loop:       |
               |  10. Review agent |  <--- AgentRuntime.invoke()
@@ -1666,18 +1631,18 @@ For a different agent (e.g., Codex), the `build_command` method produces differe
 
 ## Incorporated Research Quick Wins
 
-| Quick Win                           | Where It Appears                                                                                            | Reference                       |
-| ----------------------------------- | ----------------------------------------------------------------------------------------------------------- | ------------------------------- |
-| **Structured progress file**        | `ProgressFile` model, `.noslop/progress.json`, prompt builder reads it each iteration                       | Research finding 1              |
-| **Graduated escalation (4 levels)** | `EscalationLevel` enum, `StuckPolicy` config, `stuck_detector::assess_stuck()`, `build_escalation_prompt()` | Research finding 2              |
-| **Diff-based progress detection**   | `IterationRecord.lines_changed`, `vcs.diff_stat_since_last_checkpoint()`, `StuckAssessment.has_code_churn`  | Research finding 3              |
-| **Post-iteration test gates**       | `TestRunner` port trait, `RunLoop` step 2h, `last_test_failures` fed into next prompt                       | Research finding 4              |
-| **Prompt restructure for caching**  | `build_iteration_prompt()` puts static template first, dynamic context last                                 | Research finding 5              |
-| **Confidence-gated completion**     | `confidence_threshold` in `RunConfig`, `parse_confidence()`, prompt instructs `[CONFIDENCE: N]`             | Research finding 6              |
-| **Failure memory**                  | `FailureEntry`, `FailureLog`, `.noslop/failures.jsonl`, injected into prompt via `as_prompt_context()`      | Research finding 9              |
-| **Initializer phase**               | `is_initializer` flag, `initializer_template()` for iteration 1, two-agent harness pattern                  | Research finding 10             |
-| **Post-loop review**                | `run_post_loop_review()`, BugBot-inspired review pass after completion                                      | Research finding 8              |
-| **Strongly-worded constraints**     | Escalation prompts use "unacceptable", "MUST", absolute prohibitions                                        | Research finding from Anthropic |
+| Quick Win                           | Where It Appears                                                                                                     | Reference                       |
+| ----------------------------------- | -------------------------------------------------------------------------------------------------------------------- | ------------------------------- |
+| **Git-history-based progress**      | `CommitInfo` model, `VersionControl.recent_commits()`, commit messages encode iteration metadata                     | Research finding 1              |
+| **Graduated escalation (4 levels)** | `EscalationLevel` enum, `StuckPolicy` config, `stuck_detector::assess_stuck()`, `build_escalation_prompt()`          | Research finding 2              |
+| **Diff-based progress detection**   | `CommitInfo.insertions`/`deletions`, `vcs.diff_stat_since()`, `StuckAssessment.has_code_churn`                       | Research finding 3              |
+| **Post-iteration test gates**       | `TestRunner` port trait, `RunLoop` step 2j, `last_test_failures` fed into next prompt                                | Research finding 4              |
+| **Prompt restructure for caching**  | `build_iteration_prompt()` puts static template first, dynamic context last                                          | Research finding 5              |
+| **Confidence-gated completion**     | `confidence_threshold` in `RunConfig`, `parse_confidence()`, prompt instructs `[CONFIDENCE: N]`                      | Research finding 6              |
+| **Git-based failure memory**        | `[STATUS: failed]` commits with `[ERROR]` and `[LESSON]` tags, parsed by `CommitInfo` methods, injected into prompts | Research finding 9              |
+| **Initializer phase**               | `is_initializer` flag, `initializer_template()` for iteration 1, two-agent harness pattern                           | Research finding 10             |
+| **Post-loop review**                | `run_post_loop_review()`, BugBot-inspired review pass after completion                                               | Research finding 8              |
+| **Strongly-worded constraints**     | Escalation prompts use "unacceptable", "MUST", absolute prohibitions                                                 | Research finding from Anthropic |
 
 ## Test Strategy
 
@@ -1723,36 +1688,91 @@ mod tests {
     }
 
     #[test]
+    fn stuck_detection_from_commit_history() {
+        let policy = StuckPolicy::default();
+
+        // 3 consecutive failed commits on the same task
+        let commits = vec![
+            CommitInfo {
+                id: "abc123".to_string(),
+                message: "noslop: iteration 5 -- Rate limiter [FAILED]\n\n\
+                          [TASK: 3]\n[STATUS: failed]\n\
+                          [ERROR: Deadlock]\n[LESSON: Use actors]".to_string(),
+                timestamp: Utc::now(),
+                files_changed: vec!["src/lib.rs".to_string()],
+                insertions: 20,
+                deletions: 5,
+            },
+            CommitInfo {
+                id: "def456".to_string(),
+                message: "noslop: iteration 4 -- Rate limiter [FAILED]\n\n\
+                          [TASK: 3]\n[STATUS: failed]\n\
+                          [ERROR: Race condition]".to_string(),
+                timestamp: Utc::now(),
+                files_changed: vec!["src/lib.rs".to_string()],
+                insertions: 15,
+                deletions: 10,
+            },
+            CommitInfo {
+                id: "789abc".to_string(),
+                message: "noslop: iteration 3 -- Rate limiter [FAILED]\n\n\
+                          [TASK: 3]\n[STATUS: failed]".to_string(),
+                timestamp: Utc::now(),
+                files_changed: vec!["src/lib.rs".to_string()],
+                insertions: 30,
+                deletions: 0,
+            },
+        ];
+
+        let assessment = assess_stuck(&commits, 3, &policy);
+        assert_eq!(assessment.stuck_count, 3);
+        assert_eq!(assessment.level, EscalationLevel::Suggest);
+        assert!(assessment.has_code_churn);
+        assert!(!assessment.should_terminate);
+    }
+
+    #[test]
+    fn commit_info_parses_metadata_tags() {
+        let commit = CommitInfo {
+            id: "abc123".to_string(),
+            message: "noslop: iteration 3 -- Add validation\n\n\
+                      [TASK: 3]\n[CONFIDENCE: 4]\n[STATUS: complete]\n[TEST: pass]"
+                .to_string(),
+            timestamp: Utc::now(),
+            files_changed: vec![],
+            insertions: 0,
+            deletions: 0,
+        };
+        assert_eq!(commit.task_number(), Some(3));
+        assert_eq!(commit.confidence(), Some(4));
+        assert_eq!(commit.status().as_deref(), Some("complete"));
+        assert!(!commit.is_failure());
+    }
+
+    #[test]
+    fn commit_info_parses_failure_tags() {
+        let commit = CommitInfo {
+            id: "def456".to_string(),
+            message: "noslop: iteration 4 -- Rate limiter [FAILED]\n\n\
+                      [TASK: 3]\n[STATUS: failed]\n\
+                      [ERROR: Deadlock under concurrent access]\n\
+                      [LESSON: Mutex deadlocks across await points]"
+                .to_string(),
+            timestamp: Utc::now(),
+            files_changed: vec![],
+            insertions: 0,
+            deletions: 0,
+        };
+        assert!(commit.is_failure());
+        assert_eq!(commit.error_message().as_deref(), Some("Deadlock under concurrent access"));
+        assert_eq!(commit.lesson().as_deref(), Some("Mutex deadlocks across await points"));
+    }
+
+    #[test]
     fn confidence_parsing() {
         assert_eq!(parse_confidence("some output [CONFIDENCE: 4] more"), Some(4));
         assert_eq!(parse_confidence("no confidence here"), None);
         assert_eq!(parse_confidence("[CONFIDENCE: 6]"), None); // out of range
-    }
-
-    #[test]
-    fn failure_log_filters_by_task() {
-        let log = FailureLog {
-            entries: vec![
-                FailureEntry {
-                    iteration: 1,
-                    task: "task A".to_string(),
-                    approach: "approach 1".to_string(),
-                    error: "err".to_string(),
-                    lesson: "lesson".to_string(),
-                    timestamp: Utc::now(),
-                },
-                FailureEntry {
-                    iteration: 2,
-                    task: "task B".to_string(),
-                    approach: "approach 2".to_string(),
-                    error: "err".to_string(),
-                    lesson: "lesson".to_string(),
-                    timestamp: Utc::now(),
-                },
-            ],
-        };
-        assert_eq!(log.for_task("task A").len(), 1);
-        assert_eq!(log.for_task("task C").len(), 0);
     }
 }
 ```
@@ -1772,6 +1792,7 @@ mod integration_tests {
             .expect_invoke()
             .returning(|_| Ok(InvocationResult {
                 output: "[RALPH:DONE task=\"setup\" iteration=1]\n\
+                         [CONFIDENCE: 5]\n\
                          <promise>COMPLETE</promise>"
                     .to_string(),
                 exit_code: 0,
@@ -1804,6 +1825,20 @@ mod integration_tests {
                 raw_content: "- [x] setup\n".to_string(),
             })
         });
+
+        let mut mock_vcs = MockVersionControl::new();
+        // Verify that commit_all is called with structured message
+        mock_vcs
+            .expect_recent_commits()
+            .returning(|_| Ok(vec![]));
+        mock_vcs
+            .expect_commit_all()
+            .withf(|msg: &str| {
+                msg.starts_with("noslop: iteration 1")
+                    && msg.contains("[STATUS: complete]")
+                    && msg.contains("[CONFIDENCE: 5]")
+            })
+            .returning(|_| Ok(()));
 
         // ... construct RunLoop with mocks and assert Complete outcome
     }
@@ -1845,8 +1880,9 @@ CLI flags override TOML values. Agent type can be overridden with `--agent codex
 
 The `noslop run` command translates ralph's 288-line bash script into a structured Rust orchestrator that:
 
-1. **Separates concerns**: Pure domain models, port traits for I/O, core services for logic, CLI for wiring
-2. **Is agent-agnostic**: The `RunLoop` calls `AgentRuntime.invoke()` without knowing if it is talking to Claude, Codex, or a future agent
-3. **Incorporates research findings**: All 7 quick wins from the research are integrated into the design (structured progress, graduated escalation, diff-based detection, test gates, prompt caching, confidence gating, failure memory) plus the near-term improvements (post-loop review, initializer phase)
-4. **Is testable**: Core services are pure functions, all I/O goes through mockable trait objects, unit tests require no filesystem or network
-5. **Follows noslop conventions**: Hexagonal architecture, `anyhow::Result`, `mockall` annotations, `Send + Sync` traits, one file per concern
+1. **Uses git as the single source of truth**: No separate state files for progress or failures. Each iteration produces an atomic commit with structured metadata tags. The commit log IS the progress report. No files to get out of sync.
+2. **Separates concerns**: Pure domain models, port traits for I/O, core services for logic, CLI for wiring
+3. **Is agent-agnostic**: The `RunLoop` calls `AgentRuntime.invoke()` without knowing if it is talking to Claude, Codex, or a future agent
+4. **Incorporates research findings**: All quick wins from the research are integrated (git-history-based progress, graduated escalation, diff-based detection, test gates, prompt caching, confidence gating, git-based failure memory) plus the near-term improvements (post-loop review, initializer phase)
+5. **Is testable**: Core services are pure functions, all I/O goes through mockable trait objects (`MockVersionControl` verifies `commit_all()` is called with structured messages), unit tests require no filesystem or network
+6. **Follows noslop conventions**: Hexagonal architecture, `anyhow::Result`, `mockall` annotations, `Send + Sync` traits, one file per concern

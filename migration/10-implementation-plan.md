@@ -25,20 +25,20 @@ Synthesis of design documents 01-07 into an ordered, actionable implementation p
 
 Every crate needed for the migration is already in `Cargo.toml`. No new runtime or dev dependencies.
 
-| Crate        | Current Version           | Used By (New Code)                                                                           |
-| ------------ | ------------------------- | -------------------------------------------------------------------------------------------- |
-| `git2`       | 0.20.2 (vendored-openssl) | Checkpoint (stage-all, commit), Worktree (create, list, remove, prune, branch ops)           |
-| `chrono`     | 0.4.42 (serde)            | Checkpoint timestamps, ProgressFile/IterationRecord/FailureEntry timestamps                  |
-| `clap`       | 4.5.51 (derive, cargo)    | New subcommands: Checkpoint, Worktree, Run; Init agent argument                              |
-| `regex`      | 1.12                      | Plan parser (markdown checkboxes), output parsing (RALPH:DONE, CONFIDENCE), stuck prompts    |
-| `serde`      | 1.0.228 (derive)          | AgentType, Plan models, ProgressFile, FailureEntry, RunConfig, TestGate, AgentSection        |
-| `serde_json` | 1.0.145                   | Settings.json generation, progress.json, failures.jsonl, JSON plan parsing, JSON output mode |
-| `toml`       | 0.9.8                     | NoslopFile `[agent]` section parsing, `.noslop.toml` generation                              |
-| `anyhow`     | 1.0.100                   | All new functions return `anyhow::Result<T>`                                                 |
-| `thiserror`  | 2.0.17                    | Custom error types if needed (none required in current designs)                              |
-| `colored`    | 3.0.0                     | Run loop progress output                                                                     |
-| `log`        | 0.4.28                    | Debug logging in adapters                                                                    |
-| `walkdir`    | 2.5.0                     | Not directly needed by new code, but already available                                       |
+| Crate        | Current Version           | Used By (New Code)                                                                        |
+| ------------ | ------------------------- | ----------------------------------------------------------------------------------------- |
+| `git2`       | 0.20.2 (vendored-openssl) | Checkpoint (stage-all, commit), Worktree (create, list, remove, prune, branch ops)        |
+| `chrono`     | 0.4.42 (serde)            | Checkpoint timestamps, CommitInfo timestamps                                              |
+| `clap`       | 4.5.51 (derive, cargo)    | New subcommands: Checkpoint, Worktree, Run; Init agent argument                           |
+| `regex`      | 1.12                      | Plan parser (markdown checkboxes), output parsing (RALPH:DONE, CONFIDENCE), stuck prompts |
+| `serde`      | 1.0.228 (derive)          | AgentType, Plan models, CommitInfo, RunConfig, TestGate, AgentSection                     |
+| `serde_json` | 1.0.145                   | Settings.json generation, JSON plan parsing, JSON output mode                             |
+| `toml`       | 0.9.8                     | NoslopFile `[agent]` section parsing, `.noslop.toml` generation                           |
+| `anyhow`     | 1.0.100                   | All new functions return `anyhow::Result<T>`                                              |
+| `thiserror`  | 2.0.17                    | Custom error types if needed (none required in current designs)                           |
+| `colored`    | 3.0.0                     | Run loop progress output                                                                  |
+| `log`        | 0.4.28                    | Debug logging in adapters                                                                 |
+| `walkdir`    | 2.5.0                     | Not directly needed by new code, but already available                                    |
 
 **Dev dependencies** -- all already present:
 
@@ -132,14 +132,14 @@ tests/
 
 | Phase     | Description                     | New Files | Modified Files | Est. Lines | Depends On    |
 | --------- | ------------------------------- | --------- | -------------- | ---------- | ------------- |
-| 1         | Core types and port traits      | 8         | 3              | ~650       | Nothing       |
+| 1         | Core types and port traits      | 7         | 3              | ~550       | Nothing       |
 | 2         | Checkpoint and worktree         | 6         | 4              | ~750       | Phase 1       |
 | 3         | Agent adapters (Claude + Codex) | 10        | 2              | ~900       | Phase 1       |
 | 4         | Init expansion                  | 0         | 5              | ~200       | Phase 1, 3    |
-| 5         | Run loop core services          | 4         | 2              | ~700       | Phase 1       |
-| 6         | Run loop adapters + CLI         | 7         | 3              | ~600       | Phase 2, 3, 5 |
+| 5         | Run loop core services          | 4         | 2              | ~650       | Phase 1       |
+| 6         | Run loop adapters + CLI         | 7         | 3              | ~550       | Phase 2, 3, 5 |
 | 7         | Integration testing + polish    | 5         | 2              | ~500       | All           |
-| **Total** |                                 | **40**    | **~15**        | **~4,300** |               |
+| **Total** |                                 | **39**    | **~15**        | **~4,100** |               |
 
 ### Dependency Graph
 
@@ -160,6 +160,17 @@ Phase 1 (types + ports)
 ```
 
 Phases 2, 3, and 5 can be worked on **in parallel** after Phase 1 completes. Phase 4 requires both 1 and 3. Phase 6 requires 2, 3, and 5. Phase 7 is the final sweep.
+
+### Design Note: Git History as Single Source of Truth
+
+Progress tracking uses **git history** as the single source of truth. There are no separate state files (no `progress.json`, no `failures.jsonl`, no `stuck-report.md`). Instead:
+
+- Each iteration produces an **atomic commit** with structured metadata tags in the commit message: `[TASK: N]`, `[CONFIDENCE: N]`, `[STATUS: complete/failed]`
+- The **stuck detector** analyzes recent `CommitInfo` entries (from `vcs.recent_commits()`) to detect patterns like repeated low-diff commits, identical messages, or zero-progress iterations
+- The **prompt builder** includes recent commit history as context for the agent, replacing the old progress/failure file approach
+- The **run loop** calls `vcs.commit_all()` after each iteration and `vcs.recent_commits()` before building the next prompt
+
+This eliminates file corruption risks, simplifies the I/O surface, and makes `git log` a human-readable progress report.
 
 ---
 
@@ -195,17 +206,11 @@ Source: 05-checkpoint-worktree-design.md, "New Model Type" section.
 
 Source: 06-run-loop-design.md, "Plan" section.
 
-#### NEW: `src/core/models/progress.rs` (~70 lines)
+#### NEW: `src/core/models/commit_info.rs` (~40 lines)
 
-`IterationRecord`, `ProgressFile`, `EscalationLevel` types. `ProgressFile::record_iteration()` method.
+`CommitInfo` struct with fields: `id` (commit hash), `message`, `timestamp`, `files_changed`, `insertions`, `deletions`. Derived `Debug`, `Clone`, `Serialize`, `Deserialize`. Helper method `has_metadata_tag(tag) -> bool` for parsing structured commit metadata tags (`[TASK: N]`, `[CONFIDENCE: N]`, `[STATUS: complete/failed]`).
 
-Source: 06-run-loop-design.md, "Progress File" and "Escalation Level" sections.
-
-#### NEW: `src/core/models/failure.rs` (~50 lines)
-
-`FailureEntry`, `FailureLog` types. `FailureLog::for_task()` and `as_prompt_context()` methods.
-
-Source: 06-run-loop-design.md, "Failure Memory" section.
+Source: git-history-based progress tracking design.
 
 #### NEW: `src/core/models/run_config.rs` (~80 lines)
 
@@ -235,23 +240,21 @@ Source: 06-run-loop-design.md, "Plan Store" section.
 
 Source: 06-run-loop-design.md, "Test Runner" section.
 
-#### MODIFY: `src/core/models/mod.rs` (+8 lines)
+#### MODIFY: `src/core/models/mod.rs` (+6 lines)
 
 Add module declarations and re-exports for new model files:
 
 ```rust
 mod agent;
-mod failure;
+mod commit_info;
 mod plan;
-mod progress;
 mod run_config;
 mod worktree;
 
 pub use agent::AgentType;
-pub use failure::{FailureEntry, FailureLog};
+pub use commit_info::CommitInfo;
 pub use plan::{Plan, PlanFormat, Task, TaskStatus};
-pub use progress::{EscalationLevel, IterationRecord, ProgressFile};
-pub use run_config::{RunConfig, StuckPolicy, TestGate};
+pub use run_config::{EscalationLevel, RunConfig, StuckPolicy, TestGate};
 pub use worktree::WorktreeInfo;
 ```
 
@@ -289,9 +292,9 @@ cargo check 2>&1 | head -20
 
 ### Phase 1 Scope
 
-- **New files**: 8
+- **New files**: 7
 - **Modified files**: 3
-- **Estimated lines**: ~650
+- **Estimated lines**: ~550
 - **Tests**: None yet (types and traits only; tests come with implementations)
 
 ---
@@ -344,11 +347,12 @@ Command handler: dispatches `WorktreeAction` to create/list/remove/clean, each w
 
 Source: 05-checkpoint-worktree-design.md, "Command Implementations" > worktree.
 
-#### MODIFY: `src/core/ports/vcs.rs` (~+40 lines)
+#### MODIFY: `src/core/ports/vcs.rs` (~+55 lines)
 
-Extend `VersionControl` trait with 8 new methods:
+Extend `VersionControl` trait with 12 new methods:
 
 ```rust
+// Checkpoint and worktree operations
 fn is_clean(&self) -> anyhow::Result<bool>;
 fn checkpoint(&self, message: &str) -> anyhow::Result<Option<String>>;
 fn list_worktrees(&self) -> anyhow::Result<Vec<WorktreeInfo>>;
@@ -357,14 +361,21 @@ fn remove_worktree(&self, path: &Path, force: bool) -> anyhow::Result<()>;
 fn prune_worktrees(&self) -> anyhow::Result<()>;
 fn is_branch_merged(&self, branch: &str) -> anyhow::Result<bool>;
 fn delete_branch(&self, branch: &str, force: bool) -> anyhow::Result<()>;
+
+// Git-history-based progress tracking
+fn recent_commits(&self, n: usize) -> anyhow::Result<Vec<CommitInfo>>;
+fn commit_all(&self, message: &str) -> anyhow::Result<String>;
+fn diff_stat_since(&self, commit_id: &str) -> anyhow::Result<(usize, usize, usize)>;
 ```
+
+The last three methods support the git-history-based progress model: `recent_commits()` retrieves the last N commits as `CommitInfo` structs for stuck detection and prompt context; `commit_all()` stages and commits all changes with a structured message (used by the run loop to produce atomic iteration commits); `diff_stat_since()` returns `(files_changed, insertions, deletions)` since a given commit for code churn analysis.
 
 Source: 05-checkpoint-worktree-design.md, "Port Trait Extension".
 
-#### MODIFY: `src/adapters/git/mod.rs` (~+50 lines)
+#### MODIFY: `src/adapters/git/mod.rs` (~+70 lines)
 
 - Add `pub mod checkpoint;` and `pub mod worktree;`
-- Implement the 8 new `VersionControl` methods on `GitVersionControl`, each delegating to the corresponding module function.
+- Implement the 12 new `VersionControl` methods on `GitVersionControl`, each delegating to the corresponding module function (including `recent_commits`, `commit_all`, `diff_stat_since` for git-history-based tracking).
 
 #### MODIFY: `src/cli/app.rs` (~+25 lines)
 
@@ -628,7 +639,7 @@ Source: 06-run-loop-design.md, "Plan Parser" section.
 
 Pure stuck assessment:
 
-- `assess_stuck(progress, latest, policy) -> StuckAssessment` -- combines task-count and diff-based detection
+- `assess_stuck(recent_commits: &[CommitInfo], policy: &StuckPolicy) -> StuckAssessment` -- analyzes git history for repeated patterns, low-diff commits, and identical commit messages to detect stuck iterations
 - `build_escalation_prompt(level, stuck_count, has_code_churn) -> Option<String>` -- 4-level graduated prompts
 - `StuckAssessment` struct: level, stuck_count, has_code_churn, should_terminate, prompt_injection
 
@@ -638,26 +649,26 @@ Source: 06-run-loop-design.md, "Stuck Detector" section.
 
 Prompt construction:
 
-- `PromptContext` struct (all inputs for one iteration's prompt)
-- `build_iteration_prompt(ctx) -> String` -- ordered for prompt caching: static first, dynamic last
+- `PromptContext` struct -- all inputs for one iteration's prompt, including `recent_commits: &[CommitInfo]` for git-history context (replaces the old `progress: Option<&ProgressFile>` and `failure_log: Option<&FailureLog>` fields)
+- `build_iteration_prompt(ctx) -> String` -- ordered for prompt caching: static first, dynamic last. Formats recent commit history as context for the agent.
 - `standard_template() -> String` -- the main per-iteration prompt (~60 lines of static text)
 - `initializer_template() -> String` -- iteration 1 setup prompt (~40 lines of static text)
 
 Source: 06-run-loop-design.md, "Prompt Builder" section.
 
-#### NEW: `src/core/services/run_loop.rs` (~250 lines)
+#### NEW: `src/core/services/run_loop.rs` (~220 lines)
 
 The orchestrator:
 
 - `RunOutcome` enum: Complete, Stuck, MaxIterationsReached, Failed
 - `RunLoop` struct holding `&dyn AgentRuntime`, `&dyn PlanStore`, `Option<&dyn TestRunner>`, `&dyn VersionControl`, `RunConfig`
-- `RunLoop::execute() -> Result<RunOutcome>` -- the main loop (translates ralph's bash `for` loop)
+- `RunLoop::execute() -> Result<RunOutcome>` -- the main loop (translates ralph's bash `for` loop). After each iteration, calls `self.vcs.commit_all()` with a structured message containing metadata tags (`[TASK: N]`, `[CONFIDENCE: N]`, `[STATUS: complete/failed]`). Uses `self.vcs.recent_commits()` to feed the stuck detector and prompt builder -- no separate progress or failure state files.
 - `parse_confidence(output) -> Option<u8>` -- extracts `[CONFIDENCE: N]`
-- Private helpers: `load_or_create_progress`, `save_progress`, `load_failure_log`, `append_to_log`, `read_diagnostic_report`, `run_post_loop_review`
+- Private helpers: `append_to_log`, `run_post_loop_review`
 
 Source: 06-run-loop-design.md, "Run Loop Orchestrator" section.
 
-Note: The private helpers contain `todo!()` stubs initially. They require filesystem adapters that are built in Phase 6.
+Note: The `append_to_log` helper contains a `todo!()` stub initially. It requires the filesystem adapter built in Phase 6.
 
 #### MODIFY: `src/core/services/mod.rs` (+4 lines)
 
@@ -689,7 +700,7 @@ The `RunLoop::execute()` method will not compile without the Phase 6 adapters fi
 
 - **New files**: 4
 - **Modified files**: 2
-- **Estimated lines**: ~700 (including inline unit tests)
+- **Estimated lines**: ~650 (including inline unit tests)
 
 ---
 
@@ -765,15 +776,11 @@ Add `pub mod run;` and re-export.
 
 ### Run Loop I/O Completion
 
-Phase 6 also fills in the `todo!()` stubs in `RunLoop`:
+Phase 6 fills in the remaining `todo!()` stub in `RunLoop`:
 
-- `load_or_create_progress()` -- reads `.noslop/progress.json` or creates new `ProgressFile`
-- `save_progress()` -- serializes to `.noslop/progress.json`
-- `load_failure_log()` -- reads `.noslop/failures.jsonl` (one JSON per line)
 - `append_to_log()` -- appends to `.ralph-log`
-- `read_diagnostic_report()` -- reads `.noslop/stuck-report.md` if exists
 
-These are direct filesystem operations in the `RunLoop` impl (not behind a port trait, since they are noslop-internal files, not a swappable boundary).
+This is a direct filesystem operation in the `RunLoop` impl (not behind a port trait, since the ralph-log is a noslop-internal file, not a swappable boundary). Progress and failure tracking are handled entirely through git history -- no `.noslop/progress.json` or `.noslop/failures.jsonl` files exist.
 
 ### Phase 6 Verification
 
@@ -794,7 +801,7 @@ noslop run plan.md --max-iterations 2
 
 - **New files**: 7
 - **Modified files**: 3
-- **Estimated lines**: ~600
+- **Estimated lines**: ~550
 
 ---
 
@@ -828,15 +835,15 @@ Source: 06-run-loop-design.md, "Unit Tests" section.
 
 #### NEW: `tests/unit/stuck_detector_test.rs` (~60 lines)
 
-Tests for graduated escalation levels, stuck count transitions, code churn detection.
+Tests for graduated escalation levels using `CommitInfo` sequences, stuck count transitions, code churn detection from commit diff stats.
 
 #### NEW: `tests/integration/run_test.rs` (~100 lines)
 
-Full `noslop run` integration tests using mock agents (via env var to swap in a test harness) or `#[ignore]` tests that require real agent CLIs.
+Full `noslop run` integration tests using mock agents (via env var to swap in a test harness) or `#[ignore]` tests that require real agent CLIs. Verifies that `commit_all()` is called with structured metadata tags after each iteration.
 
-#### MODIFY: `tests/common/mocks.rs` (~+30 lines)
+#### MODIFY: `tests/common/mocks.rs` (~+40 lines)
 
-Add `MockVersionControl` methods for the 8 new `VersionControl` trait methods.
+Add `MockVersionControl` methods for the 12 new `VersionControl` trait methods (including `recent_commits`, `commit_all`, `diff_stat_since`).
 
 #### MODIFY: `tests/adapter/mod.rs` (+2 lines)
 
@@ -897,7 +904,7 @@ noslop worktree list
 
 | Setup Component      | Noslop Replacement        | Notes                                                                                      |
 | -------------------- | ------------------------- | ------------------------------------------------------------------------------------------ |
-| `scripts/ralph`      | `noslop run`              | Same iteration loop, more features (stuck escalation, test gates, failure memory)          |
+| `scripts/ralph`      | `noslop run`              | Same iteration loop, more features (stuck escalation, test gates, git-history tracking)    |
 | `scripts/checkpoint` | `noslop checkpoint`       | Same interface. Drops multi-repo mode.                                                     |
 | `scripts/worktree`   | `noslop worktree`         | Same interface. Drops multi-repo mode and `--repo` flag.                                   |
 | `scripts/_lib.sh`    | Built into adapters       | `is_clean` -> checkpoint adapter; `count_tasks` -> plan_parser; `git_activity` -> run loop |
@@ -920,14 +927,13 @@ noslop worktree list
 
 ## Risk Register
 
-| Risk                                                       | Likelihood | Impact | Mitigation                                                                                              |
-| ---------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------- |
-| `git2` worktree API limitations                            | Medium     | High   | Fall back to `std::process::Command("git worktree ...")` for operations git2 does not support cleanly   |
-| Agent CLI interface changes                                | Low        | Medium | Adapter pattern isolates changes to one file per agent                                                  |
-| `dirs` crate version conflicts                             | Low        | Low    | `dirs` v6.0 has no transitive deps that conflict with existing Cargo.toml                               |
-| Clippy pedantic rejections on new code                     | High       | Low    | Address iteratively; `#[allow]` pragmatically where clippy is wrong                                     |
-| Test flakiness in worktree tests (filesystem timing)       | Medium     | Low    | Use `tempfile::TempDir` with unique paths; add cleanup in test teardown                                 |
-| Progress/failure files corrupted by concurrent noslop runs | Low        | Medium | Document that `noslop run` should not be invoked concurrently on the same repo. Future: add a lockfile. |
+| Risk                                                 | Likelihood | Impact | Mitigation                                                                                            |
+| ---------------------------------------------------- | ---------- | ------ | ----------------------------------------------------------------------------------------------------- |
+| `git2` worktree API limitations                      | Medium     | High   | Fall back to `std::process::Command("git worktree ...")` for operations git2 does not support cleanly |
+| Agent CLI interface changes                          | Low        | Medium | Adapter pattern isolates changes to one file per agent                                                |
+| `dirs` crate version conflicts                       | Low        | Low    | `dirs` v6.0 has no transitive deps that conflict with existing Cargo.toml                             |
+| Clippy pedantic rejections on new code               | High       | Low    | Address iteratively; `#[allow]` pragmatically where clippy is wrong                                   |
+| Test flakiness in worktree tests (filesystem timing) | Medium     | Low    | Use `tempfile::TempDir` with unique paths; add cleanup in test teardown                               |
 
 ---
 
@@ -936,12 +942,11 @@ noslop worktree list
 Sorted by implementation order within each phase.
 
 ```
-Phase 1 (8 new files):
+Phase 1 (7 new files):
   src/core/models/agent.rs
   src/core/models/worktree.rs
   src/core/models/plan.rs
-  src/core/models/progress.rs
-  src/core/models/failure.rs
+  src/core/models/commit_info.rs
   src/core/models/run_config.rs
   src/core/ports/agent.rs
   src/core/ports/plan_store.rs
@@ -990,7 +995,7 @@ Phase 7 (5 new files):
   tests/integration/run_test.rs
 ```
 
-**Total**: 38 new files + ~15 modified files = ~53 file touches across 7 phases.
+**Total**: 37 new files + ~15 modified files = ~52 file touches across 7 phases.
 
 ---
 

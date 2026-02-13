@@ -229,27 +229,23 @@ CLI flags that override TOML values use `Option<T>` in clap so that "not provide
 ├── staged-acks.json    # Pending acknowledgments for commit (existing)
 ├── reviews/            # Review session JSON files (existing)
 │   └── REV-xxxx.json
-├── progress.json       # Cross-iteration memory for noslop run (new)
-├── failures.jsonl      # Append-only failure log (new)
-├── stuck-report.md     # Diagnostic report from Level 4 escalation (new)
 └── review.md           # Post-loop review findings (new)
 ```
 
+> **Progress tracking**: Iteration progress is tracked through git commit history via structured commit messages, not through separate state files. Each `noslop run` iteration produces an atomic commit with metadata tags like `[TASK: N]`, `[CONFIDENCE: N]`, `[STATUS: complete/failed]`. The loop reads `git log` to reconstruct iteration history, stuck counts, and failure context. This eliminates `progress.json`, `failures.jsonl`, and `stuck-report.md` -- git history is the single source of truth.
+
 ### File Ownership
 
-| File               | Created By            | Updated By      | Read By              | In Git |
-| ------------------ | --------------------- | --------------- | -------------------- | ------ |
-| `.gitkeep`         | `noslop init`         | --              | --                   | Yes    |
-| `staged-acks.json` | `noslop ack`          | `noslop ack`    | pre-commit hook      | No     |
-| `reviews/*.json`   | `noslop review`       | `noslop review` | `noslop review show` | Yes    |
-| `progress.json`    | `noslop run` (iter 1) | `noslop run`    | `noslop run`, agent  | Yes    |
-| `failures.jsonl`   | `noslop run`          | Agent (append)  | `noslop run`, agent  | Yes    |
-| `stuck-report.md`  | Agent (Level 4)       | --              | `noslop run`         | Yes    |
-| `review.md`        | Agent (post-loop)     | --              | User                 | Yes    |
+| File               | Created By        | Updated By      | Read By              | In Git |
+| ------------------ | ----------------- | --------------- | -------------------- | ------ |
+| `.gitkeep`         | `noslop init`     | --              | --                   | Yes    |
+| `staged-acks.json` | `noslop ack`      | `noslop ack`    | pre-commit hook      | No     |
+| `reviews/*.json`   | `noslop review`   | `noslop review` | `noslop review show` | Yes    |
+| `review.md`        | Agent (post-loop) | --              | User                 | Yes    |
 
 ### `.gitignore` Entries
 
-The `.noslop/` directory is committed to git so that progress and failure logs are available across iterations and to other developers. The only file excluded is the transient acknowledgment staging file:
+The `.noslop/` directory is committed to git so that review results and configuration are available to other developers. The only file excluded is the transient acknowledgment staging file:
 
 ```gitignore
 # In project .gitignore
@@ -257,199 +253,6 @@ The `.noslop/` directory is committed to git so that progress and failure logs a
 ```
 
 ## File Formats
-
-### `progress.json`
-
-The structured progress file replaces ralph's reliance on git history for cross-iteration memory. Written as JSON for reliable machine parsing. The agent reads this file to understand what previous iterations accomplished.
-
-**Location**: `.noslop/progress.json`
-
-**Schema**:
-
-```json
-{
-  "plan_file": "plan.md",
-  "agent_type": "claude",
-  "started_at": "2026-02-13T10:30:00Z",
-  "iterations_completed": 3,
-  "max_iterations": 20,
-  "stuck_count": 0,
-  "escalation_level": "None",
-  "iterations": [
-    {
-      "iteration": 1,
-      "started_at": "2026-02-13T10:30:00Z",
-      "ended_at": "2026-02-13T10:35:22Z",
-      "task_attempted": "Set up project structure with Cargo.toml",
-      "task_completed": true,
-      "confidence": 5,
-      "files_modified": ["Cargo.toml", "src/main.rs", "src/lib.rs"],
-      "lines_changed": 45,
-      "tasks_before": 0,
-      "tasks_after": 1,
-      "agent_exit_code": 0,
-      "duration_secs": 322.0,
-      "tests_passed": true,
-      "summary": "Set up project structure with Cargo.toml"
-    },
-    {
-      "iteration": 2,
-      "started_at": "2026-02-13T10:35:30Z",
-      "ended_at": "2026-02-13T10:42:15Z",
-      "task_attempted": "Implement the parser module",
-      "task_completed": true,
-      "confidence": 4,
-      "files_modified": ["src/parser.rs", "src/lib.rs", "tests/parser_test.rs"],
-      "lines_changed": 128,
-      "tasks_before": 1,
-      "tasks_after": 2,
-      "agent_exit_code": 0,
-      "duration_secs": 405.0,
-      "tests_passed": true,
-      "summary": "Implement the parser module"
-    }
-  ],
-  "decisions": [
-    "Using workspace layout with separate crates for core and cli",
-    "Chose serde_json over manual parsing for config files"
-  ],
-  "next_focus": "Implement the rate limiter (task 3)"
-}
-```
-
-**Field Reference**:
-
-| Field                  | Type               | Description                                                                                                  |
-| ---------------------- | ------------------ | ------------------------------------------------------------------------------------------------------------ |
-| `plan_file`            | string             | Relative path to the plan file                                                                               |
-| `agent_type`           | string             | Agent that ran the loop (`"claude"`, `"codex"`)                                                              |
-| `started_at`           | ISO 8601 timestamp | When `noslop run` was invoked                                                                                |
-| `iterations_completed` | u32                | Total iterations executed so far                                                                             |
-| `max_iterations`       | u32                | Maximum allowed iterations                                                                                   |
-| `stuck_count`          | u32                | Consecutive iterations without task-count progress                                                           |
-| `escalation_level`     | string             | Current escalation: `"None"`, `"Suggest"`, `"AnalyzeRootCause"`, `"ForceStrategyChange"`, `"DiagnosticExit"` |
-| `iterations`           | array              | Ordered list of iteration records                                                                            |
-| `decisions`            | string[]           | Architectural notes accumulated across iterations                                                            |
-| `next_focus`           | string (nullable)  | Suggested focus for the next iteration                                                                       |
-
-**Iteration Record Fields**:
-
-| Field             | Type              | Description                                                     |
-| ----------------- | ----------------- | --------------------------------------------------------------- |
-| `iteration`       | u32               | 1-based iteration number                                        |
-| `started_at`      | ISO 8601          | When this iteration started                                     |
-| `ended_at`        | ISO 8601          | When this iteration ended                                       |
-| `task_attempted`  | string (nullable) | Description of the task the agent worked on                     |
-| `task_completed`  | bool              | Whether the agent completed a task (tasks_after > tasks_before) |
-| `confidence`      | u8 (nullable)     | Agent's self-reported confidence (1-5)                          |
-| `files_modified`  | string[]          | Files changed during this iteration (from git diff)             |
-| `lines_changed`   | u32               | Insertions + deletions, excluding plan/progress files           |
-| `tasks_before`    | usize             | Done count before this iteration                                |
-| `tasks_after`     | usize             | Done count after this iteration                                 |
-| `agent_exit_code` | i32               | Exit code from the agent invocation                             |
-| `duration_secs`   | f64               | Wall-clock duration of agent invocation                         |
-| `tests_passed`    | bool (nullable)   | Whether the post-iteration test gate passed                     |
-| `summary`         | string            | Human-readable summary of the iteration                         |
-
-**Lifecycle**:
-
-1. Created by `noslop run` at the start of the first iteration with empty `iterations` array
-2. Updated by `noslop run` after each iteration completes (appends to `iterations`, updates counters)
-3. Also updated by the agent (adds `decisions` entries and updates `next_focus`)
-4. Read by the prompt builder to inject iteration history into each prompt
-5. Committed to git after each iteration's checkpoint
-
-### `failures.jsonl`
-
-Append-only failure log in JSON Lines format (one JSON object per line). Prevents agents from repeating failed approaches by injecting relevant failure context into each iteration's prompt.
-
-**Location**: `.noslop/failures.jsonl`
-
-**Format**: Each line is a self-contained JSON object. No array wrapper. No trailing commas.
-
-```jsonl
-{"iteration":4,"task":"Implement rate limiter","approach":"Used token bucket with mutex","error":"Deadlock under concurrent access in test_parallel_requests","lesson":"Mutex-based approach deadlocks when handler holds lock across await point. Use atomic operations or actor pattern instead.","timestamp":"2026-02-13T11:02:00Z"}
-{"iteration":5,"task":"Implement rate limiter","approach":"Switched to atomic counter with CAS loop","error":"Race condition: counter resets between check and decrement","lesson":"Atomic CAS loop needs to include both check and decrement in a single compare_exchange. Cannot split into separate load + store.","timestamp":"2026-02-13T11:15:00Z"}
-```
-
-**Field Reference**:
-
-| Field       | Type     | Description                                         |
-| ----------- | -------- | --------------------------------------------------- |
-| `iteration` | u32      | Iteration where the failure occurred                |
-| `task`      | string   | Description of the task that was attempted          |
-| `approach`  | string   | Description of the approach taken                   |
-| `error`     | string   | Error message or failure description                |
-| `lesson`    | string   | What NOT to do again (injected into future prompts) |
-| `timestamp` | ISO 8601 | When the failure was recorded                       |
-
-**Why JSONL**: JSONL is append-friendly. The agent appends a single line after a failed iteration without needing to parse and rewrite the entire file. This is critical because the agent writes this file directly (as instructed by the prompt template), and appending a line is far more reliable than round-tripping a JSON array.
-
-**Reading**: `noslop run` reads the file by splitting on newlines and parsing each line independently. Malformed lines are skipped with a warning.
-
-```rust
-pub fn load_failure_log(path: &Path) -> anyhow::Result<FailureLog> {
-    let content = match fs::read_to_string(path) {
-        Ok(c) => c,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            return Ok(FailureLog::default());
-        }
-        Err(e) => return Err(e.into()),
-    };
-
-    let entries = content
-        .lines()
-        .filter(|line| !line.trim().is_empty())
-        .filter_map(|line| {
-            serde_json::from_str::<FailureEntry>(line)
-                .map_err(|e| log::warn!("Skipping malformed failure entry: {e}"))
-                .ok()
-        })
-        .collect();
-
-    Ok(FailureLog { entries })
-}
-```
-
-### `stuck-report.md`
-
-Free-form Markdown diagnostic report written by the agent when stuck detection reaches Level 4 (DiagnosticExit). The prompt template instructs the agent to produce this file with specific sections.
-
-**Location**: `.noslop/stuck-report.md`
-
-**Expected Structure** (enforced by prompt, not by schema):
-
-```markdown
-# Stuck Report
-
-## Task Attempted
-
-<description of the task and its requirements>
-
-## Approaches Tried
-
-1. **Iteration N**: <approach> -- <result>
-2. **Iteration N+1**: <approach> -- <result>
-   ...
-
-## Error Messages
-```
-
-<verbatim error output>
-```
-
-## Files Involved
-
-- `path/to/file.rs` -- <current state>
-- `path/to/other.rs` -- <current state>
-
-## Root Cause Assessment
-
-<agent's analysis of what is fundamentally blocking progress>
-
-````
-
-**Lifecycle**: Written once by the agent during the Level 4 iteration. Read by `noslop run` to include in the `RunOutcome::Stuck` return value. Not updated after creation.
 
 ### `review.md`
 
@@ -477,7 +280,7 @@ Post-loop review findings written by the agent after all tasks complete. The rev
 ## Summary
 
 <overall assessment>
-````
+```
 
 **Lifecycle**: Written once by the review agent pass. Read by the user. May be committed if the user chooses to keep it.
 
@@ -961,9 +764,7 @@ src/
 │                           #   converts to domain models, applies CLI overrides
 └── core/
     └── models/
-        ├── run_config.rs   # RunConfig, StuckPolicy, TestGate (defined in 06)
-        ├── progress.rs     # ProgressFile, IterationRecord (defined in 06)
-        └── failure.rs      # FailureEntry, FailureLog (defined in 06)
+        └── run_config.rs   # RunConfig, StuckPolicy, TestGate (defined in 06)
 ```
 
 ## Test Strategy
@@ -1192,9 +993,9 @@ This design consolidates all configuration surfaces into a single reference:
 
 1. **`.noslop.toml` schema**: Three new optional sections (`[agent]`, `[run]`, `[run.stuck_policy]`, `[run.test_gate]`) alongside the existing `[project]` and `[[check]]` sections. All new fields default gracefully.
 
-2. **`.noslop/` directory**: Four new files (`progress.json`, `failures.jsonl`, `stuck-report.md`, `review.md`) with precise format definitions. All are committed to git except `staged-acks.json`.
+2. **`.noslop/` directory**: One new file (`review.md`) with a precise format definition. Iteration progress and failure context are tracked through git commit history via structured commit messages -- no separate state files. All files are committed to git except `staged-acks.json`.
 
-3. **Parser changes**: Six new structs added to `src/adapters/toml/parser.rs`. Two new fields on `NoslopFile`. Zero changes to existing functions or the `TomlCheckRepository` adapter.
+3. **Parser changes**: Four new structs (`AgentSection`, `RunSection`, `StuckPolicySection`, `TestGateSection`) added to `src/adapters/toml/parser.rs`. Two new fields on `NoslopFile`. Zero changes to existing functions or the `TomlCheckRepository` adapter.
 
 4. **Precedence rules**: CLI flags override TOML values override compiled defaults. Implemented via `Option<T>` in clap args and explicit merging in the command handler.
 
