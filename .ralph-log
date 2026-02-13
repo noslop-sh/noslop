@@ -2,3 +2,6 @@
 --- Iteration 1 ---
 [RALPH:DONE task="Deep-analyze noslop codebase: hexagonal architecture, CLI commands, models, tests" iteration=1]
 
+--- Iteration 2 ---
+[RALPH:DONE task="Deep-analyze setup codebase" iteration=2]
+
