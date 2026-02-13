@@ -5,3 +5,6 @@
 --- Iteration 2 ---
 [RALPH:DONE task="Deep-analyze setup codebase" iteration=2]
 
+--- Iteration 3 ---
+[RALPH:DONE task="Design the Agent port trait: AgentConfig and AgentRuntime traits for agent-agnostic" iteration=3]
+
