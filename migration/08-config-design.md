@@ -1,12 +1,12 @@
 # Configuration & File Format Design
 
-Design specification for the complete `.noslop.toml` schema, `.noslop/` directory file formats, and the TOML parser changes needed to support agent configuration and the iteration loop.
+Design specification for the complete `.noslop.toml` schema, `.noslop/` directory file formats, and the TOML parser changes needed to support the review analyzer pipeline.
 
 ## Overview
 
-This document consolidates all configuration surfaces introduced across the migration design docs into a single reference. It defines:
+This document consolidates all configuration surfaces for noslop's code review architecture into a single reference. It defines:
 
-1. The full `.noslop.toml` schema -- existing `[project]` and `[[check]]` sections plus new `[agent]`, `[run]`, `[run.stuck_policy]`, and `[run.test_gate]` sections
+1. The full `.noslop.toml` schema -- existing `[project]` and `[[check]]` sections plus new `[agent]`, `[review]`, and analyzer-specific sub-tables
 2. All files in the `.noslop/` directory -- existing and new -- with their exact formats
 3. The parser changes needed in `src/adapters/toml/parser.rs` to deserialize the expanded schema
 4. How CLI flags override TOML values (precedence rules)
@@ -28,40 +28,55 @@ This document consolidates all configuration surfaces introduced across the migr
 prefix = "NOS"          # 3-letter prefix for auto-generated check IDs
 
 # --- Agent configuration (new, optional) ---
-# Written by `noslop init <agent>`. Read by `noslop run` to determine
-# which AgentRuntime to use. Omitted when no agent is configured.
+# Specifies the default agent used by AgentAnalyzer for inference-based
+# review passes. Written by `noslop init <agent>`.
 
 [agent]
 type = "claude"          # Required. "claude" | "codex"
 
-# --- Run loop configuration (new, optional) ---
-# Read by `noslop run`. All fields have defaults; the entire [run]
-# section can be omitted.
+# --- Review pipeline configuration (new, optional) ---
+# Controls which analyzers run and in what order during `noslop review`.
+# Each analyzer sees findings from all prior analyzers (fold semantics).
+# Order matters: Static -> Computed -> Tool -> Inference.
 
-[run]
-max_iterations = 20      # Maximum iterations before the loop exits
-confidence_threshold = 4 # 1-5. Agent must provide evidence if below this
-post_loop_review = true  # Run a review agent pass after completion
-initializer_phase = true # First iteration gets a setup-focused prompt
+[review]
+analyzers = ["conventions", "formatting", "co-change", "agent:security", "agent:quality"]
 
-# --- Stuck detection thresholds (new, optional) ---
-# Graduated 4-level escalation. Each value is the number of consecutive
-# iterations without task-count progress before that level activates.
+# --- Co-change analyzer configuration ---
+# Detects files that historically change together but are missing from
+# the current branch diff.
 
-[run.stuck_policy]
-level_1 = 2              # Suggest a different approach
-level_2 = 4              # Mandate root cause analysis
-level_3 = 6              # Force skip/decompose/simplify
-level_4 = 8              # Generate diagnostic report + terminate
+[review.co-change]
+min_correlation = 0.7    # Minimum co-change frequency (0.0-1.0)
+lookback = 500           # Number of commits to scan for correlation
+min_commits = 10         # Minimum co-occurrences before flagging
 
-# --- External test gate (new, optional) ---
-# When present, noslop runs this command after each iteration and feeds
-# failures into the next iteration's prompt.
+# --- Agent-based analyzer: security focus ---
+# Uses AgentRuntime to perform LLM-based security review of the diff.
 
-[run.test_gate]
-command = "cargo test"   # Shell command to execute
-timeout_secs = 300       # Kill after this many seconds
-max_output_lines = 50    # Truncate captured output beyond this
+[review."agent:security"]
+agent = "claude"                                  # Override default agent
+prompt_template = ".noslop/prompts/security.md"   # Optional custom prompt
+
+# --- Agent-based analyzer: quality focus ---
+# Uses AgentRuntime to perform LLM-based quality review of the diff.
+
+[review."agent:quality"]
+agent = "claude"
+
+# --- Script analyzer: user-extensible ---
+# External command that reads findings JSON on stdin and writes
+# new findings JSON on stdout.
+
+[review."custom:migrations"]
+type = "script"
+command = "python ./scripts/check-migrations.py"
+
+# --- Formatting tools ---
+# Delegates to external formatters and flags files that would change.
+
+[review.formatting]
+tools = ["rustfmt", "prettier"]
 
 # --- Check definitions (existing, unchanged) ---
 
@@ -80,14 +95,16 @@ severity = "warn"
 
 ### Section Reference
 
-| Section              | Status   | Required | Written By            | Read By                         |
-| -------------------- | -------- | -------- | --------------------- | ------------------------------- |
-| `[project]`          | Existing | Yes      | `noslop init`         | `noslop check`, `noslop run`    |
-| `[agent]`            | New      | No       | `noslop init <agent>` | `noslop run`                    |
-| `[run]`              | New      | No       | User (manual edit)    | `noslop run`                    |
-| `[run.stuck_policy]` | New      | No       | User (manual edit)    | `noslop run`                    |
-| `[run.test_gate]`    | New      | No       | User (manual edit)    | `noslop run`                    |
-| `[[check]]`          | Existing | No       | `noslop check add`    | `noslop check`, pre-commit hook |
+| Section               | Status   | Required | Written By            | Read By                         |
+| --------------------- | -------- | -------- | --------------------- | ------------------------------- |
+| `[project]`           | Existing | Yes      | `noslop init`         | `noslop check`, `noslop review` |
+| `[agent]`             | New      | No       | `noslop init <agent>` | `noslop review` (AgentAnalyzer) |
+| `[review]`            | New      | No       | User (manual edit)    | `noslop review`                 |
+| `[review.co-change]`  | New      | No       | User (manual edit)    | CoChangeAnalyzer                |
+| `[review."agent:*"]`  | New      | No       | User (manual edit)    | AgentAnalyzer                   |
+| `[review."custom:*"]` | New      | No       | User (manual edit)    | ScriptAnalyzer                  |
+| `[review.formatting]` | New      | No       | User (manual edit)    | FormatAnalyzer                  |
+| `[[check]]`           | Existing | No       | `noslop check add`    | `noslop check`, pre-commit hook |
 
 ### Field Definitions
 
@@ -103,31 +120,45 @@ severity = "warn"
 | ------ | ------ | ------- | ----------------------------------------- |
 | `type` | string | --      | Agent identifier: `"claude"` or `"codex"` |
 
-#### `[run]`
+#### `[review]`
 
-| Field                  | Type | Default | Description                                             |
-| ---------------------- | ---- | ------- | ------------------------------------------------------- |
-| `max_iterations`       | u32  | `20`    | Maximum iterations before the loop exits                |
-| `confidence_threshold` | u8   | `4`     | Agent must provide evidence below this confidence level |
-| `post_loop_review`     | bool | `true`  | Run a review pass after all tasks complete              |
-| `initializer_phase`    | bool | `true`  | First iteration uses setup-focused prompt               |
+| Field       | Type     | Default           | Description                                           |
+| ----------- | -------- | ----------------- | ----------------------------------------------------- |
+| `analyzers` | string[] | `["conventions"]` | Ordered list of analyzer names to run in the pipeline |
 
-#### `[run.stuck_policy]`
+Analyzer names follow a convention:
 
-| Field     | Type | Default | Description                                |
-| --------- | ---- | ------- | ------------------------------------------ |
-| `level_1` | u32  | `2`     | Iterations without progress before Level 1 |
-| `level_2` | u32  | `4`     | Iterations without progress before Level 2 |
-| `level_3` | u32  | `6`     | Iterations without progress before Level 3 |
-| `level_4` | u32  | `8`     | Iterations without progress before Level 4 |
+- **Plain names** map to built-in analyzers: `"conventions"`, `"formatting"`, `"co-change"`
+- **`agent:` prefix** maps to AgentAnalyzer instances with a focus area: `"agent:security"`, `"agent:quality"`
+- **`custom:` prefix** maps to ScriptAnalyzer instances: `"custom:migrations"`, `"custom:lint"`
 
-#### `[run.test_gate]`
+#### `[review.co-change]`
 
-| Field              | Type   | Default | Description                   |
-| ------------------ | ------ | ------- | ----------------------------- |
-| `command`          | string | --      | Shell command to run tests    |
-| `timeout_secs`     | u64    | `300`   | Kill after this many seconds  |
-| `max_output_lines` | usize  | `50`    | Truncate captured test output |
+| Field             | Type | Default | Description                                      |
+| ----------------- | ---- | ------- | ------------------------------------------------ |
+| `min_correlation` | f64  | `0.7`   | Minimum co-change frequency to flag (0.0-1.0)    |
+| `lookback`        | u32  | `500`   | Number of commits to scan for co-change patterns |
+| `min_commits`     | u32  | `10`    | Minimum co-occurrences before flagging           |
+
+#### `[review."agent:*"]`
+
+| Field             | Type   | Default             | Description                                            |
+| ----------------- | ------ | ------------------- | ------------------------------------------------------ |
+| `agent`           | string | from `[agent].type` | Agent to use for this pass (overrides default)         |
+| `prompt_template` | string | built-in default    | Path to custom prompt template (relative to repo root) |
+
+#### `[review."custom:*"]`
+
+| Field     | Type   | Default | Description              |
+| --------- | ------ | ------- | ------------------------ |
+| `type`    | string | --      | Must be `"script"`       |
+| `command` | string | --      | Shell command to execute |
+
+#### `[review.formatting]`
+
+| Field   | Type     | Default | Description                                                |
+| ------- | -------- | ------- | ---------------------------------------------------------- |
+| `tools` | string[] | `[]`    | Formatting tools to check: `"rustfmt"`, `"prettier"`, etc. |
 
 #### `[[check]]`
 
@@ -158,6 +189,16 @@ prefix = "NOS"
 type = "claude"
 ```
 
+Review pipeline with defaults only (convention checks):
+
+```toml
+[project]
+prefix = "NOS"
+
+[review]
+analyzers = ["conventions"]
+```
+
 Full configuration with all options:
 
 ```toml
@@ -167,22 +208,27 @@ prefix = "NOS"
 [agent]
 type = "claude"
 
-[run]
-max_iterations = 30
-confidence_threshold = 3
-post_loop_review = true
-initializer_phase = true
+[review]
+analyzers = ["conventions", "formatting", "co-change", "agent:security", "agent:quality", "custom:migrations"]
 
-[run.stuck_policy]
-level_1 = 3
-level_2 = 5
-level_3 = 7
-level_4 = 10
+[review.co-change]
+min_correlation = 0.8
+lookback = 1000
+min_commits = 5
 
-[run.test_gate]
-command = "cargo test --workspace"
-timeout_secs = 600
-max_output_lines = 100
+[review."agent:security"]
+agent = "claude"
+prompt_template = ".noslop/prompts/security.md"
+
+[review."agent:quality"]
+agent = "claude"
+
+[review."custom:migrations"]
+type = "script"
+command = "python ./scripts/check-migrations.py"
+
+[review.formatting]
+tools = ["rustfmt", "prettier"]
 
 [[check]]
 target = "src/core/**/*.rs"
@@ -196,28 +242,27 @@ tags = ["architecture"]
 CLI flags override TOML values. The resolution order (highest priority first):
 
 ```
-1. CLI flag         (e.g., --max-iterations 50)
-2. .noslop.toml     (e.g., [run] max_iterations = 30)
-3. Compiled default (e.g., 20)
+1. CLI flag         (e.g., --analyzer conventions,formatting)
+2. .noslop.toml     (e.g., [review] analyzers = [...])
+3. Compiled default (e.g., ["conventions"])
 ```
 
-The precedence is implemented in `src/cli/commands/run.rs` where the `RunConfig` is constructed:
+The precedence is implemented in `src/cli/commands/review.rs` where the `ReviewConfig` is constructed:
 
 ```rust
-let max_iterations = args.max_iterations
-    .unwrap_or_else(|| toml_config.run.max_iterations);
+let analyzers = args.analyzers
+    .unwrap_or_else(|| toml_config.review.analyzers.clone());
 ```
 
 CLI flags that override TOML values use `Option<T>` in clap so that "not provided" is distinguishable from "provided with a value":
 
-| CLI Flag                   | TOML Path                    | Default |
-| -------------------------- | ---------------------------- | ------- |
-| `--max-iterations N`       | `[run] max_iterations`       | `20`    |
-| `--agent claude\|codex`    | `[agent] type`               | --      |
-| `--no-review`              | `[run] post_loop_review`     | `true`  |
-| `--no-tests`               | (disables `[run.test_gate]`) | --      |
-| `--stuck-limit N`          | `[run.stuck_policy] level_4` | `8`     |
-| `--confidence-threshold N` | `[run] confidence_threshold` | `4`     |
+| CLI Flag                    | TOML Path                            | Default           |
+| --------------------------- | ------------------------------------ | ----------------- |
+| `--analyzer name[,name...]` | `[review] analyzers`                 | `["conventions"]` |
+| `--agent claude\|codex`     | `[agent] type`                       | --                |
+| `--base main`               | (inferred from git)                  | default branch    |
+| `--check`                   | (none)                               | `false`           |
+| `--min-correlation 0.8`     | `[review.co-change] min_correlation` | `0.7`             |
 
 ## `.noslop/` Directory Layout
 
@@ -227,25 +272,25 @@ CLI flags that override TOML values use `Option<T>` in clap so that "not provide
 .noslop/
 ├── .gitkeep            # Ensures directory exists in git (existing)
 ├── staged-acks.json    # Pending acknowledgments for commit (existing)
-├── reviews/            # Review session JSON files (existing)
-│   └── REV-xxxx.json
-└── review.md           # Post-loop review findings (new)
+├── reviews/            # Review session JSON files (new)
+│   └── {session-id}.json
+└── prompts/            # Custom prompt templates for agent analyzers (new)
+    ├── security.md
+    └── quality.md
 ```
-
-> **Progress tracking**: Iteration progress is tracked through git commit history via structured commit messages, not through separate state files. Each `noslop run` iteration produces an atomic commit with metadata tags like `[TASK: N]`, `[CONFIDENCE: N]`, `[STATUS: complete/failed]`. The loop reads `git log` to reconstruct iteration history, stuck counts, and failure context. This eliminates `progress.json`, `failures.jsonl`, and `stuck-report.md` -- git history is the single source of truth.
 
 ### File Ownership
 
-| File               | Created By        | Updated By      | Read By              | In Git |
-| ------------------ | ----------------- | --------------- | -------------------- | ------ |
-| `.gitkeep`         | `noslop init`     | --              | --                   | Yes    |
-| `staged-acks.json` | `noslop ack`      | `noslop ack`    | pre-commit hook      | No     |
-| `reviews/*.json`   | `noslop review`   | `noslop review` | `noslop review show` | Yes    |
-| `review.md`        | Agent (post-loop) | --              | User                 | Yes    |
+| File               | Created By      | Updated By        | Read By                  | In Git |
+| ------------------ | --------------- | ----------------- | ------------------------ | ------ |
+| `.gitkeep`         | `noslop init`   | --                | --                       | Yes    |
+| `staged-acks.json` | `noslop ack`    | `noslop ack`      | pre-commit hook          | No     |
+| `reviews/*.json`   | `noslop review` | `noslop findings` | `noslop findings`, hooks | Yes    |
+| `prompts/*.md`     | User            | User              | AgentAnalyzer            | Yes    |
 
 ### `.gitignore` Entries
 
-The `.noslop/` directory is committed to git so that review results and configuration are available to other developers. The only file excluded is the transient acknowledgment staging file:
+The `.noslop/` directory is committed to git so that review results, prompt templates, and configuration are available to other developers. The only file excluded is the transient acknowledgment staging file:
 
 ```gitignore
 # In project .gitignore
@@ -254,35 +299,129 @@ The `.noslop/` directory is committed to git so that review results and configur
 
 ## File Formats
 
-### `review.md`
+### Review Session Files (`reviews/{session-id}.json`)
 
-Post-loop review findings written by the agent after all tasks complete. The review pass is triggered by `noslop run` when `post_loop_review = true`.
+Each `noslop review` invocation creates a review session file. The session captures all findings from the pipeline, along with their resolution status. Sessions are git-tracked so the team can see review history.
 
-**Location**: `.noslop/review.md`
+**Location**: `.noslop/reviews/{session-id}.json`
 
-**Expected Structure** (enforced by prompt, not by schema):
+**Schema**:
 
-```markdown
-# Post-Loop Review
-
-## Critical Issues
-
-- <issue with severity justification>
-
-## Warnings
-
-- <issue>
-
-## Informational
-
-- <observation>
-
-## Summary
-
-<overall assessment>
+```json
+{
+  "id": "review-abc123",
+  "target": {
+    "base": "main",
+    "head": "feature/x",
+    "base_commit": "a1b2c3d",
+    "head_commit": "e4f5g6h"
+  },
+  "started_at": "2026-02-16T10:00:00Z",
+  "completed_at": "2026-02-16T10:02:30Z",
+  "analyzers_run": ["conventions", "co-change", "agent:security"],
+  "findings": [
+    {
+      "id": "F-001",
+      "source": { "type": "analyzer", "name": "co-change" },
+      "file": "src/core/services/pipeline.rs",
+      "line": null,
+      "severity": "warn",
+      "message": "src/core/ports/analyzer.rs usually changes with this file (correlation: 0.85)",
+      "suggestion": "Review whether analyzer.rs needs updates too",
+      "commit": null,
+      "category": "co-change"
+    },
+    {
+      "id": "F-002",
+      "source": { "type": "check", "id": "NOS-3" },
+      "file": "src/adapters/agent/claude.rs",
+      "line": 42,
+      "severity": "block",
+      "message": "Consider impact on public API",
+      "suggestion": null,
+      "commit": "e4f5g6h",
+      "category": "convention"
+    }
+  ],
+  "resolutions": {
+    "F-001": {
+      "status": "dismissed",
+      "reason": "Not applicable to this change",
+      "at": "2026-02-16T10:05:00Z"
+    },
+    "F-002": {
+      "status": "resolved",
+      "reason": null,
+      "at": "2026-02-16T10:06:00Z"
+    }
+  }
+}
 ```
 
-**Lifecycle**: Written once by the review agent pass. Read by the user. May be committed if the user chooses to keep it.
+**Lifecycle**:
+
+1. Created by `noslop review` when the pipeline starts
+2. Findings are appended as each analyzer completes
+3. Updated by `noslop findings resolve` and `noslop findings dismiss`
+4. Read by `noslop findings` for listing
+5. Read by pre-push hook to gate on unresolved blocking findings
+
+### Review Memory File (`.noslop/reviews/memory.json`)
+
+Tracks finding patterns across review sessions. Findings that recur frequently are candidates for graduation to permanent `[[check]]` entries.
+
+**Location**: `.noslop/reviews/memory.json`
+
+**Schema**:
+
+```json
+{
+  "patterns": [
+    {
+      "category": "security",
+      "message_pattern": "SQL injection.*raw query",
+      "occurrences": 5,
+      "first_seen": "2026-01-15T10:00:00Z",
+      "last_seen": "2026-02-16T10:00:00Z",
+      "sessions": ["review-abc123", "review-def456", "review-ghi789"],
+      "graduated": false
+    }
+  ],
+  "graduated_checks": [
+    {
+      "pattern_index": 0,
+      "check_id": "NOS-15",
+      "graduated_at": "2026-02-20T14:00:00Z"
+    }
+  ]
+}
+```
+
+### Custom Prompt Templates (`prompts/*.md`)
+
+User-authored prompt templates for agent-based analyzers. Referenced by `prompt_template` in the TOML config.
+
+**Expected Structure** (convention, not schema-enforced):
+
+```markdown
+# Security Review
+
+You are reviewing a code diff for security issues.
+
+## Focus Areas
+
+- SQL injection
+- Command injection
+- Path traversal
+- Hardcoded secrets
+- Authentication/authorization bypass
+
+## Output Format
+
+For each finding, output a JSON object on its own line:
+
+{"file": "path/to/file.rs", "line": 42, "severity": "block", "message": "...", "suggestion": "..."}
+```
 
 ### `staged-acks.json` (Existing)
 
@@ -298,15 +437,11 @@ Unchanged. Pending acknowledgments staged for the next commit.
 ]
 ```
 
-### `reviews/REV-xxxx.json` (Existing)
-
-Unchanged. Code review session files.
-
 ## TOML Parser Changes
 
 ### Current Parser (`src/adapters/toml/parser.rs`)
 
-The existing parser defines two structs: `NoslopFile` and `ProjectConfig`. It does not know about `[agent]`, `[run]`, or any sub-tables of `[run]`.
+The existing parser defines two structs: `NoslopFile` and `ProjectConfig`. It does not know about `[agent]`, `[review]`, or any analyzer configuration.
 
 ### Updated Structs
 
@@ -317,6 +452,7 @@ The following changes are needed in `src/adapters/toml/parser.rs`. All new field
 //!
 //! Handles reading and deserializing noslop configuration files.
 
+use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -333,9 +469,9 @@ pub struct NoslopFile {
     #[serde(default)]
     pub agent: Option<AgentSection>,
 
-    /// Run loop configuration
+    /// Review pipeline configuration
     #[serde(default)]
-    pub run: Option<RunSection>,
+    pub review: Option<ReviewSection>,
 
     /// Checks in this file
     #[serde(default, rename = "check")]
@@ -371,87 +507,102 @@ pub struct AgentSection {
     pub agent_type: String,
 }
 
-/// Run loop configuration section
+/// Review pipeline configuration section
+///
+/// The `analyzers` list defines which analyzers run and in what order.
+/// Additional keys are parsed as analyzer-specific configuration via
+/// the `analyzer_configs` catch-all.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
-pub struct RunSection {
-    /// Maximum number of iterations
-    pub max_iterations: u32,
+pub struct ReviewSection {
+    /// Ordered list of analyzer names to run
+    pub analyzers: Vec<String>,
 
-    /// Confidence threshold for task completion (1-5)
-    pub confidence_threshold: u8,
+    /// Co-change analyzer configuration
+    #[serde(rename = "co-change")]
+    pub co_change: Option<CoChangeConfig>,
 
-    /// Whether to run a post-loop review
-    pub post_loop_review: bool,
+    /// Formatting analyzer configuration
+    pub formatting: Option<FormattingConfig>,
 
-    /// Whether to run an initializer phase on iteration 1
-    pub initializer_phase: bool,
-
-    /// Stuck detection thresholds
-    pub stuck_policy: Option<StuckPolicySection>,
-
-    /// External test gate
-    pub test_gate: Option<TestGateSection>,
+    /// Catch-all for analyzer-specific sub-tables (agent:*, custom:*)
+    /// Parsed as a flat HashMap; keys like "agent:security" map to their config.
+    #[serde(flatten)]
+    pub analyzer_configs: HashMap<String, toml::Value>,
 }
 
-impl Default for RunSection {
+impl Default for ReviewSection {
     fn default() -> Self {
         Self {
-            max_iterations: 20,
-            confidence_threshold: 4,
-            post_loop_review: true,
-            initializer_phase: true,
-            stuck_policy: None,
-            test_gate: None,
+            analyzers: vec!["conventions".to_string()],
+            co_change: None,
+            formatting: None,
+            analyzer_configs: HashMap::new(),
         }
     }
 }
 
-/// Stuck detection thresholds
+/// Co-change analyzer configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
-pub struct StuckPolicySection {
-    /// Iterations without progress before Level 1 (suggest)
-    pub level_1: u32,
-    /// Iterations without progress before Level 2 (root cause analysis)
-    pub level_2: u32,
-    /// Iterations without progress before Level 3 (force strategy change)
-    pub level_3: u32,
-    /// Iterations without progress before Level 4 (diagnostic + exit)
-    pub level_4: u32,
+pub struct CoChangeConfig {
+    /// Minimum co-change frequency to flag (0.0-1.0)
+    pub min_correlation: f64,
+    /// Number of commits to scan for co-change patterns
+    pub lookback: u32,
+    /// Minimum co-occurrences before flagging
+    pub min_commits: u32,
 }
 
-impl Default for StuckPolicySection {
+impl Default for CoChangeConfig {
     fn default() -> Self {
         Self {
-            level_1: 2,
-            level_2: 4,
-            level_3: 6,
-            level_4: 8,
+            min_correlation: 0.7,
+            lookback: 500,
+            min_commits: 10,
         }
     }
 }
 
-/// External test gate configuration
+/// Formatting analyzer configuration
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(default)]
-pub struct TestGateSection {
-    /// Shell command to run tests (e.g., "cargo test")
+pub struct FormattingConfig {
+    /// List of formatting tools to check
+    pub tools: Vec<String>,
+}
+
+impl Default for FormattingConfig {
+    fn default() -> Self {
+        Self {
+            tools: Vec::new(),
+        }
+    }
+}
+
+/// Agent analyzer entry (parsed from catch-all `analyzer_configs`)
+///
+/// This struct is not directly deserialized from TOML. Instead, entries
+/// matching `agent:*` keys in the `analyzer_configs` HashMap are
+/// deserialized into this type at validation time.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct AgentAnalyzerConfig {
+    /// Agent to use (overrides [agent].type)
+    pub agent: Option<String>,
+    /// Path to custom prompt template
+    pub prompt_template: Option<String>,
+}
+
+/// Script analyzer entry (parsed from catch-all `analyzer_configs`)
+///
+/// Entries matching `custom:*` keys with `type = "script"`.
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ScriptAnalyzerConfig {
+    /// Must be "script"
+    #[serde(rename = "type")]
+    pub analyzer_type: String,
+    /// Shell command to execute
     pub command: String,
-    /// Timeout in seconds
-    pub timeout_secs: u64,
-    /// Maximum lines of test output to capture
-    pub max_output_lines: usize,
-}
-
-impl Default for TestGateSection {
-    fn default() -> Self {
-        Self {
-            command: String::new(),
-            timeout_secs: 300,
-            max_output_lines: 50,
-        }
-    }
 }
 
 /// A check entry in .noslop.toml (unchanged)
@@ -486,9 +637,9 @@ fn default_severity() -> String {
 +    #[serde(default)]
 +    pub agent: Option<AgentSection>,
 +
-+    /// Run loop configuration
++    /// Review pipeline configuration
 +    #[serde(default)]
-+    pub run: Option<RunSection>,
++    pub review: Option<ReviewSection>,
 +
      /// Checks in this file
      #[serde(default, rename = "check")]
@@ -502,31 +653,39 @@ fn default_severity() -> String {
 +    pub agent_type: String,
 +}
 +
-+/// Run loop configuration section
++/// Review pipeline configuration section
 +#[derive(Debug, Clone, Deserialize, Serialize)]
 +#[serde(default)]
-+pub struct RunSection { ... }
++pub struct ReviewSection { ... }
 +
-+/// Stuck detection thresholds
++/// Co-change analyzer configuration
 +#[derive(Debug, Clone, Deserialize, Serialize)]
 +#[serde(default)]
-+pub struct StuckPolicySection { ... }
++pub struct CoChangeConfig { ... }
 +
-+/// External test gate configuration
++/// Formatting analyzer configuration
 +#[derive(Debug, Clone, Deserialize, Serialize)]
 +#[serde(default)]
-+pub struct TestGateSection { ... }
++pub struct FormattingConfig { ... }
++
++/// Agent analyzer entry
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub struct AgentAnalyzerConfig { ... }
++
++/// Script analyzer entry
++#[derive(Debug, Clone, Deserialize, Serialize)]
++pub struct ScriptAnalyzerConfig { ... }
 ```
 
 ### Backward Compatibility
 
-| Scenario                                                    | Behavior                                                                    |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Existing `.noslop.toml` without `[agent]` or `[run]`        | Parses fine. `agent` is `None`, `run` is `None`.                            |
-| New `.noslop.toml` with `[agent]` read by old noslop binary | TOML serde ignores unknown keys (no `deny_unknown_fields`). No error.       |
-| `[run]` section with only some fields specified             | Missing fields use `Default::default()`. Partial config works.              |
-| `[run.stuck_policy]` present but `[run]` omitted            | Not valid TOML. `stuck_policy` is a sub-table of `[run]`. Requires `[run]`. |
-| `[run.test_gate]` with empty command string                 | Parses, but `noslop run` treats empty command as "no test gate".            |
+| Scenario                                                    | Behavior                                                                       |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Existing `.noslop.toml` without `[agent]` or `[review]`     | Parses fine. `agent` is `None`, `review` is `None`.                            |
+| New `.noslop.toml` with `[agent]` read by old noslop binary | TOML serde ignores unknown keys (no `deny_unknown_fields`). No error.          |
+| `[review]` section with only `analyzers` specified          | Missing sub-tables use `None`. Partial config works.                           |
+| `[review.co-change]` present but `[review]` omitted         | Not valid TOML. `co-change` is a sub-table of `[review]`. Requires `[review]`. |
+| `[review."agent:security"]` with no `agent` field           | Parses. Falls back to `[agent].type` at runtime.                               |
 
 ### No Changes to `load_file` or `find_noslop_files`
 
@@ -544,11 +703,89 @@ The `find_noslop_files` function walks up the directory tree and loads each `.no
 
 ### No Changes to `TomlCheckRepository`
 
-The `TomlCheckRepository` adapter in `src/adapters/toml/repository.rs` only accesses `noslop_file.checks` and `noslop_file.project`. It does not read `agent` or `run`. No changes needed.
+The `TomlCheckRepository` adapter in `src/adapters/toml/repository.rs` only accesses `noslop_file.checks` and `noslop_file.project`. It does not read `agent` or `review`. No changes needed.
 
 ## Conversion: TOML Sections to Domain Models
 
-The TOML parser produces intermediate structs (`AgentSection`, `RunSection`, etc.) that are then converted to the core domain models defined in `src/core/models/`. This conversion happens in the CLI layer (`src/cli/commands/run.rs`) where concrete adapters are wired together.
+The TOML parser produces intermediate structs (`AgentSection`, `ReviewSection`, etc.) that are then converted to the core domain models defined in `src/core/models/`. This conversion happens in the CLI layer (`src/cli/commands/review.rs`) where concrete adapters are wired together.
+
+### `ReviewSection` to `ReviewConfig`
+
+```rust
+use crate::core::models::{ReviewConfig, AnalyzerEntry};
+
+impl ReviewSection {
+    /// Convert to the core ReviewConfig, resolving analyzer entries
+    pub fn to_review_config(
+        &self,
+        default_agent: Option<&str>,
+    ) -> anyhow::Result<ReviewConfig> {
+        let mut entries = Vec::new();
+
+        for name in &self.analyzers {
+            let entry = self.resolve_analyzer_entry(name, default_agent)?;
+            entries.push(entry);
+        }
+
+        Ok(ReviewConfig {
+            analyzer_entries: entries,
+            co_change: self.co_change.clone().unwrap_or_default(),
+            formatting: self.formatting.clone().unwrap_or_default(),
+        })
+    }
+
+    /// Resolve a single analyzer name to its full configuration
+    fn resolve_analyzer_entry(
+        &self,
+        name: &str,
+        default_agent: Option<&str>,
+    ) -> anyhow::Result<AnalyzerEntry> {
+        if name.starts_with("agent:") {
+            let focus = name.strip_prefix("agent:").unwrap();
+            let config = self.analyzer_configs
+                .get(name)
+                .map(|v| v.clone().try_into::<AgentAnalyzerConfig>())
+                .transpose()?;
+
+            let agent = config.as_ref()
+                .and_then(|c| c.agent.as_deref())
+                .or(default_agent)
+                .ok_or_else(|| anyhow::anyhow!(
+                    "Analyzer '{name}' requires an agent. Set [agent].type or [review.\"{name}\"].agent"
+                ))?
+                .to_string();
+
+            let prompt_template = config.as_ref()
+                .and_then(|c| c.prompt_template.clone());
+
+            Ok(AnalyzerEntry::Agent {
+                name: name.to_string(),
+                focus: focus.to_string(),
+                agent,
+                prompt_template,
+            })
+        } else if name.starts_with("custom:") {
+            let config: ScriptAnalyzerConfig = self.analyzer_configs
+                .get(name)
+                .ok_or_else(|| anyhow::anyhow!(
+                    "Analyzer '{name}' requires [review.\"{name}\"] configuration with type and command"
+                ))?
+                .clone()
+                .try_into()?;
+
+            Ok(AnalyzerEntry::Script {
+                name: name.to_string(),
+                command: config.command,
+            })
+        } else {
+            // Built-in analyzer: conventions, formatting, co-change
+            Ok(AnalyzerEntry::BuiltIn {
+                name: name.to_string(),
+            })
+        }
+    }
+}
+```
 
 ### `AgentSection` to `AgentType`
 
@@ -565,97 +802,24 @@ impl AgentSection {
 }
 ```
 
-### `RunSection` to `RunConfig`
-
-```rust
-use crate::core::models::{RunConfig, StuckPolicy, TestGate};
-
-impl RunSection {
-    /// Convert to the core RunConfig, merging with CLI overrides
-    pub fn to_run_config(
-        &self,
-        plan_file: PathBuf,
-        working_dir: PathBuf,
-        cli_overrides: &CliOverrides,
-    ) -> RunConfig {
-        let stuck_policy = self.stuck_policy
-            .as_ref()
-            .map(StuckPolicySection::to_stuck_policy)
-            .unwrap_or_default();
-
-        let test_gate = self.test_gate
-            .as_ref()
-            .and_then(TestGateSection::to_test_gate);
-
-        RunConfig {
-            plan_file,
-            working_dir,
-            max_iterations: cli_overrides.max_iterations
-                .unwrap_or(self.max_iterations),
-            stuck_policy: StuckPolicy {
-                level_4_threshold: cli_overrides.stuck_limit
-                    .unwrap_or(stuck_policy.level_4_threshold),
-                ..stuck_policy
-            },
-            test_gate: if cli_overrides.no_tests { None } else { test_gate },
-            post_loop_review: if cli_overrides.no_review {
-                false
-            } else {
-                self.post_loop_review
-            },
-            confidence_threshold: cli_overrides.confidence_threshold
-                .or(Some(self.confidence_threshold)),
-            initializer_phase: self.initializer_phase,
-            ..Default::default()
-        }
-    }
-}
-
-impl StuckPolicySection {
-    fn to_stuck_policy(&self) -> StuckPolicy {
-        StuckPolicy {
-            level_1_threshold: self.level_1,
-            level_2_threshold: self.level_2,
-            level_3_threshold: self.level_3,
-            level_4_threshold: self.level_4,
-        }
-    }
-}
-
-impl TestGateSection {
-    /// Convert to TestGate, returning None if command is empty
-    fn to_test_gate(&self) -> Option<TestGate> {
-        if self.command.is_empty() {
-            return None;
-        }
-        Some(TestGate {
-            command: self.command.clone(),
-            working_dir: None,
-            max_output_lines: self.max_output_lines,
-            timeout_secs: self.timeout_secs,
-        })
-    }
-}
-```
-
 ### CLI Overrides Struct
 
 The CLI override values that can shadow TOML settings:
 
 ```rust
 /// Values from CLI flags that override TOML configuration
-pub struct CliOverrides {
-    pub max_iterations: Option<u32>,
-    pub stuck_limit: Option<u32>,
-    pub confidence_threshold: Option<u8>,
-    pub no_review: bool,
-    pub no_tests: bool,
+pub struct ReviewCliOverrides {
+    pub analyzers: Option<Vec<String>>,
+    pub agent: Option<String>,
+    pub base: Option<String>,
+    pub check_mode: bool,
+    pub min_correlation: Option<f64>,
 }
 ```
 
 ## `.noslop.toml` Writer Changes
 
-When `noslop init <agent>` runs, it writes the `.noslop.toml` file with the `[agent]` section. The existing `build_noslop_toml` function (from 07-init-expansion-design.md) handles this:
+When `noslop init <agent>` runs, it writes the `.noslop.toml` file with the `[agent]` section. The existing `build_noslop_toml` function handles this:
 
 ```rust
 fn build_noslop_toml(prefix: &str, agent_type: Option<AgentType>) -> String {
@@ -678,6 +842,10 @@ type = "{agent}"
 
     toml.push_str(&format!(
         r#"
+# Review pipeline (uncomment to customize):
+# [review]
+# analyzers = ["conventions", "formatting", "co-change", "agent:security"]
+
 # Checks are auto-assigned IDs like {prefix}-1, {prefix}-2, etc.
 # You can also specify custom IDs:
 #   id = "my-custom-id"
@@ -694,7 +862,7 @@ type = "{agent}"
 }
 ```
 
-The `[run]` section is NOT written by `noslop init`. It is user-configured. Users add it manually when they want to customize the defaults. This keeps the generated config minimal and avoids polluting the file with defaults that match the compiled-in values.
+The `[review]` section is NOT written by `noslop init`. It is user-configured. Users add it manually when they want to customize the pipeline beyond the default `["conventions"]` analyzer. This keeps the generated config minimal and avoids polluting the file with defaults that match the compiled-in values.
 
 ## Validation Rules
 
@@ -703,49 +871,58 @@ The TOML parser deserializes permissively. Validation of semantic constraints ha
 ### Agent Type Validation
 
 ```rust
-// In cli/commands/run.rs
+// In cli/commands/review.rs
 if let Some(agent) = &noslop_file.agent {
     agent.to_agent_type()?; // Fails with "Unknown agent type: X"
 }
 ```
 
-### Stuck Policy Ordering
+### Analyzer List Validation
 
-The stuck policy thresholds must be monotonically increasing. Validated at run time:
+Verify that every analyzer in the list is either a known built-in or has configuration:
 
 ```rust
-fn validate_stuck_policy(policy: &StuckPolicy) -> anyhow::Result<()> {
-    if !(policy.level_1_threshold
-        <= policy.level_2_threshold
-        && policy.level_2_threshold <= policy.level_3_threshold
-        && policy.level_3_threshold <= policy.level_4_threshold)
-    {
+fn validate_analyzers(review: &ReviewSection) -> anyhow::Result<()> {
+    let known_builtins = ["conventions", "formatting", "co-change"];
+
+    for name in &review.analyzers {
+        if known_builtins.contains(&name.as_str()) {
+            continue;
+        }
+        if name.starts_with("agent:") || name.starts_with("custom:") {
+            // Custom analyzers are validated during resolve_analyzer_entry
+            continue;
+        }
         anyhow::bail!(
-            "Stuck policy levels must be monotonically increasing: \
-             level_1={} <= level_2={} <= level_3={} <= level_4={}",
-            policy.level_1_threshold,
-            policy.level_2_threshold,
-            policy.level_3_threshold,
-            policy.level_4_threshold,
+            "Unknown analyzer '{name}'. Built-in: {known_builtins:?}. \
+             Use 'agent:' or 'custom:' prefix for extensions."
         );
     }
     Ok(())
 }
 ```
 
-### Confidence Threshold Range
+### Co-Change Correlation Range
 
 ```rust
-if let Some(threshold) = config.confidence_threshold {
-    if !(1..=5).contains(&threshold) {
-        anyhow::bail!("confidence_threshold must be between 1 and 5, got {threshold}");
+if let Some(cc) = &review.co_change {
+    if !(0.0..=1.0).contains(&cc.min_correlation) {
+        anyhow::bail!(
+            "min_correlation must be between 0.0 and 1.0, got {}",
+            cc.min_correlation
+        );
     }
 }
 ```
 
-### Test Gate Command Non-Empty
+### Script Analyzer Command Non-Empty
 
-An empty `command` field in `[run.test_gate]` means "no test gate". The conversion function returns `None` in this case (see `TestGateSection::to_test_gate` above).
+```rust
+// Validated in resolve_analyzer_entry when type == "script"
+if config.command.trim().is_empty() {
+    anyhow::bail!("Script analyzer '{name}' has empty command");
+}
+```
 
 ## File Layout After Changes
 
@@ -753,18 +930,20 @@ An empty `command` field in `[run.test_gate]` means "no test gate". The conversi
 src/
 ├── adapters/
 │   └── toml/
-│       ├── parser.rs       # Modified: NoslopFile gains agent + run fields;
-│       │                   #   new structs AgentSection, RunSection,
-│       │                   #   StuckPolicySection, TestGateSection
+│       ├── parser.rs       # Modified: NoslopFile gains agent + review fields;
+│       │                   #   new structs AgentSection, ReviewSection,
+│       │                   #   CoChangeConfig, FormattingConfig,
+│       │                   #   AgentAnalyzerConfig, ScriptAnalyzerConfig
 │       ├── repository.rs   # Unchanged
 │       └── writer.rs       # Unchanged (build_noslop_toml in init.rs)
 ├── cli/
 │   └── commands/
-│       └── run.rs          # Reads NoslopFile.agent and NoslopFile.run,
+│       └── review.rs       # Reads NoslopFile.agent and NoslopFile.review,
 │                           #   converts to domain models, applies CLI overrides
 └── core/
     └── models/
-        └── run_config.rs   # RunConfig, StuckPolicy, TestGate (defined in 06)
+        ├── finding.rs      # Finding, FindingSource, Resolution
+        └── review_target.rs # ReviewTarget, ReviewConfig, AnalyzerEntry
 ```
 
 ## Test Strategy
@@ -785,7 +964,7 @@ mod tests {
         let file: NoslopFile = toml::from_str(toml_str).unwrap();
         assert_eq!(file.project.prefix, "NOS");
         assert!(file.agent.is_none());
-        assert!(file.run.is_none());
+        assert!(file.review.is_none());
         assert!(file.checks.is_empty());
     }
 
@@ -803,68 +982,43 @@ mod tests {
     }
 
     #[test]
-    fn parse_with_full_run_config() {
+    fn parse_with_review_pipeline() {
         let toml_str = r#"
             [project]
             prefix = "NOS"
 
-            [agent]
-            type = "codex"
-
-            [run]
-            max_iterations = 30
-            confidence_threshold = 3
-            post_loop_review = false
-            initializer_phase = true
-
-            [run.stuck_policy]
-            level_1 = 3
-            level_2 = 5
-            level_3 = 7
-            level_4 = 10
-
-            [run.test_gate]
-            command = "npm test"
-            timeout_secs = 120
-            max_output_lines = 25
+            [review]
+            analyzers = ["conventions", "formatting", "co-change"]
         "#;
         let file: NoslopFile = toml::from_str(toml_str).unwrap();
-
-        let run = file.run.unwrap();
-        assert_eq!(run.max_iterations, 30);
-        assert_eq!(run.confidence_threshold, 3);
-        assert!(!run.post_loop_review);
-
-        let stuck = run.stuck_policy.unwrap();
-        assert_eq!(stuck.level_1, 3);
-        assert_eq!(stuck.level_4, 10);
-
-        let gate = run.test_gate.unwrap();
-        assert_eq!(gate.command, "npm test");
-        assert_eq!(gate.timeout_secs, 120);
+        let review = file.review.unwrap();
+        assert_eq!(review.analyzers.len(), 3);
+        assert_eq!(review.analyzers[0], "conventions");
     }
 
     #[test]
-    fn parse_partial_run_config_uses_defaults() {
+    fn parse_with_co_change_config() {
         let toml_str = r#"
             [project]
             prefix = "NOS"
 
-            [run]
-            max_iterations = 50
+            [review]
+            analyzers = ["co-change"]
+
+            [review.co-change]
+            min_correlation = 0.8
+            lookback = 1000
+            min_commits = 5
         "#;
         let file: NoslopFile = toml::from_str(toml_str).unwrap();
-
-        let run = file.run.unwrap();
-        assert_eq!(run.max_iterations, 50);
-        assert_eq!(run.confidence_threshold, 4); // default
-        assert!(run.post_loop_review);            // default
-        assert!(run.stuck_policy.is_none());      // not specified
-        assert!(run.test_gate.is_none());         // not specified
+        let cc = file.review.unwrap().co_change.unwrap();
+        assert!((cc.min_correlation - 0.8).abs() < f64::EPSILON);
+        assert_eq!(cc.lookback, 1000);
+        assert_eq!(cc.min_commits, 5);
     }
 
     #[test]
-    fn parse_with_checks_and_agent() {
+    fn parse_with_agent_analyzer() {
         let toml_str = r#"
             [project]
             prefix = "NOS"
@@ -872,24 +1026,117 @@ mod tests {
             [agent]
             type = "claude"
 
+            [review]
+            analyzers = ["agent:security"]
+
+            [review."agent:security"]
+            agent = "claude"
+            prompt_template = ".noslop/prompts/security.md"
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        let review = file.review.unwrap();
+        assert!(review.analyzer_configs.contains_key("agent:security"));
+    }
+
+    #[test]
+    fn parse_with_script_analyzer() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [review]
+            analyzers = ["custom:migrations"]
+
+            [review."custom:migrations"]
+            type = "script"
+            command = "python ./scripts/check-migrations.py"
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        let review = file.review.unwrap();
+        assert!(review.analyzer_configs.contains_key("custom:migrations"));
+    }
+
+    #[test]
+    fn parse_with_formatting_config() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [review]
+            analyzers = ["formatting"]
+
+            [review.formatting]
+            tools = ["rustfmt", "prettier"]
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        let fmt = file.review.unwrap().formatting.unwrap();
+        assert_eq!(fmt.tools, vec!["rustfmt", "prettier"]);
+    }
+
+    #[test]
+    fn parse_full_review_config() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [agent]
+            type = "claude"
+
+            [review]
+            analyzers = ["conventions", "formatting", "co-change", "agent:security", "custom:lint"]
+
+            [review.co-change]
+            min_correlation = 0.8
+            lookback = 1000
+            min_commits = 5
+
+            [review."agent:security"]
+            agent = "claude"
+            prompt_template = ".noslop/prompts/security.md"
+
+            [review."custom:lint"]
+            type = "script"
+            command = "eslint --format json ."
+
+            [review.formatting]
+            tools = ["rustfmt", "prettier"]
+
             [[check]]
             target = "*.rs"
             message = "Check Rust files"
             severity = "warn"
-
-            [[check]]
-            id = "NOS-1"
-            target = "src/main.rs"
-            message = "Verify entry point"
         "#;
         let file: NoslopFile = toml::from_str(toml_str).unwrap();
+
         assert!(file.agent.is_some());
-        assert_eq!(file.checks.len(), 2);
+        let review = file.review.unwrap();
+        assert_eq!(review.analyzers.len(), 5);
+        assert!(review.co_change.is_some());
+        assert!(review.formatting.is_some());
+        assert!(review.analyzer_configs.contains_key("agent:security"));
+        assert!(review.analyzer_configs.contains_key("custom:lint"));
+        assert_eq!(file.checks.len(), 1);
+    }
+
+    #[test]
+    fn parse_partial_review_config_uses_defaults() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [review]
+            analyzers = ["conventions", "formatting"]
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        let review = file.review.unwrap();
+        assert_eq!(review.analyzers.len(), 2);
+        assert!(review.co_change.is_none());
+        assert!(review.formatting.is_none());
     }
 
     #[test]
     fn existing_config_without_new_sections_parses() {
-        // This is the actual content from noslop's own .noslop.toml
+        // This is the actual content pattern from noslop's own .noslop.toml
         let toml_str = r#"
             [project]
             prefix = "NOS"
@@ -909,7 +1156,7 @@ mod tests {
         let file: NoslopFile = toml::from_str(toml_str).unwrap();
         assert_eq!(file.project.prefix, "NOS");
         assert!(file.agent.is_none());
-        assert!(file.run.is_none());
+        assert!(file.review.is_none());
         assert_eq!(file.checks.len(), 2);
     }
 
@@ -929,20 +1176,17 @@ mod tests {
     }
 
     #[test]
-    fn test_gate_empty_command_returns_none() {
-        let section = TestGateSection::default();
-        assert!(section.to_test_gate().is_none());
+    fn co_change_config_defaults() {
+        let config = CoChangeConfig::default();
+        assert!((config.min_correlation - 0.7).abs() < f64::EPSILON);
+        assert_eq!(config.lookback, 500);
+        assert_eq!(config.min_commits, 10);
     }
 
     #[test]
-    fn test_gate_with_command_returns_some() {
-        let section = TestGateSection {
-            command: "cargo test".to_string(),
-            ..Default::default()
-        };
-        let gate = section.to_test_gate().unwrap();
-        assert_eq!(gate.command, "cargo test");
-        assert_eq!(gate.timeout_secs, 300);
+    fn review_section_default_analyzers() {
+        let section = ReviewSection::default();
+        assert_eq!(section.analyzers, vec!["conventions"]);
     }
 }
 ```
@@ -951,39 +1195,54 @@ mod tests {
 
 ```rust
 #[test]
-fn stuck_policy_valid_ordering() {
-    let policy = StuckPolicy {
-        level_1_threshold: 2,
-        level_2_threshold: 4,
-        level_3_threshold: 6,
-        level_4_threshold: 8,
+fn validate_known_analyzer_names() {
+    let review = ReviewSection {
+        analyzers: vec![
+            "conventions".to_string(),
+            "formatting".to_string(),
+            "co-change".to_string(),
+        ],
+        ..Default::default()
     };
-    assert!(validate_stuck_policy(&policy).is_ok());
+    assert!(validate_analyzers(&review).is_ok());
 }
 
 #[test]
-fn stuck_policy_invalid_ordering() {
-    let policy = StuckPolicy {
-        level_1_threshold: 5,
-        level_2_threshold: 3, // lower than level_1
-        level_3_threshold: 6,
-        level_4_threshold: 8,
+fn validate_unknown_analyzer_name_errors() {
+    let review = ReviewSection {
+        analyzers: vec!["nonexistent".to_string()],
+        ..Default::default()
     };
-    assert!(validate_stuck_policy(&policy).is_err());
+    assert!(validate_analyzers(&review).is_err());
 }
 
 #[test]
-fn confidence_threshold_in_range() {
-    for i in 1..=5 {
-        // Should not panic or error
-        assert!((1..=5).contains(&i));
-    }
+fn validate_agent_prefix_accepted() {
+    let review = ReviewSection {
+        analyzers: vec!["agent:security".to_string()],
+        ..Default::default()
+    };
+    assert!(validate_analyzers(&review).is_ok());
 }
 
 #[test]
-fn confidence_threshold_out_of_range() {
-    assert!(!(1..=5).contains(&0));
-    assert!(!(1..=5).contains(&6));
+fn validate_custom_prefix_accepted() {
+    let review = ReviewSection {
+        analyzers: vec!["custom:lint".to_string()],
+        ..Default::default()
+    };
+    assert!(validate_analyzers(&review).is_ok());
+}
+
+#[test]
+fn co_change_correlation_in_range() {
+    // Valid
+    assert!((0.0..=1.0).contains(&0.7));
+    assert!((0.0..=1.0).contains(&0.0));
+    assert!((0.0..=1.0).contains(&1.0));
+    // Invalid
+    assert!(!(0.0..=1.0).contains(&-0.1));
+    assert!(!(0.0..=1.0).contains(&1.1));
 }
 ```
 
@@ -991,11 +1250,11 @@ fn confidence_threshold_out_of_range() {
 
 This design consolidates all configuration surfaces into a single reference:
 
-1. **`.noslop.toml` schema**: Three new optional sections (`[agent]`, `[run]`, `[run.stuck_policy]`, `[run.test_gate]`) alongside the existing `[project]` and `[[check]]` sections. All new fields default gracefully.
+1. **`.noslop.toml` schema**: Two new optional sections (`[agent]` and `[review]` with sub-tables) alongside the existing `[project]` and `[[check]]` sections. The `[review]` section uses a composable analyzer list with convention-based naming (`agent:*`, `custom:*`) and per-analyzer configuration sub-tables.
 
-2. **`.noslop/` directory**: One new file (`review.md`) with a precise format definition. Iteration progress and failure context are tracked through git commit history via structured commit messages -- no separate state files. All files are committed to git except `staged-acks.json`.
+2. **`.noslop/` directory**: New `reviews/` directory for review session files and review memory. New `prompts/` directory for custom agent prompt templates. All files are committed to git except `staged-acks.json`.
 
-3. **Parser changes**: Four new structs (`AgentSection`, `RunSection`, `StuckPolicySection`, `TestGateSection`) added to `src/adapters/toml/parser.rs`. Two new fields on `NoslopFile`. Zero changes to existing functions or the `TomlCheckRepository` adapter.
+3. **Parser changes**: Six new structs (`AgentSection`, `ReviewSection`, `CoChangeConfig`, `FormattingConfig`, `AgentAnalyzerConfig`, `ScriptAnalyzerConfig`) added to `src/adapters/toml/parser.rs`. Two new fields on `NoslopFile`. Zero changes to existing functions or the `TomlCheckRepository` adapter.
 
 4. **Precedence rules**: CLI flags override TOML values override compiled defaults. Implemented via `Option<T>` in clap args and explicit merging in the command handler.
 

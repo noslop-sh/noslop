@@ -1,46 +1,57 @@
-# Checkpoint & Worktree Design
+# Checkpoint & VersionControl Extensions Design
 
-Design specification for porting the bash `checkpoint` and `worktree` scripts to Rust, integrated into noslop's hexagonal architecture.
+Design specification for the `noslop checkpoint` convenience command and `VersionControl` trait extensions that serve the review pipeline.
 
 ## Overview
 
-The `checkpoint` and `worktree` tools are agent-agnostic git workflow utilities. They currently exist as standalone bash scripts (~56 and ~223 lines respectively) in the setup repo. This design ports them to native Rust as `noslop checkpoint` and `noslop worktree` subcommands, using the existing `git2` dependency and following noslop's adapter patterns.
+noslop is a local code review tool that uses a pipeline of `ReviewAnalyzer` implementations to review agent-generated branches before push. The `VersionControl` trait needs extensions in two areas:
+
+1. **Checkpoint**: A standalone convenience command for developers who want to save their work before making fixes to review findings. This is a simple utility, not a core loop mechanism.
+
+2. **Diff and history methods**: The review pipeline needs to read diffs, commit history, and file contents at specific revisions. These are the primary trait extensions and the most important part of this design.
+
+**Worktree support is deferred.** The review tool does not need isolated worktrees for parallel coding. Worktrees could be useful in the future for isolated review environments (e.g., running analyzers against a branch without checking it out), but that is a future consideration.
 
 ### Scope
 
-| Component    | Bash Source                           | Rust Target                                                         |
-| ------------ | ------------------------------------- | ------------------------------------------------------------------- |
-| checkpoint   | `setup/scripts/checkpoint` (56 lines) | `src/cli/commands/checkpoint.rs` + `src/adapters/git/checkpoint.rs` |
-| worktree     | `setup/scripts/worktree` (223 lines)  | `src/cli/commands/worktree.rs` + `src/adapters/git/worktree.rs`     |
-| shared utils | `setup/scripts/_lib.sh` (77 lines)    | `src/adapters/git/repo_context.rs`                                  |
+| Component          | Purpose                                           | Rust Target                      |
+| ------------------ | ------------------------------------------------- | -------------------------------- |
+| Checkpoint command | Convenience: save work before fixing findings     | `src/cli/commands/checkpoint.rs` |
+| Checkpoint adapter | Stage all + commit with message                   | `src/adapters/git/checkpoint.rs` |
+| Review VCS methods | Diff, commit history, file-at-revision for review | Extend `src/adapters/git/mod.rs` |
 
 ### What Changes
 
-- Two new CLI subcommands added to `Command` enum
-- Two new adapter modules under `src/adapters/git/`
-- One new shared utility module for repo context detection
-- Port trait extended with worktree operations
+- One new CLI subcommand added to `Command` enum
+- One new adapter module under `src/adapters/git/`
+- `VersionControl` trait extended with checkpoint + review pipeline methods
 - No changes to existing core domain logic
+
+### What Does NOT Ship
+
+- Worktree management (create/remove/clean) -- deferred
+- `WorktreeInfo` model type -- deferred
+- Multi-repo detection -- dropped permanently
+- Iteration loop integration -- not applicable (noslop is a review tool)
 
 ## File Layout
 
 ```
 src/
 ├── cli/
-│   ├── app.rs                    # Add Checkpoint and Worktree to Command enum
+│   ├── app.rs                    # Add Checkpoint to Command enum
 │   └── commands/
-│       ├── mod.rs                # Add checkpoint and worktree re-exports
-│       ├── checkpoint.rs         # NEW: checkpoint command handler
-│       └── worktree.rs           # NEW: worktree command handler
+│       ├── mod.rs                # Add checkpoint re-export
+│       └── checkpoint.rs         # NEW: checkpoint command handler
 ├── core/
-│   └── ports/
-│       └── vcs.rs                # Extend VersionControl trait
+│   ├── ports/
+│   │   └── vcs.rs                # Extend VersionControl trait
+│   └── models/
+│       └── diff.rs               # NEW: FileDiff, CommitInfo types
 └── adapters/
     └── git/
-        ├── mod.rs                # Add checkpoint, worktree, repo_context modules
-        ├── checkpoint.rs         # NEW: git2-based checkpoint operations
-        ├── worktree.rs           # NEW: git2-based worktree operations
-        └── repo_context.rs       # NEW: single/multi repo detection
+        ├── mod.rs                # Add checkpoint module
+        └── checkpoint.rs         # NEW: git2-based checkpoint operations
 ```
 
 ## CLI Interface
@@ -49,29 +60,17 @@ src/
 
 ```
 noslop checkpoint                         # Message: "checkpoint: 2025-02-08 12:30:00"
-noslop checkpoint "work in progress"      # Custom message
+noslop checkpoint "before fixing findings" # Custom message
 noslop checkpoint --json                  # JSON output
 ```
 
-### `noslop worktree`
+This is a convenience command. A developer runs `noslop review`, sees findings, wants to checkpoint their current state before making fixes. That is the entire use case.
 
-```
-noslop worktree create <branch> [base]    # Create worktree on new branch
-noslop worktree list                      # List active worktrees
-noslop worktree remove <branch>           # Remove worktree and clean up branch
-noslop worktree clean                     # Remove all worktrees
-```
+### Worktree (Deferred)
 
-### Design Decision: Drop Multi-Repo Mode
+The `noslop worktree` subcommand is deferred. The review tool does not need isolated worktrees. If worktree support is added in the future, it would likely be limited to `noslop worktree list` for awareness of existing worktrees, not the full create/remove/clean suite.
 
-The bash scripts support a "multi-repo" mode where `checkpoint` and `worktree` iterate over sibling git repos in a parent directory. This mode is dropped in the Rust port for the following reasons:
-
-1. **noslop operates on a single repository.** Every other noslop command (`init`, `check`, `ack`, `review`) targets the current repo. Multi-repo would be an anomaly.
-2. **Multi-repo is a workspace concern.** Tools like `git submodule`, `repo`, or scripted loops handle multi-repo workflows. noslop should not duplicate this.
-3. **Simplifies the codebase.** Removing multi-repo eliminates the `detect_repos` / `MODE` / `REPOS` abstraction layer entirely.
-4. **The `--repo` flag becomes unnecessary.** No multi-repo means no need to filter to a single repo.
-
-If multi-repo support is needed in the future, it can be added as a separate `noslop workspace` command without polluting the checkpoint/worktree interfaces.
+**Future consideration**: Isolated review environments. An analyzer could check out a branch in a temporary worktree to run static analysis without affecting the developer's working tree. This is speculative and not designed here.
 
 ## CLI Definitions (app.rs)
 
@@ -87,37 +86,6 @@ pub enum Command {
         /// Commit message (default: "checkpoint: <timestamp>")
         message: Option<String>,
     },
-
-    /// Manage git worktrees for isolated work
-    Worktree {
-        #[command(subcommand)]
-        action: WorktreeAction,
-    },
-}
-
-#[derive(Subcommand, Debug)]
-pub enum WorktreeAction {
-    /// Create a worktree on a new branch
-    Create {
-        /// Branch name for the worktree
-        branch: String,
-
-        /// Base branch or commit (default: HEAD)
-        #[arg(default_value = "HEAD")]
-        base: String,
-    },
-
-    /// List active worktrees
-    List,
-
-    /// Remove a worktree and optionally delete the branch
-    Remove {
-        /// Branch name of the worktree to remove
-        branch: String,
-    },
-
-    /// Remove all worktrees
-    Clean,
 }
 ```
 
@@ -131,9 +99,6 @@ match cli.command {
     Some(Command::Checkpoint { message }) => {
         commands::checkpoint(message.as_deref(), output_mode)
     },
-    Some(Command::Worktree { action }) => {
-        commands::worktree(action, output_mode)
-    },
 }
 ```
 
@@ -142,15 +107,18 @@ match cli.command {
 ```rust
 // In commands/mod.rs:
 mod checkpoint;
-mod worktree;
 
 pub use checkpoint::checkpoint;
-pub use worktree::worktree;
 ```
 
-## Port Trait Extension
+## VersionControl Trait Extension
 
-The `VersionControl` trait in `src/core/ports/vcs.rs` gains worktree-related methods. Checkpoint does not need a port method because it is a compound operation (stage all + commit) that composes existing primitives rather than defining a new abstraction boundary.
+The `VersionControl` trait in `src/core/ports/vcs.rs` gains two categories of methods:
+
+1. **Checkpoint methods**: `is_clean()` and `commit_all()` for the checkpoint command
+2. **Review pipeline methods**: `diff_between()`, `commits_between()`, `file_at_revision()`, `recent_commits()`, and `diff_stat_since()` for analyzers
+
+The review pipeline methods are the primary reason for this trait extension. Analyzers need diff context and commit history to produce meaningful findings.
 
 ### Extended `VersionControl` Trait
 
@@ -167,7 +135,7 @@ pub trait VersionControl: Send + Sync {
     fn is_inside_repo(&self, path: &Path) -> bool;
     fn current_branch(&self) -> anyhow::Result<Option<String>>;
 
-    // --- new methods ---
+    // --- checkpoint methods ---
 
     /// Check if the working tree is clean (no staged, unstaged, or untracked changes)
     fn is_clean(&self) -> anyhow::Result<bool>;
@@ -175,73 +143,139 @@ pub trait VersionControl: Send + Sync {
     /// Stage all changes and commit with the given message, bypassing hooks
     ///
     /// Returns the short SHA of the created commit, or None if the tree was clean.
-    fn checkpoint(&self, message: &str) -> anyhow::Result<Option<String>>;
+    fn commit_all(&self, message: &str) -> anyhow::Result<Option<String>>;
 
-    /// List all worktrees for this repository
-    fn list_worktrees(&self) -> anyhow::Result<Vec<WorktreeInfo>>;
+    // --- review pipeline methods ---
 
-    /// Create a new worktree at the given path on a new branch
+    /// Get the diff between two refs (base and head)
     ///
-    /// If the branch already exists, checks it out in the worktree instead.
-    fn create_worktree(
-        &self,
-        path: &Path,
-        branch: &str,
-        base: &str,
-    ) -> anyhow::Result<()>;
+    /// This is the primary input to the review pipeline. Analyzers receive
+    /// the list of file diffs to inspect for findings.
+    fn diff_between(&self, base: &str, head: &str) -> anyhow::Result<Vec<FileDiff>>;
 
-    /// Remove a worktree by path
-    fn remove_worktree(&self, path: &Path, force: bool) -> anyhow::Result<()>;
+    /// List commits between two refs
+    ///
+    /// Used by analyzers that inspect commit messages and patterns
+    /// (e.g., checking for conventional commits, squash candidates).
+    fn commits_between(&self, base: &str, head: &str) -> anyhow::Result<Vec<CommitInfo>>;
 
-    /// Prune stale worktree metadata
-    fn prune_worktrees(&self) -> anyhow::Result<()>;
+    /// Read file content at a specific revision
+    ///
+    /// Used by analyzers that need full file context beyond the diff hunks
+    /// (e.g., checking imports, verifying function signatures).
+    fn file_at_revision(&self, path: &Path, rev: &str) -> anyhow::Result<String>;
 
-    /// Check if a branch has been merged into the current branch
-    fn is_branch_merged(&self, branch: &str) -> anyhow::Result<bool>;
+    /// Get recent commits from HEAD (for context)
+    fn recent_commits(&self, count: usize) -> anyhow::Result<Vec<CommitInfo>>;
 
-    /// Delete a local branch
-    fn delete_branch(&self, branch: &str, force: bool) -> anyhow::Result<()>;
+    /// Get a summary of changes since a given ref
+    ///
+    /// Returns (files_changed, insertions, deletions) for display purposes.
+    fn diff_stat_since(&self, since: &str) -> anyhow::Result<DiffStat>;
 }
 ```
 
-### New Model Type
+### New Model Types
 
 ```rust
-// src/core/models/worktree.rs
+// src/core/models/diff.rs
 
-/// Information about a git worktree
+use std::path::PathBuf;
+
+/// A diff for a single file between two revisions
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WorktreeInfo {
-    /// Absolute path to the worktree directory
+pub struct FileDiff {
+    /// Path of the file (new path if renamed)
     pub path: PathBuf,
-    /// Branch checked out in this worktree (None if detached HEAD)
-    pub branch: Option<String>,
-    /// HEAD commit SHA
-    pub head: String,
-    /// Whether this is the main worktree
-    pub is_main: bool,
+    /// Old path if the file was renamed
+    pub old_path: Option<PathBuf>,
+    /// The kind of change
+    pub status: DiffStatus,
+    /// Individual hunks in the diff
+    pub hunks: Vec<DiffHunk>,
+}
+
+/// What happened to a file
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffStatus {
+    Added,
+    Modified,
+    Deleted,
+    Renamed,
+}
+
+/// A single hunk within a file diff
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffHunk {
+    /// Starting line in old file
+    pub old_start: u32,
+    /// Number of lines in old file
+    pub old_lines: u32,
+    /// Starting line in new file
+    pub new_start: u32,
+    /// Number of lines in new file
+    pub new_lines: u32,
+    /// The actual diff content (unified format lines)
+    pub lines: Vec<DiffLine>,
+}
+
+/// A single line in a diff hunk
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffLine {
+    pub kind: DiffLineKind,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineKind {
+    Context,
+    Addition,
+    Deletion,
+}
+
+/// Information about a single commit
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CommitInfo {
+    /// Short SHA (7 chars)
+    pub short_sha: String,
+    /// Full SHA
+    pub sha: String,
+    /// Commit message (first line)
+    pub summary: String,
+    /// Full commit message
+    pub message: String,
+    /// Author name
+    pub author: String,
+    /// Timestamp (seconds since epoch)
+    pub timestamp: i64,
+}
+
+/// Summary statistics for a diff
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffStat {
+    pub files_changed: usize,
+    pub insertions: usize,
+    pub deletions: usize,
 }
 ```
 
 Added to `src/core/models/mod.rs`:
 
 ```rust
-mod worktree;
-pub use worktree::WorktreeInfo;
+mod diff;
+pub use diff::{FileDiff, DiffStatus, DiffHunk, DiffLine, DiffLineKind, CommitInfo, DiffStat};
 ```
 
 ## Adapter Implementations
 
 ### `src/adapters/git/checkpoint.rs`
 
-Implements the checkpoint operation using `git2`. This is the Rust equivalent of the bash `checkpoint` script's single-repo path.
+Implements the checkpoint operation using `git2`. Simple: check if clean, stage all, commit.
 
 ```rust
 //! Checkpoint operations using git2
 //!
 //! Stages all changes (tracked + untracked) and commits with --no-verify.
-
-use std::path::Path;
 
 use git2::{Repository, Signature, StatusOptions};
 
@@ -262,7 +296,7 @@ pub fn is_clean(repo: &Repository) -> anyhow::Result<bool> {
 /// Equivalent to `git add -A && git commit -m "$msg" --no-verify --quiet`.
 ///
 /// Returns the short SHA of the new commit, or None if the tree was clean.
-pub fn checkpoint(repo: &Repository, message: &str) -> anyhow::Result<Option<String>> {
+pub fn commit_all(repo: &Repository, message: &str) -> anyhow::Result<Option<String>> {
     if is_clean(repo)? {
         return Ok(None);
     }
@@ -306,342 +340,11 @@ fn default_signature(repo: &Repository) -> anyhow::Result<Signature<'static>> {
 }
 ```
 
-#### Bash-to-Rust Mapping
+### Review Pipeline Methods (in `GitVersionControl`)
 
-| Bash (`checkpoint`)                        | Rust (`adapters::git::checkpoint`)                           |
-| ------------------------------------------ | ------------------------------------------------------------ |
-| `is_clean "$repo"` (via `_lib.sh`)         | `is_clean(&repo)` using `repo.statuses()`                    |
-| `git add -A`                               | `index.add_all(["*"], ...)` + `index.update_all(["*"], ...)` |
-| `git commit -m "$MSG" --no-verify --quiet` | `repo.commit(...)` (git2 does not invoke hooks)              |
-| `git log --oneline -1`                     | Return short SHA from `commit_oid`                           |
-| `date '+%Y-%m-%d %H:%M:%S'`                | `chrono::Local::now().format(...)`                           |
-| Multi-repo loop                            | Dropped (single-repo only)                                   |
-
-### `src/adapters/git/worktree.rs`
-
-Implements worktree operations using `git2`. This is the Rust equivalent of the bash `worktree` script.
-
-````rust
-//! Git worktree management using git2
-//!
-//! Worktrees are created at `../<repo-name>-worktrees/<branch>/`
-//! relative to the repository root.
-
-use std::path::{Path, PathBuf};
-
-use git2::Repository;
-
-use crate::core::models::WorktreeInfo;
-
-/// Compute the worktree base directory for a repository
-///
-/// Given repo root `/Users/saumil/Code/noslop`, returns
-/// `/Users/saumil/Code/noslop-worktrees`.
-pub fn worktree_base_dir(repo_root: &Path) -> anyhow::Result<PathBuf> {
-    let repo_name = repo_root
-        .file_name()
-        .ok_or_else(|| anyhow::anyhow!("Cannot determine repo name from path"))?
-        .to_string_lossy();
-
-    let parent = repo_root
-        .parent()
-        .ok_or_else(|| anyhow::anyhow!("Repository root has no parent directory"))?;
-
-    Ok(parent.join(format!("{repo_name}-worktrees")))
-}
-
-/// Compute the worktree path for a specific branch
-pub fn worktree_path(repo_root: &Path, branch: &str) -> anyhow::Result<PathBuf> {
-    Ok(worktree_base_dir(repo_root)?.join(branch))
-}
-
-/// List all worktrees for the repository
-pub fn list_worktrees(repo: &Repository) -> anyhow::Result<Vec<WorktreeInfo>> {
-    let worktrees = repo.worktrees()?;
-    let mut result = Vec::new();
-
-    // Add the main worktree
-    if let Some(workdir) = repo.workdir() {
-        let head = repo.head().ok().map(|h| {
-            h.target()
-                .map(|oid| oid.to_string()[..7].to_string())
-                .unwrap_or_default()
-        });
-
-        let branch = repo
-            .head()
-            .ok()
-            .and_then(|h| h.shorthand().map(String::from));
-
-        result.push(WorktreeInfo {
-            path: workdir.to_path_buf(),
-            branch,
-            head: head.unwrap_or_default(),
-            is_main: true,
-        });
-    }
-
-    // Add linked worktrees
-    for name in worktrees.iter() {
-        let Some(name) = name else { continue };
-        let wt = repo.find_worktree(name)?;
-
-        if !wt.is_valid() {
-            continue;
-        }
-
-        let wt_path = wt.path().to_path_buf();
-
-        // Open the worktree repo to get HEAD info
-        let wt_repo = Repository::open(&wt_path);
-        let (branch, head) = match wt_repo {
-            Ok(ref r) => {
-                let branch = r
-                    .head()
-                    .ok()
-                    .and_then(|h| h.shorthand().map(String::from));
-                let head = r
-                    .head()
-                    .ok()
-                    .and_then(|h| h.target().map(|oid| oid.to_string()[..7].to_string()))
-                    .unwrap_or_default();
-                (branch, head)
-            }
-            Err(_) => (None, String::new()),
-        };
-
-        result.push(WorktreeInfo {
-            path: wt_path,
-            branch,
-            head,
-            is_main: false,
-        });
-    }
-
-    Ok(result)
-}
-
-/// Create a worktree for the given branch
-///
-/// Tries to create a new branch first. If the branch already exists,
-/// checks it out in the worktree instead.
-///
-/// Equivalent to the bash fallback:
-/// ```bash
-/// git worktree add -b "$branch" "$wt_path" "$base" 2>/dev/null \
-///   || git worktree add "$wt_path" "$branch" 2>/dev/null
-/// ```
-pub fn create_worktree(
-    repo: &Repository,
-    wt_path: &Path,
-    branch: &str,
-    base: &str,
-) -> anyhow::Result<()> {
-    // Ensure parent directory exists
-    if let Some(parent) = wt_path.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-
-    // Resolve the base reference
-    let base_ref = repo.revparse_single(base)?;
-    let base_commit = base_ref.peel_to_commit()?;
-
-    // Try to create a new branch and worktree
-    match repo.branch(branch, &base_commit, false) {
-        Ok(new_branch) => {
-            // New branch created, add worktree for it
-            let refname = new_branch
-                .into_reference()
-                .name()
-                .ok_or_else(|| anyhow::anyhow!("Branch ref has no name"))?
-                .to_string();
-            repo.worktree(
-                branch,
-                wt_path,
-                Some(git2::WorktreeAddOptions::new().reference(
-                    repo.find_reference(&refname)?,
-                )),
-            )?;
-        }
-        Err(_) => {
-            // Branch already exists, create worktree pointing to it
-            let refname = format!("refs/heads/{branch}");
-            let reference = repo.find_reference(&refname)?;
-            repo.worktree(
-                branch,
-                wt_path,
-                Some(git2::WorktreeAddOptions::new().reference(reference)),
-            )?;
-        }
-    }
-
-    Ok(())
-}
-
-/// Remove a worktree and optionally delete the branch
-///
-/// Equivalent to:
-/// ```bash
-/// git worktree remove "$wt_path" --force
-/// git branch -d "$branch" 2>/dev/null  # if merged
-/// ```
-pub fn remove_worktree(
-    repo: &Repository,
-    wt_path: &Path,
-    branch: &str,
-    force: bool,
-) -> anyhow::Result<BranchCleanupResult> {
-    // Prune stale entries first
-    prune_worktrees(repo)?;
-
-    // Remove the worktree directory
-    if wt_path.exists() {
-        if force {
-            std::fs::remove_dir_all(wt_path)?;
-        } else {
-            std::fs::remove_dir_all(wt_path)?;
-        }
-    }
-
-    // Prune again to clean up the worktree metadata
-    prune_worktrees(repo)?;
-
-    // Try to delete the branch if merged
-    let branch_result = cleanup_branch(repo, branch);
-
-    Ok(branch_result)
-}
-
-/// Remove all worktrees for this repository
-pub fn clean_worktrees(repo: &Repository, repo_root: &Path) -> anyhow::Result<CleanResult> {
-    prune_worktrees(repo)?;
-
-    let wt_base = worktree_base_dir(repo_root)?;
-    let mut removed = 0u32;
-
-    if wt_base.exists() {
-        let entries = std::fs::read_dir(&wt_base)?;
-        for entry in entries {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                let name = entry.file_name().to_string_lossy().to_string();
-                let wt_path = entry.path();
-
-                std::fs::remove_dir_all(&wt_path)?;
-                removed += 1;
-
-                // Try to delete the branch
-                let _ = cleanup_branch(repo, &name);
-            }
-        }
-
-        // Remove the base directory if empty
-        let _ = std::fs::remove_dir(&wt_base);
-    }
-
-    // Final prune
-    prune_worktrees(repo)?;
-
-    Ok(CleanResult { removed })
-}
-
-/// Prune stale worktree metadata
-pub fn prune_worktrees(repo: &Repository) -> anyhow::Result<()> {
-    repo.worktree_prune(
-        None,
-        git2::WorktreePruneOptions::new()
-            .working_tree(false)
-            .valid(false)
-            .locked(false),
-    ).ok(); // Ignore errors from prune
-    Ok(())
-}
-
-/// Check if a branch is merged into the current branch and delete it if so
-fn cleanup_branch(repo: &Repository, branch_name: &str) -> BranchCleanupResult {
-    let branch = match repo.find_branch(branch_name, git2::BranchType::Local) {
-        Ok(b) => b,
-        Err(_) => return BranchCleanupResult::NotFound,
-    };
-
-    let is_merged = branch.is_head()
-        || is_branch_merged(repo, branch_name).unwrap_or(false);
-
-    if is_merged {
-        match repo.find_branch(branch_name, git2::BranchType::Local) {
-            Ok(mut b) => match b.delete() {
-                Ok(()) => BranchCleanupResult::Deleted,
-                Err(_) => BranchCleanupResult::Kept("could not delete".to_string()),
-            },
-            Err(_) => BranchCleanupResult::NotFound,
-        }
-    } else {
-        BranchCleanupResult::Kept("not merged".to_string())
-    }
-}
-
-/// Check if a branch has been merged into HEAD
-fn is_branch_merged(repo: &Repository, branch_name: &str) -> anyhow::Result<bool> {
-    let branch_ref = repo.find_branch(branch_name, git2::BranchType::Local)?;
-    let branch_commit = branch_ref.get().peel_to_commit()?;
-
-    let head_commit = repo.head()?.peel_to_commit()?;
-
-    let merge_base = repo.merge_base(head_commit.id(), branch_commit.id())?;
-    Ok(merge_base == branch_commit.id())
-}
-
-/// Result of branch cleanup after worktree removal
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum BranchCleanupResult {
-    /// Branch was merged and deleted
-    Deleted,
-    /// Branch was kept (with reason)
-    Kept(String),
-    /// Branch was not found
-    NotFound,
-}
-
-/// Result of cleaning all worktrees
-#[derive(Debug, Clone)]
-pub struct CleanResult {
-    /// Number of worktrees removed
-    pub removed: u32,
-}
-````
-
-#### Bash-to-Rust Mapping
-
-| Bash (`worktree`)                                  | Rust (`adapters::git::worktree`)                |
-| -------------------------------------------------- | ----------------------------------------------- |
-| `_wt_base "$repo"`                                 | `worktree_base_dir(repo_root)`                  |
-| `git worktree add -b "$branch" "$wt_path" "$base"` | `create_worktree(repo, wt_path, branch, base)`  |
-| `git worktree list`                                | `list_worktrees(repo)` using `repo.worktrees()` |
-| `git worktree remove "$wt_path" --force`           | `remove_worktree(repo, wt_path, branch, force)` |
-| `git worktree prune`                               | `prune_worktrees(repo)`                         |
-| `git branch --merged \| grep "$branch"`            | `is_branch_merged(repo, branch)` via merge-base |
-| `git branch -d "$branch"`                          | `cleanup_branch(repo, branch)`                  |
-| `rmdir "$wt_base"`                                 | `std::fs::remove_dir(&wt_base)`                 |
-| `--repo` flag + multi-repo loop                    | Dropped                                         |
-
-## `GitVersionControl` Adapter Extension
-
-The existing `GitVersionControl` struct in `src/adapters/git/mod.rs` gains implementations for the new trait methods. These delegate to the functions defined in the checkpoint and worktree modules.
-
-### Module Registration
+These methods are implemented directly on `GitVersionControl` in `src/adapters/git/mod.rs` since they are read-only queries against the repository.
 
 ```rust
-// src/adapters/git/mod.rs
-
-pub mod hooks;
-pub mod staging;
-pub mod checkpoint;   // NEW
-pub mod worktree;     // NEW
-
-// ... existing code ...
-
-use crate::core::models::WorktreeInfo;
-
 impl VersionControl for GitVersionControl {
     // ... existing methods ...
 
@@ -650,65 +353,138 @@ impl VersionControl for GitVersionControl {
         checkpoint::is_clean(&repo)
     }
 
-    fn checkpoint(&self, message: &str) -> anyhow::Result<Option<String>> {
+    fn commit_all(&self, message: &str) -> anyhow::Result<Option<String>> {
         let repo = git2::Repository::discover(&self.workdir)?;
-        checkpoint::checkpoint(&repo, message)
+        checkpoint::commit_all(&repo, message)
     }
 
-    fn list_worktrees(&self) -> anyhow::Result<Vec<WorktreeInfo>> {
+    fn diff_between(&self, base: &str, head: &str) -> anyhow::Result<Vec<FileDiff>> {
         let repo = git2::Repository::discover(&self.workdir)?;
-        worktree::list_worktrees(&repo)
+
+        let base_tree = repo.revparse_single(base)?.peel_to_tree()?;
+        let head_tree = repo.revparse_single(head)?.peel_to_tree()?;
+
+        let diff = repo.diff_tree_to_tree(
+            Some(&base_tree),
+            Some(&head_tree),
+            None,
+        )?;
+
+        let mut file_diffs = Vec::new();
+        // ... convert git2::Diff to Vec<FileDiff> ...
+        // (Implementation parses diff deltas, hunks, and lines
+        //  into the FileDiff/DiffHunk/DiffLine model types)
+
+        Ok(file_diffs)
     }
 
-    fn create_worktree(
-        &self,
-        path: &Path,
-        branch: &str,
-        base: &str,
-    ) -> anyhow::Result<()> {
+    fn commits_between(&self, base: &str, head: &str) -> anyhow::Result<Vec<CommitInfo>> {
         let repo = git2::Repository::discover(&self.workdir)?;
-        worktree::create_worktree(&repo, path, branch, base)
-    }
 
-    fn remove_worktree(&self, path: &Path, force: bool) -> anyhow::Result<()> {
-        let repo = git2::Repository::discover(&self.workdir)?;
-        let branch = path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-        let _ = worktree::remove_worktree(&repo, path, &branch, force)?;
-        Ok(())
-    }
+        let base_oid = repo.revparse_single(base)?.id();
+        let head_oid = repo.revparse_single(head)?.id();
 
-    fn prune_worktrees(&self) -> anyhow::Result<()> {
-        let repo = git2::Repository::discover(&self.workdir)?;
-        worktree::prune_worktrees(&repo)
-    }
+        let mut revwalk = repo.revwalk()?;
+        revwalk.push(head_oid)?;
+        revwalk.hide(base_oid)?;
+        revwalk.set_sorting(git2::Sort::TOPOLOGICAL)?;
 
-    fn is_branch_merged(&self, branch: &str) -> anyhow::Result<bool> {
-        let repo = git2::Repository::discover(&self.workdir)?;
-        worktree::is_branch_merged(&repo, branch)
-    }
-
-    fn delete_branch(&self, branch: &str, force: bool) -> anyhow::Result<()> {
-        let repo = git2::Repository::discover(&self.workdir)?;
-        let mut branch_ref = repo.find_branch(branch, git2::BranchType::Local)?;
-        if force {
-            branch_ref.delete()?;
-        } else {
-            // Only delete if merged
-            if worktree::is_branch_merged(&repo, branch)? {
-                branch_ref.delete()?;
-            } else {
-                anyhow::bail!("Branch '{branch}' is not merged. Use force to delete.");
-            }
+        let mut commits = Vec::new();
+        for oid in revwalk {
+            let oid = oid?;
+            let commit = repo.find_commit(oid)?;
+            commits.push(CommitInfo {
+                short_sha: oid.to_string()[..7].to_string(),
+                sha: oid.to_string(),
+                summary: commit.summary().unwrap_or("").to_string(),
+                message: commit.message().unwrap_or("").to_string(),
+                author: commit.author().name().unwrap_or("").to_string(),
+                timestamp: commit.time().seconds(),
+            });
         }
-        Ok(())
+
+        Ok(commits)
+    }
+
+    fn file_at_revision(&self, path: &Path, rev: &str) -> anyhow::Result<String> {
+        let repo = git2::Repository::discover(&self.workdir)?;
+
+        let obj = repo.revparse_single(rev)?;
+        let commit = obj.peel_to_commit()?;
+        let tree = commit.tree()?;
+
+        let entry = tree.get_path(path)?;
+        let blob = repo.find_blob(entry.id())?;
+
+        let content = std::str::from_utf8(blob.content())
+            .map_err(|_| anyhow::anyhow!("File is not valid UTF-8: {}", path.display()))?;
+
+        Ok(content.to_string())
+    }
+
+    fn recent_commits(&self, count: usize) -> anyhow::Result<Vec<CommitInfo>> {
+        let repo = git2::Repository::discover(&self.workdir)?;
+
+        let mut revwalk = repo.revwalk()?;
+        revwalk.push_head()?;
+        revwalk.set_sorting(git2::Sort::TOPOLOGICAL)?;
+
+        let mut commits = Vec::new();
+        for oid in revwalk.take(count) {
+            let oid = oid?;
+            let commit = repo.find_commit(oid)?;
+            commits.push(CommitInfo {
+                short_sha: oid.to_string()[..7].to_string(),
+                sha: oid.to_string(),
+                summary: commit.summary().unwrap_or("").to_string(),
+                message: commit.message().unwrap_or("").to_string(),
+                author: commit.author().name().unwrap_or("").to_string(),
+                timestamp: commit.time().seconds(),
+            });
+        }
+
+        Ok(commits)
+    }
+
+    fn diff_stat_since(&self, since: &str) -> anyhow::Result<DiffStat> {
+        let repo = git2::Repository::discover(&self.workdir)?;
+
+        let since_tree = repo.revparse_single(since)?.peel_to_tree()?;
+        let head_tree = repo.head()?.peel_to_tree()?;
+
+        let diff = repo.diff_tree_to_tree(
+            Some(&since_tree),
+            Some(&head_tree),
+            None,
+        )?;
+
+        let stats = diff.stats()?;
+        Ok(DiffStat {
+            files_changed: stats.files_changed(),
+            insertions: stats.insertions(),
+            deletions: stats.deletions(),
+        })
     }
 }
 ```
 
-## Command Implementations
+## `GitVersionControl` Module Registration
+
+```rust
+// src/adapters/git/mod.rs
+
+pub mod hooks;
+pub mod staging;
+pub mod checkpoint;   // NEW
+
+// ... existing code ...
+
+impl VersionControl for GitVersionControl {
+    // ... existing methods + new methods above ...
+}
+```
+
+## Command Implementation
 
 ### `src/cli/commands/checkpoint.rs`
 
@@ -731,7 +507,7 @@ pub fn checkpoint(message: Option<&str>, mode: OutputMode) -> anyhow::Result<()>
             format!("checkpoint: {}", Local::now().format("%Y-%m-%d %H:%M:%S"))
         });
 
-    match vcs.checkpoint(&msg)? {
+    match vcs.commit_all(&msg)? {
         Some(short_sha) => {
             if mode == OutputMode::Json {
                 println!(
@@ -766,167 +542,86 @@ pub fn checkpoint(message: Option<&str>, mode: OutputMode) -> anyhow::Result<()>
 }
 ```
 
-### `src/cli/commands/worktree.rs`
+## How the Review Pipeline Uses These Methods
+
+The review pipeline is the primary consumer of the `VersionControl` trait extensions. Here is how each method maps to the review workflow:
+
+```
+noslop review [--base main] [--head HEAD]
+        │
+        ▼
+┌─────────────────────────────────────────────────┐
+│  Review Pipeline                                 │
+│                                                  │
+│  1. vcs.diff_between(base, head)                 │
+│     → Vec<FileDiff> — the core review input       │
+│                                                  │
+│  2. vcs.commits_between(base, head)              │
+│     → Vec<CommitInfo> — context for analyzers     │
+│                                                  │
+│  3. For each analyzer in pipeline:               │
+│     analyzer.analyze(&file_diffs, &commits)      │
+│                                                  │
+│  4. If analyzer needs full file context:         │
+│     vcs.file_at_revision(path, head)             │
+│     → String — complete file at head revision     │
+│                                                  │
+│  5. Collect and deduplicate findings             │
+│  6. Display or output as JSON                    │
+└─────────────────────────────────────────────────┘
+```
+
+### Example: Static Analyzer Using Diffs
 
 ```rust
-//! Git worktree management
+impl ReviewAnalyzer for ConventionsAnalyzer {
+    fn analyze(&self, context: &ReviewContext) -> anyhow::Result<Vec<Finding>> {
+        let mut findings = Vec::new();
 
-use noslop::adapters::GitVersionControl;
-use noslop::adapters::git::worktree as wt;
-use noslop::core::ports::VersionControl;
-use noslop::output::OutputMode;
-
-use crate::app::WorktreeAction;
-
-/// Run the worktree command
-pub fn worktree(action: WorktreeAction, mode: OutputMode) -> anyhow::Result<()> {
-    let vcs = GitVersionControl::current_dir()?;
-    let repo_root = vcs.repo_root()?;
-
-    match action {
-        WorktreeAction::Create { branch, base } => {
-            create(&vcs, &repo_root, &branch, &base, mode)
-        }
-        WorktreeAction::List => list(&vcs, mode),
-        WorktreeAction::Remove { branch } => {
-            remove(&vcs, &repo_root, &branch, mode)
-        }
-        WorktreeAction::Clean => clean(&vcs, &repo_root, mode),
-    }
-}
-
-fn create(
-    vcs: &GitVersionControl,
-    repo_root: &std::path::Path,
-    branch: &str,
-    base: &str,
-    mode: OutputMode,
-) -> anyhow::Result<()> {
-    let wt_path = wt::worktree_path(repo_root, branch)?;
-
-    vcs.create_worktree(&wt_path, branch, base)?;
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": true,
-                "branch": branch,
-                "path": wt_path.display().to_string(),
-            })
-        );
-    } else {
-        println!("Creating worktree:");
-        println!("  Branch: {branch}");
-        println!("  Path:   {}", wt_path.display());
-        println!();
-        println!("cd {}", wt_path.display());
-    }
-
-    Ok(())
-}
-
-fn list(vcs: &GitVersionControl, mode: OutputMode) -> anyhow::Result<()> {
-    let worktrees = vcs.list_worktrees()?;
-
-    if mode == OutputMode::Json {
-        let entries: Vec<serde_json::Value> = worktrees
-            .iter()
-            .map(|wt| {
-                serde_json::json!({
-                    "path": wt.path.display().to_string(),
-                    "branch": wt.branch,
-                    "head": wt.head,
-                    "is_main": wt.is_main,
-                })
-            })
-            .collect();
-        println!("{}", serde_json::to_string_pretty(&entries)?);
-    } else {
-        for wt in &worktrees {
-            let branch_display = wt
-                .branch
-                .as_deref()
-                .unwrap_or("(detached HEAD)");
-            let marker = if wt.is_main { " (main)" } else { "" };
-            println!(
-                "{:<50} {} [{}]{}",
-                wt.path.display(),
-                wt.head,
-                branch_display,
-                marker
-            );
-        }
-    }
-
-    Ok(())
-}
-
-fn remove(
-    _vcs: &GitVersionControl,
-    repo_root: &std::path::Path,
-    branch: &str,
-    mode: OutputMode,
-) -> anyhow::Result<()> {
-    let wt_path = wt::worktree_path(repo_root, branch)?;
-
-    if !wt_path.exists() {
-        anyhow::bail!("Worktree '{branch}' not found at {}", wt_path.display());
-    }
-
-    let repo = git2::Repository::discover(repo_root)?;
-    let result = wt::remove_worktree(&repo, &wt_path, branch, true)?;
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": true,
-                "removed": wt_path.display().to_string(),
-                "branch_status": format!("{result:?}"),
-            })
-        );
-    } else {
-        println!("  Removed: {}", wt_path.display());
-        match result {
-            wt::BranchCleanupResult::Deleted => {
-                println!("  Deleted merged branch: {branch}");
+        for file_diff in &context.file_diffs {
+            // Check added lines against convention rules
+            for hunk in &file_diff.hunks {
+                for line in &hunk.lines {
+                    if line.kind == DiffLineKind::Addition {
+                        // Run convention checks on new code only
+                        findings.extend(self.check_line(&file_diff.path, line));
+                    }
+                }
             }
-            wt::BranchCleanupResult::Kept(reason) => {
-                println!("  Branch '{branch}' kept ({reason})");
-            }
-            wt::BranchCleanupResult::NotFound => {}
         }
-    }
 
-    Ok(())
+        Ok(findings)
+    }
 }
+```
 
-fn clean(
-    _vcs: &GitVersionControl,
-    repo_root: &std::path::Path,
-    mode: OutputMode,
-) -> anyhow::Result<()> {
-    let repo = git2::Repository::discover(repo_root)?;
-    let result = wt::clean_worktrees(&repo, repo_root)?;
+### Example: LLM Analyzer Using File Context
 
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": true,
-                "removed": result.removed,
-            })
-        );
-    } else {
-        if result.removed == 0 {
-            println!("  No worktrees");
-        } else {
-            println!("  Cleaned {} worktree(s)", result.removed);
+```rust
+impl ReviewAnalyzer for AgentSecurityAnalyzer {
+    fn analyze(&self, context: &ReviewContext) -> anyhow::Result<Vec<Finding>> {
+        // Get full file contents for files with security-relevant changes
+        let security_files = context.file_diffs.iter()
+            .filter(|d| self.is_security_relevant(&d.path));
+
+        for file_diff in security_files {
+            let content = context.vcs.file_at_revision(
+                &file_diff.path,
+                &context.head,
+            )?;
+
+            // Send to LLM agent for security review
+            let findings = self.agent.review_file(
+                &file_diff,
+                &content,
+                &context.commits,
+            )?;
+
+            // ... collect findings ...
         }
-    }
 
-    Ok(())
+        Ok(findings)
+    }
 }
 ```
 
@@ -936,62 +631,58 @@ fn clean(
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
-│                    CLI Layer (Thin Dispatch)                   │
-│                                                               │
-│  checkpoint.rs       worktree.rs                              │
-│  - Format output     - Dispatch subcommands                   │
-│  - Handle modes      - Format output                          │
-└───────────┬─────────────────────┬─────────────────────────────┘
-            │                     │
-┌───────────▼─────────────────────▼─────────────────────────────┐
-│                    Port Layer (Traits)                         │
-│                                                               │
-│  VersionControl                                               │
-│  + is_clean() -> bool                                         │
-│  + checkpoint(msg) -> Option<sha>                             │
-│  + list_worktrees() -> Vec<WorktreeInfo>                      │
-│  + create_worktree(path, branch, base)                        │
-│  + remove_worktree(path, force)                               │
-│  + prune_worktrees()                                          │
-│  + is_branch_merged(branch) -> bool                           │
-│  + delete_branch(branch, force)                               │
-└───────────┬─────────────────────┬─────────────────────────────┘
-            │                     │
-┌───────────▼─────────────────────▼─────────────────────────────┐
-│                    Adapter Layer (I/O)                         │
-│                                                               │
-│  GitVersionControl                                            │
-│  ├── checkpoint.rs   (git2::Repository)                       │
-│  │   - is_clean()    → repo.statuses()                        │
-│  │   - checkpoint()  → index.add_all + repo.commit            │
-│  └── worktree.rs     (git2::Repository)                       │
-│      - list          → repo.worktrees()                       │
-│      - create        → repo.branch + repo.worktree            │
-│      - remove        → fs::remove_dir_all + prune             │
-│      - clean         → iterate base dir + remove each         │
+│                    CLI Layer (Thin Dispatch)                    │
+│                                                                │
+│  checkpoint.rs       review.rs                                 │
+│  - Format output     - Orchestrate review pipeline             │
+│  - Handle modes      - Display findings                        │
+└───────────┬──────────────────────┬────────────────────────────┘
+            │                      │
+┌───────────▼──────────────────────▼────────────────────────────┐
+│                    Port Layer (Traits)                          │
+│                                                                │
+│  VersionControl                                                │
+│  + is_clean() -> bool                                          │
+│  + commit_all(msg) -> Option<sha>                              │
+│  + diff_between(base, head) -> Vec<FileDiff>                   │
+│  + commits_between(base, head) -> Vec<CommitInfo>              │
+│  + file_at_revision(path, rev) -> String                       │
+│  + recent_commits(count) -> Vec<CommitInfo>                    │
+│  + diff_stat_since(since) -> DiffStat                          │
+└───────────┬──────────────────────┬────────────────────────────┘
+            │                      │
+┌───────────▼──────────────────────▼────────────────────────────┐
+│                    Adapter Layer (I/O)                          │
+│                                                                │
+│  GitVersionControl                                             │
+│  ├── checkpoint.rs   (git2::Repository)                        │
+│  │   - is_clean()    → repo.statuses()                         │
+│  │   - commit_all()  → index.add_all + repo.commit             │
+│  └── (inline)        (git2::Repository)                        │
+│      - diff_between  → repo.diff_tree_to_tree                  │
+│      - commits_between → repo.revwalk                          │
+│      - file_at_revision → tree.get_path + find_blob            │
+│      - recent_commits → repo.revwalk (from HEAD)               │
+│      - diff_stat_since → diff.stats()                          │
 └───────────────────────────────────────────────────────────────┘
 ```
 
 ### Why VersionControl Trait (not a new port)
 
-Checkpoint and worktree are git operations that extend the existing `VersionControl` abstraction. Creating a separate `CheckpointPort` or `WorktreePort` would be wrong because:
+All these methods interact with the same git repository as `staged_files`, `repo_root`, and `current_branch`. Creating a separate `ReviewVcsPort` would fragment the abstraction:
 
-1. **Same boundary**: These operations interact with the same git repository as `staged_files`, `repo_root`, and `current_branch`.
-2. **Same adapter**: `GitVersionControl` is the natural home, and it already holds the `workdir` path needed by all these operations.
-3. **Composability**: The iteration loop (`noslop run`) will call `checkpoint()` between iterations using the same `VersionControl` instance it uses for `current_branch()`.
-4. **Noslop convention**: Existing code places all git operations behind `VersionControl`, not scattered across multiple traits.
+1. **Same boundary**: All operations are reads/writes against a single git repository.
+2. **Same adapter**: `GitVersionControl` already holds the `workdir` path needed by all operations.
+3. **Review pipeline composes them**: A review run calls `diff_between`, `commits_between`, and `file_at_revision` on the same VCS instance.
+4. **Noslop convention**: Existing code places all git operations behind `VersionControl`.
 
 ### Why `git2` Instead of `std::process::Command`
 
-The existing `GitVersionControl` adapter uses `std::process::Command` to shell out to git. The new checkpoint and worktree code uses `git2` instead. This is deliberate:
-
 1. **`git2` is already a dependency** (v0.20.2 with vendored OpenSSL).
-2. **No subprocess overhead**: Checkpoint runs frequently (between every iteration in ralph). Avoiding process spawning matters.
-3. **Atomic staging**: `git2`'s index API stages files in a single operation instead of shelling out to `git add`.
-4. **No hook execution**: `git2` commits do not invoke git hooks, which is exactly what `--no-verify` provides. No flag-passing needed.
-5. **Structured worktree info**: `git2` returns `Worktree` objects with path/validity, avoiding `git worktree list` output parsing.
-
-Over time, existing `Command`-based methods in `GitVersionControl` can migrate to `git2` as well, but that is outside this design's scope.
+2. **No subprocess overhead**: Diff computation and file reads happen in-process.
+3. **Structured data**: `git2` returns typed diff objects, avoiding `git diff` output parsing.
+4. **Atomic operations**: `git2`'s index API stages files in a single operation for checkpoint.
+5. **No hook execution**: `git2` commits do not invoke git hooks, which is the desired checkpoint behavior.
 
 ## Output Format
 
@@ -1007,36 +698,6 @@ Checkpoint: a1b2c3d checkpoint: 2025-02-08 12:30:00
 Nothing to checkpoint (working tree clean).
 ```
 
-**Worktree create:**
-
-```
-Creating worktree:
-  Branch: feature/new-thing
-  Path:   /Users/saumil/Code/noslop-worktrees/feature/new-thing
-
-cd /Users/saumil/Code/noslop-worktrees/feature/new-thing
-```
-
-**Worktree list:**
-
-```
-/Users/saumil/Code/noslop                                  a1b2c3d [main] (main)
-/Users/saumil/Code/noslop-worktrees/feature/new-thing      b2c3d4e [feature/new-thing]
-```
-
-**Worktree remove:**
-
-```
-  Removed: /Users/saumil/Code/noslop-worktrees/feature/new-thing
-  Deleted merged branch: feature/new-thing
-```
-
-**Worktree clean:**
-
-```
-  Cleaned 3 worktree(s)
-```
-
 ### JSON Mode (`--json`)
 
 **Checkpoint:**
@@ -1049,28 +710,9 @@ cd /Users/saumil/Code/noslop-worktrees/feature/new-thing
 }
 ```
 
-**Worktree list:**
-
-```json
-[
-  {
-    "path": "/Users/saumil/Code/noslop",
-    "branch": "main",
-    "head": "a1b2c3d",
-    "is_main": true
-  },
-  {
-    "path": "/Users/saumil/Code/noslop-worktrees/feature/new-thing",
-    "branch": "feature/new-thing",
-    "head": "b2c3d4e",
-    "is_main": false
-  }
-]
-```
-
 ## Test Strategy
 
-### Unit Tests (`tests/unit/`)
+### Unit Tests
 
 **Checkpoint adapter tests:**
 
@@ -1108,91 +750,85 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_stages_and_commits() {
+    fn commit_all_stages_and_commits() {
         let (dir, repo) = setup_repo();
         std::fs::write(dir.path().join("file.txt"), "content").unwrap();
 
-        let result = checkpoint(&repo, "test checkpoint").unwrap();
+        let result = commit_all(&repo, "test checkpoint").unwrap();
         assert!(result.is_some());
         assert!(is_clean(&repo).unwrap());
     }
 
     #[test]
-    fn checkpoint_returns_none_on_clean_tree() {
+    fn commit_all_returns_none_on_clean_tree() {
         let (_dir, repo) = setup_repo();
-        let result = checkpoint(&repo, "nothing here").unwrap();
+        let result = commit_all(&repo, "nothing here").unwrap();
         assert!(result.is_none());
     }
 }
 ```
 
-**Worktree adapter tests:**
+**Review pipeline method tests:**
 
 ```rust
 #[cfg(test)]
-mod tests {
+mod review_vcs_tests {
     use super::*;
     use tempfile::TempDir;
 
-    fn setup_repo_with_commit() -> (TempDir, Repository) {
+    fn setup_repo_with_branch() -> (TempDir, Repository) {
         let dir = TempDir::new().unwrap();
         let repo = Repository::init(dir.path()).unwrap();
 
-        // Create file + initial commit
+        // Create initial commit on main
         std::fs::write(dir.path().join("README.md"), "# test").unwrap();
         let mut index = repo.index().unwrap();
-        index.add_path(std::path::Path::new("README.md")).unwrap();
+        index.add_path(Path::new("README.md")).unwrap();
         index.write().unwrap();
         let tree_oid = index.write_tree().unwrap();
         let tree = repo.find_tree(tree_oid).unwrap();
         let sig = Signature::now("test", "test@test.com").unwrap();
-        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[]).unwrap();
+        let commit = repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[]).unwrap();
+
+        // Create a feature branch with a change
+        let head = repo.find_commit(commit).unwrap();
+        repo.branch("feature", &head, false).unwrap();
+        repo.set_head("refs/heads/feature").unwrap();
+        repo.checkout_head(Some(git2::build::CheckoutBuilder::new().force())).unwrap();
+
+        std::fs::write(dir.path().join("new_file.rs"), "fn main() {}").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("new_file.rs")).unwrap();
+        index.write().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "add new file", &tree, &[&head]).unwrap();
 
         (dir, repo)
     }
 
     #[test]
-    fn worktree_base_dir_appends_suffix() {
-        let base = worktree_base_dir(Path::new("/code/noslop")).unwrap();
-        assert_eq!(base, PathBuf::from("/code/noslop-worktrees"));
+    fn diff_between_shows_added_file() {
+        let (_dir, repo) = setup_repo_with_branch();
+        // Test that diff between main and feature shows new_file.rs as added
+        // (Implementation would use the GitVersionControl wrapper)
     }
 
     #[test]
-    fn list_worktrees_returns_main() {
-        let (_dir, repo) = setup_repo_with_commit();
-        let worktrees = list_worktrees(&repo).unwrap();
-        assert_eq!(worktrees.len(), 1);
-        assert!(worktrees[0].is_main);
+    fn commits_between_lists_feature_commits() {
+        let (_dir, repo) = setup_repo_with_branch();
+        // Test that commits_between(main, feature) returns the feature commit
     }
 
     #[test]
-    fn create_and_list_worktree() {
-        let (dir, repo) = setup_repo_with_commit();
-        let wt_path = dir.path().parent().unwrap().join("test-worktrees/feature-a");
-
-        create_worktree(&repo, &wt_path, "feature-a", "HEAD").unwrap();
-
-        let worktrees = list_worktrees(&repo).unwrap();
-        assert_eq!(worktrees.len(), 2);
-
-        // Cleanup
-        std::fs::remove_dir_all(&wt_path).ok();
-    }
-
-    #[test]
-    fn is_branch_merged_detects_ancestor() {
-        let (_dir, repo) = setup_repo_with_commit();
-        let head = repo.head().unwrap().peel_to_commit().unwrap();
-
-        // Create branch at HEAD (trivially merged)
-        repo.branch("test-branch", &head, false).unwrap();
-
-        assert!(is_branch_merged(&repo, "test-branch").unwrap());
+    fn file_at_revision_reads_content() {
+        let (_dir, repo) = setup_repo_with_branch();
+        // Test that file_at_revision("new_file.rs", "feature") returns "fn main() {}"
     }
 }
 ```
 
-### Integration Tests (`tests/integration/`)
+### Integration Tests
 
 ```rust
 #[test]
@@ -1235,133 +871,26 @@ fn cli_checkpoint_json_output() {
         .success()
         .stdout(predicates::str::contains("\"success\": true"));
 }
-
-#[test]
-fn cli_worktree_create_list_remove() {
-    let repo = TempGitRepo::new();
-    repo.write_file("README.md", "# test");
-    repo.commit("initial");
-
-    // Create
-    Command::cargo_bin("noslop")
-        .unwrap()
-        .current_dir(repo.path())
-        .args(["worktree", "create", "feature-test"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Branch: feature-test"));
-
-    // List
-    Command::cargo_bin("noslop")
-        .unwrap()
-        .current_dir(repo.path())
-        .args(["worktree", "list"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("feature-test"));
-
-    // Remove
-    Command::cargo_bin("noslop")
-        .unwrap()
-        .current_dir(repo.path())
-        .args(["worktree", "remove", "feature-test"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Removed:"));
-}
-
-#[test]
-fn cli_worktree_clean() {
-    let repo = TempGitRepo::new();
-    repo.write_file("README.md", "# test");
-    repo.commit("initial");
-
-    // Create two worktrees
-    Command::cargo_bin("noslop")
-        .unwrap()
-        .current_dir(repo.path())
-        .args(["worktree", "create", "branch-a"])
-        .assert()
-        .success();
-
-    Command::cargo_bin("noslop")
-        .unwrap()
-        .current_dir(repo.path())
-        .args(["worktree", "create", "branch-b"])
-        .assert()
-        .success();
-
-    // Clean all
-    Command::cargo_bin("noslop")
-        .unwrap()
-        .current_dir(repo.path())
-        .args(["worktree", "clean"])
-        .assert()
-        .success()
-        .stdout(predicates::str::contains("Cleaned 2 worktree(s)"));
-}
 ```
 
 ## Dependencies
 
-No new crate dependencies are required. All functionality is covered by existing dependencies:
+No new crate dependencies are required:
 
-| Crate        | Already in Cargo.toml | Used For                                                      |
-| ------------ | --------------------- | ------------------------------------------------------------- |
-| `git2`       | Yes (0.20.2)          | All git operations (staging, committing, worktrees, branches) |
-| `chrono`     | Yes (0.4.42)          | Default checkpoint timestamp                                  |
-| `clap`       | Yes (4.5.51)          | CLI parsing for new subcommands                               |
-| `serde_json` | Yes (1.0.145)         | JSON output mode                                              |
-| `anyhow`     | Yes (1.0.100)         | Error handling                                                |
-
-## Migration Checklist
-
-This section maps every behavior in the bash scripts to its Rust equivalent, confirming nothing is lost.
-
-### `checkpoint` (56 lines)
-
-| Line(s) | Bash Behavior                                     | Rust Equivalent                    | Status    |
-| ------- | ------------------------------------------------- | ---------------------------------- | --------- |
-| 17      | Default message with timestamp                    | `chrono::Local::now().format(...)` | Covered   |
-| 19      | `detect_repos`                                    | Dropped (single-repo only)         | By design |
-| 22-31   | Single-repo: is_clean, add -A, commit --no-verify | `checkpoint::checkpoint()`         | Covered   |
-| 29      | Print `git log --oneline -1`                      | Print short SHA + message          | Covered   |
-| 34-48   | Multi-repo loop                                   | Dropped                            | By design |
-| 50-55   | Summary output                                    | Simplified (single-repo)           | Covered   |
-
-### `worktree` (223 lines)
-
-| Line(s) | Bash Behavior                      | Rust Equivalent                | Status                |
-| ------- | ---------------------------------- | ------------------------------ | --------------------- |
-| 25-31   | `--repo` flag parsing              | Dropped (single-repo)          | By design             |
-| 35      | `detect_repos`                     | Dropped                        | By design             |
-| 38-49   | `--repo` filter                    | Dropped                        | By design             |
-| 53-56   | `_wt_base`                         | `worktree_base_dir()`          | Covered               |
-| 58-73   | `_create_one`                      | `create_worktree()`            | Covered               |
-| 75-93   | `_remove_one`                      | `remove_worktree()`            | Covered               |
-| 95-119  | `_clean_one`                       | `clean_worktrees()`            | Covered               |
-| 123-148 | `create_worktree` (single + multi) | `worktree::create` command     | Covered (single only) |
-| 150-160 | `list_worktrees`                   | `worktree::list` command       | Covered               |
-| 162-190 | `remove_worktree`                  | `worktree::remove` command     | Covered (single only) |
-| 192-202 | `clean_worktrees`                  | `worktree::clean` command      | Covered (single only) |
-| 204-222 | Case dispatch + usage              | `WorktreeAction` enum via clap | Covered               |
-
-### `_lib.sh` (77 lines)
-
-| Function         | Rust Equivalent                        | Status       |
-| ---------------- | -------------------------------------- | ------------ |
-| `detect_repos()` | Dropped (single-repo always)           | By design    |
-| `is_clean()`     | `checkpoint::is_clean()`               | Covered      |
-| `count_tasks()`  | Separate design (ralph/iteration loop) | Out of scope |
-| `git_activity()` | Separate design (ralph/iteration loop) | Out of scope |
+| Crate        | Already in Cargo.toml | Used For                                   |
+| ------------ | --------------------- | ------------------------------------------ |
+| `git2`       | Yes (0.20.2)          | All git operations (diff, log, checkpoint) |
+| `chrono`     | Yes (0.4.42)          | Default checkpoint timestamp               |
+| `clap`       | Yes (4.5.51)          | CLI parsing for checkpoint subcommand      |
+| `serde_json` | Yes (1.0.145)         | JSON output mode                           |
+| `anyhow`     | Yes (1.0.100)         | Error handling                             |
 
 ## Summary
 
-This design ports checkpoint (56 lines bash) and worktree (223 lines bash) to Rust, fitting cleanly into noslop's hexagonal architecture:
+This design serves two purposes:
 
-- **CLI layer**: Two new `Command` variants with clap derive, thin dispatch to adapters
-- **Port layer**: `VersionControl` trait extended with 8 new methods
-- **Adapter layer**: Two new modules under `adapters::git/` using `git2` directly
-- **Model layer**: One new `WorktreeInfo` type
+1. **Checkpoint**: A simple convenience command (`noslop checkpoint [msg]`) that stages all changes and commits. Useful for developers who want to save state before fixing review findings. One new CLI subcommand, one new adapter module, two trait methods (`is_clean`, `commit_all`).
 
-Multi-repo mode is deliberately dropped. No new dependencies are required. The `git2` crate handles all operations that the bash scripts achieved via `git` subprocess calls, with the added benefit of no hook execution during checkpoint commits and no output parsing for worktree metadata.
+2. **Review pipeline VCS methods**: The primary trait extensions. Five new methods on `VersionControl` that give analyzers access to diffs (`diff_between`), commit history (`commits_between`, `recent_commits`), file contents (`file_at_revision`), and change statistics (`diff_stat_since`). These are the foundation that every `ReviewAnalyzer` builds on.
+
+Worktree management is deferred as a future consideration. The review tool does not currently need isolated worktrees.

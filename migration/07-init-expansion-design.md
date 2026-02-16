@@ -4,21 +4,23 @@ Design specification for expanding `noslop init` to support agent-specific confi
 
 ## Overview
 
-The `init` command currently handles noslop-only setup: creating `.noslop.toml`, the `.noslop/` directory, and installing git hooks. This design expands it with an optional positional argument that dispatches to the `AgentConfig` trait for agent-specific file generation.
+noslop is a local code review tool for agent-generated code. The `init` command currently handles noslop-only setup: creating `.noslop.toml`, the `.noslop/` directory, and installing git hooks. This design expands it with an optional positional argument that configures a **review agent** -- the AI agent that noslop uses to run LLM-based analyzers in the review pipeline.
+
+**Key distinction**: The developer uses Claude Code (or another agent) separately for coding. `noslop init claude` configures Claude as the **review** agent -- the agent that powers `agent:security`, `agent:quality`, and other LLM-based `ReviewAnalyzer` implementations.
 
 **Invariant**: Bare `noslop init` continues to work exactly as it does today. Agent configuration is purely additive.
 
 ### Command Forms
 
-| Command              | What it does                                                              |
-| -------------------- | ------------------------------------------------------------------------- |
-| `noslop init`        | Git hooks + `.noslop.toml` + `.noslop/` directory (unchanged)             |
-| `noslop init claude` | All of the above + Claude Code config files + `[agent]` in `.noslop.toml` |
-| `noslop init codex`  | All of the above + Codex CLI config files + `[agent]` in `.noslop.toml`   |
+| Command              | What it does                                                                      |
+| -------------------- | --------------------------------------------------------------------------------- |
+| `noslop init`        | Git hooks + `.noslop.toml` + `.noslop/` directory (unchanged)                     |
+| `noslop init claude` | All of the above + Claude as review agent + `[review]` pipeline in `.noslop.toml` |
+| `noslop init codex`  | All of the above + Codex as review agent + `[review]` pipeline in `.noslop.toml`  |
 
 ## CLI Changes
 
-### `app.rs` — Command Enum
+### `app.rs` -- Command Enum
 
 The `Init` variant gains an optional positional `agent` argument. This uses clap's standard optional positional pattern.
 
@@ -27,7 +29,7 @@ The `Init` variant gains an optional positional `agent` argument. This uses clap
 pub enum Command {
     /// Initialize noslop in the current repository
     Init {
-        /// AI agent to configure (e.g., claude, codex)
+        /// AI agent to use for LLM-based review (e.g., claude, codex)
         agent: Option<String>,
 
         /// Force re-initialization
@@ -41,7 +43,7 @@ pub enum Command {
 
 The `agent` field is `Option<String>` rather than `Option<AgentType>` because clap parsing happens before we can produce a helpful error message. We parse it manually inside the command handler to control the error format.
 
-### `app.rs` — Dispatch
+### `app.rs` -- Dispatch
 
 The `run()` function passes the new argument through to the command handler:
 
@@ -59,7 +61,7 @@ Full diff for `app.rs`:
  pub enum Command {
      /// Initialize noslop in the current repository
      Init {
-+        /// AI agent to configure (e.g., claude, codex)
++        /// AI agent to use for LLM-based review (e.g., claude, codex)
 +        agent: Option<String>,
 +
          /// Force re-initialization
@@ -76,9 +78,9 @@ Full diff for `app.rs`:
 
 ## `.noslop.toml` Schema Extension
 
-### `[agent]` Section
+### `[agent]` and `[review]` Sections
 
-When `noslop init <agent>` runs, it writes an `[agent]` section into `.noslop.toml`. This section records which agent was configured so that `noslop run` knows which `AgentRuntime` to use without requiring the user to specify it every time.
+When `noslop init <agent>` runs, it writes `[agent]` and `[review]` sections into `.noslop.toml`. The `[agent]` section records which agent is available for review inference. The `[review]` section configures the analyzer pipeline.
 
 ```toml
 [project]
@@ -87,7 +89,14 @@ prefix = "NOS"
 [agent]
 type = "claude"
 
-# Checks below...
+[review]
+analyzers = ["conventions", "agent:security", "agent:quality"]
+
+[review.agent:security]
+agent = "claude"
+
+[review.agent:quality]
+agent = "claude"
 ```
 
 The `[agent]` section has one required field:
@@ -96,21 +105,29 @@ The `[agent]` section has one required field:
 | ------ | ------ | ----------------------------------------- |
 | `type` | string | Agent identifier: `"claude"` or `"codex"` |
 
-Future fields (added by later design docs for the iteration loop):
+The `[review]` section configures the analyzer pipeline:
 
-```toml
-[agent]
-type = "claude"
+| Field       | Type          | Description                                                    |
+| ----------- | ------------- | -------------------------------------------------------------- |
+| `analyzers` | array[string] | Ordered list of analyzers to run. Prefix `agent:` = LLM-based. |
 
-[loop]
-max_iterations = 20
-stuck_threshold = 3
-fail_threshold = 5
-```
+Each `[review.agent:<name>]` sub-table binds an LLM analyzer to a specific agent:
+
+| Field   | Type   | Description                                      |
+| ------- | ------ | ------------------------------------------------ |
+| `agent` | string | Which agent to use for this analyzer's inference |
+
+### Analyzer Types
+
+The pipeline supports three kinds of analyzers:
+
+1. **Static analyzers** (e.g., `conventions`): Pattern-matching on diffs. No agent needed.
+2. **Computed analyzers** (e.g., `complexity`): Computes metrics from code. No agent needed.
+3. **Agent analyzers** (e.g., `agent:security`, `agent:quality`): Send diff context to an LLM agent via `AgentRuntime` for review inference. Require an `[review.agent:<name>]` binding.
 
 ### Parser Changes
 
-The `NoslopFile` struct in `src/adapters/toml/parser.rs` gains an optional `agent` field:
+The `NoslopFile` struct in `src/adapters/toml/parser.rs` gains optional `agent` and `review` fields:
 
 ```rust
 /// A .noslop.toml file structure
@@ -124,6 +141,10 @@ pub struct NoslopFile {
     #[serde(default)]
     pub agent: Option<AgentSection>,
 
+    /// Review pipeline configuration
+    #[serde(default)]
+    pub review: Option<ReviewSection>,
+
     /// Checks in this file
     #[serde(default, rename = "check")]
     pub checks: Vec<CheckEntry>,
@@ -136,9 +157,16 @@ pub struct AgentSection {
     #[serde(rename = "type")]
     pub agent_type: String,
 }
+
+/// Review pipeline configuration
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ReviewSection {
+    /// Ordered list of analyzers to run
+    pub analyzers: Vec<String>,
+}
 ```
 
-The `#[serde(default)]` on the `agent` field means existing `.noslop.toml` files without an `[agent]` section parse without error. The field deserializes to `None`.
+The `#[serde(default)]` on both fields means existing `.noslop.toml` files without these sections parse without error. The fields deserialize to `None`.
 
 ## Init Command Implementation
 
@@ -186,7 +214,7 @@ pub fn init(agent: Option<String>, force: bool, _mode: OutputMode) -> anyhow::Re
     let prefix = noslop_file::generate_prefix_from_repo();
     println!("  Generated project prefix: {prefix}");
 
-    // Build .noslop.toml content — agent section included if specified
+    // Build .noslop.toml content -- agent + review sections included if specified
     let agent_type = agent
         .as_deref()
         .map(parse_agent_type)
@@ -206,6 +234,12 @@ pub fn init(agent: Option<String>, force: bool, _mode: OutputMode) -> anyhow::Re
     println!("  Installed commit-msg hook");
     git::hooks::install_post_commit()?;
     println!("  Installed post-commit hook");
+
+    // Install pre-push hook for review gating
+    if agent_type.is_some() {
+        git::hooks::install_pre_push()?;
+        println!("  Installed pre-push hook (runs noslop review --check)");
+    }
 
     // Check for existing docs
     let docs = ["CLAUDE.md", "AGENTS.md", "ARCHITECTURE.md"];
@@ -231,16 +265,16 @@ pub fn init(agent: Option<String>, force: bool, _mode: OutputMode) -> anyhow::Re
     println!("  git commit  # checks will be validated");
 
     if agent_type.is_some() {
-        println!("  noslop run <plan.md>  # autonomous iteration");
+        println!("  noslop review  # review current branch before push");
     }
 
     Ok(())
 }
 
-/// Build .noslop.toml content, optionally including the [agent] section
+/// Build .noslop.toml content, optionally including [agent] and [review] sections
 fn build_noslop_toml(prefix: &str, agent_type: Option<AgentType>) -> String {
     let mut toml = format!(
-        r#"# noslop checks
+        r#"# noslop configuration
 
 [project]
 prefix = "{prefix}"
@@ -252,6 +286,15 @@ prefix = "{prefix}"
             r#"
 [agent]
 type = "{agent}"
+
+[review]
+analyzers = ["conventions", "agent:security", "agent:quality"]
+
+[review."agent:security"]
+agent = "{agent}"
+
+[review."agent:quality"]
+agent = "{agent}"
 "#
         ));
     }
@@ -277,7 +320,7 @@ type = "{agent}"
 fn configure_agent(agent_type: AgentType) -> anyhow::Result<()> {
     let config = get_agent_config(agent_type);
 
-    println!("Configuring {} agent...\n", agent_type.display_name());
+    println!("Configuring {} as review agent...\n", agent_type.display_name());
 
     // Validate agent CLI is available
     config.validate()?;
@@ -289,7 +332,7 @@ fn configure_agent(agent_type: AgentType) -> anyhow::Result<()> {
     let bundle = config.generate_config(&project_root)?;
     write_config_bundle(&bundle)?;
 
-    // Generate project-local instructions if the agent provides them
+    // Generate project-local instructions referencing review workflow
     if let Some(instructions) = config.generate_project_instructions(&project_root)? {
         write_project_instructions(agent_type, &instructions)?;
     }
@@ -322,37 +365,12 @@ fn write_config_bundle(bundle: &noslop::core::ports::AgentConfigBundle) -> anyho
         println!("  Created {}", settings.relative_path.display());
     }
 
-    // Write hook scripts
-    for hook in &bundle.hooks {
-        // Hooks are referenced by path in settings; write the script file
-        let path = if hook.command.starts_with('~') {
-            let stripped = hook.command.strip_prefix("~/").unwrap_or(&hook.command);
-            home.join(stripped)
-        } else {
-            home.join(&hook.command)
-        };
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        // Hook scripts are generated by the adapter; the command field
-        // is the target path, and content comes from the adapter
-        println!("  Configured hook: {} ({})", hook.event, hook.matcher);
-    }
-
-    // Write slash commands
-    for cmd in &bundle.commands {
-        let path = home.join(&cmd.relative_path);
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        fs::write(&path, &cmd.content)?;
-        println!("  Created command: /{}", cmd.name);
-    }
-
     Ok(())
 }
 
 /// Write project-local agent instructions (e.g., CLAUDE.md in repo root)
+///
+/// The generated instructions reference the review workflow, not code generation.
 fn write_project_instructions(agent_type: AgentType, content: &str) -> anyhow::Result<()> {
     let filename = match agent_type {
         AgentType::Claude => "CLAUDE.md",
@@ -365,6 +383,46 @@ fn write_project_instructions(agent_type: AgentType, content: &str) -> anyhow::R
     } else {
         fs::write(path, content)?;
         println!("  Created {filename}");
+    }
+
+    Ok(())
+}
+```
+
+### Pre-Push Hook
+
+When an agent is configured, `noslop init` installs a pre-push hook that gates pushes on review status. This ensures agent-generated code is reviewed before it reaches the remote.
+
+```bash
+#!/usr/bin/env bash
+# noslop pre-push hook: gate pushes on unresolved review findings
+
+# Run noslop review in check mode (non-zero exit blocks push)
+noslop review --check
+
+exit $?
+```
+
+The `noslop review --check` command exits non-zero if there are unresolved findings at severity `error` or above, blocking the push. Findings at `warn` severity are displayed but do not block.
+
+#### `git::hooks::install_pre_push`
+
+```rust
+/// Install pre-push hook that runs noslop review --check
+pub fn install_pre_push() -> anyhow::Result<()> {
+    let hook_path = Path::new(".git/hooks/pre-push");
+    let content = r#"#!/usr/bin/env bash
+# noslop pre-push hook: gate pushes on unresolved review findings
+noslop review --check
+exit $?
+"#;
+
+    fs::write(hook_path, content)?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(hook_path, fs::Permissions::from_mode(0o755))?;
     }
 
     Ok(())
@@ -388,21 +446,25 @@ User runs: noslop init claude
                                │
                                ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  init() — Phase 1: Core noslop setup                             │
+│  init() -- Phase 1: Core noslop setup                            │
 │                                                                  │
 │  1. Check .noslop.toml exists (bail unless --force)              │
 │  2. generate_prefix_from_repo() → "NOS"                          │
 │  3. parse_agent_type("claude") → Ok(AgentType::Claude)           │
 │  4. build_noslop_toml("NOS", Some(Claude))                       │
-│     → writes .noslop.toml with [project] and [agent] sections    │
+│     → writes .noslop.toml with:                                  │
+│       [project]  — prefix                                        │
+│       [agent]    — type = "claude"                                │
+│       [review]   — analyzer pipeline with agent bindings          │
 │  5. Create .noslop/ directory + .gitkeep                         │
 │  6. Install git hooks (pre-commit, commit-msg, post-commit)      │
-│  7. Check for existing docs                                      │
+│  7. Install pre-push hook (noslop review --check)                │
+│  8. Check for existing docs                                      │
 └──────────────────────────────┬───────────────────────────────────┘
                                │
                                ▼
 ┌──────────────────────────────────────────────────────────────────┐
-│  init() — Phase 2: Agent setup                                   │
+│  init() -- Phase 2: Agent setup                                  │
 │                                                                  │
 │  configure_agent(AgentType::Claude)                              │
 │                                                                  │
@@ -417,16 +479,15 @@ User runs: noslop init claude
 │     Returns: AgentConfigBundle {                                 │
 │       global_instructions: ~/.claude/CLAUDE.md                   │
 │       settings: ~/.claude/settings.json                          │
-│       hooks: [branch-protection, auto-format]                    │
-│       commands: [/checkpoint, /worktree, /ralph]                 │
 │     }                                                            │
 │                                                                  │
 │  4. write_config_bundle(&bundle)                                 │
-│     Writes each file to disk under ~/                            │
+│     Writes global instruction + settings files                   │
 │                                                                  │
 │  5. config.generate_project_instructions(&project_root)          │
-│     Returns: Some("# Project Instructions\n...")                 │
+│     Returns: Some("# Review Configuration\n...")                 │
 │     → writes CLAUDE.md to repo root (if not exists)              │
+│     → content references review workflow, not code generation    │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -442,16 +503,17 @@ User runs: noslop init
                 │
                 ▼
   build_noslop_toml("NOS", None)
-  → .noslop.toml without [agent] section
+  → .noslop.toml without [agent] or [review] sections
                 │
                 ▼
   Phase 2: if let Some(agent_type) = None → skipped
+  Pre-push hook: not installed (no review agent configured)
 ```
 
 The generated `.noslop.toml` is identical to what `init` produces today:
 
 ```toml
-# noslop checks
+# noslop configuration
 
 [project]
 prefix = "NOS"
@@ -469,16 +531,25 @@ prefix = "NOS"
 
 ### `noslop init claude` Generated `.noslop.toml`
 
-With an agent specified, the `[agent]` section is inserted between `[project]` and the check comments:
+With an agent specified, the `[agent]` and `[review]` sections are inserted between `[project]` and the check comments:
 
 ```toml
-# noslop checks
+# noslop configuration
 
 [project]
 prefix = "NOS"
 
 [agent]
 type = "claude"
+
+[review]
+analyzers = ["conventions", "agent:security", "agent:quality"]
+
+[review."agent:security"]
+agent = "claude"
+
+[review."agent:quality"]
+agent = "claude"
 
 # Checks are auto-assigned IDs like NOS-1, NOS-2, etc.
 # You can also specify custom IDs:
@@ -489,6 +560,38 @@ type = "claude"
 # target = "*.rs"
 # message = "Consider impact on public API"
 # severity = "warn"
+```
+
+### Generated Project Instructions (CLAUDE.md)
+
+When `noslop init claude` creates a project-local `CLAUDE.md`, the content references the review workflow:
+
+```markdown
+# noslop Review Configuration
+
+This project uses noslop for automated code review of agent-generated changes.
+
+## Review Workflow
+
+1. Create changes on a feature branch (using Claude Code or any agent)
+2. Run `noslop review` to analyze changes before push
+3. Address findings at severity `error` or above
+4. Push -- the pre-push hook runs `noslop review --check` automatically
+
+## Review Pipeline
+
+The configured analyzers run in order:
+
+- `conventions` -- static pattern matching against project conventions
+- `agent:security` -- LLM-based security review (powered by Claude)
+- `agent:quality` -- LLM-based code quality review (powered by Claude)
+
+## Commands
+
+- `noslop review` -- run the review pipeline on current branch
+- `noslop review --check` -- exit non-zero if unresolved error findings
+- `noslop review --base main` -- review against a specific base branch
+- `noslop checkpoint` -- save current state before fixing findings
 ```
 
 ## Factory Function
@@ -522,7 +625,7 @@ src/
 │                                 #   (defined in 03-agent-port-design.md)
 ├── adapters/
 │   ├── toml/
-│   │   └── parser.rs            # Modified: NoslopFile gains agent field
+│   │   └── parser.rs            # Modified: NoslopFile gains agent + review fields
 │   └── agent/                   # New: agent adapter implementations
 │       ├── mod.rs               #   Module re-exports
 │       ├── claude.rs            #   ClaudeConfig (impl AgentConfig)
@@ -567,8 +670,9 @@ Initializing noslop...
   Installed pre-commit hook
   Installed commit-msg hook
   Installed post-commit hook
+  Installed pre-push hook (runs noslop review --check)
 
-Configuring Claude Code agent...
+Configuring Claude Code as review agent...
 
 Error: Claude Code CLI not found in PATH. Install it first: npm install -g @anthropic-ai/claude-code
 ```
@@ -583,18 +687,18 @@ Already initialized (.noslop.toml exists).
 Use --force to reinitialize.
 ```
 
-Same behavior as today. `--force` overwrites everything including the `[agent]` section.
+Same behavior as today. `--force` overwrites everything including the `[agent]` and `[review]` sections.
 
 ## Backward Compatibility
 
-| Scenario                                                    | Behavior                                                                  |
-| ----------------------------------------------------------- | ------------------------------------------------------------------------- |
-| Existing `.noslop.toml` without `[agent]`                   | Parses fine (`agent: None`). `noslop run` requires `--agent` flag.        |
-| `noslop init` (no agent)                                    | Produces `.noslop.toml` without `[agent]`. Identical to current behavior. |
-| `noslop init claude --force` on existing repo               | Overwrites `.noslop.toml` with `[agent]` section. Reinstalls hooks.       |
-| Old noslop binary reading new `.noslop.toml` with `[agent]` | TOML parser ignores unknown sections by default. No error.                |
+| Scenario                                                    | Behavior                                                                   |
+| ----------------------------------------------------------- | -------------------------------------------------------------------------- |
+| Existing `.noslop.toml` without `[agent]`                   | Parses fine (`agent: None`). `noslop review` uses static analyzers only.   |
+| `noslop init` (no agent)                                    | Produces `.noslop.toml` without `[agent]` or `[review]`. Current behavior. |
+| `noslop init claude --force` on existing repo               | Overwrites `.noslop.toml` with `[agent]` + `[review]`. Reinstalls hooks.   |
+| Old noslop binary reading new `.noslop.toml` with `[agent]` | TOML parser ignores unknown sections by default. No error.                 |
 
-The last point is important: because the existing `NoslopFile` struct uses `#[serde(default)]` for the `agent` field, and TOML deserialization with serde ignores unknown keys by default when the struct uses `#[serde(deny_unknown_fields)]` is NOT set (which it is not in the current code), an old binary can read a new config file without error.
+The last point is important: because the existing `NoslopFile` struct uses `#[serde(default)]` for the new fields, and TOML deserialization with serde ignores unknown keys by default when `#[serde(deny_unknown_fields)]` is NOT set (which it is not in the current code), an old binary can read a new config file without error.
 
 ## Test Strategy
 
@@ -639,6 +743,7 @@ fn build_toml_without_agent() {
     assert!(toml.contains("[project]"));
     assert!(toml.contains("prefix = \"NOS\""));
     assert!(!toml.contains("[agent]"));
+    assert!(!toml.contains("[review]"));
 }
 
 #[test]
@@ -647,6 +752,10 @@ fn build_toml_with_claude() {
     assert!(toml.contains("[project]"));
     assert!(toml.contains("[agent]"));
     assert!(toml.contains("type = \"claude\""));
+    assert!(toml.contains("[review]"));
+    assert!(toml.contains("\"conventions\""));
+    assert!(toml.contains("\"agent:security\""));
+    assert!(toml.contains("\"agent:quality\""));
 }
 
 #[test]
@@ -655,6 +764,7 @@ fn build_toml_parses_back() {
     let parsed: NoslopFile = toml::from_str(&toml_str).unwrap();
     assert_eq!(parsed.project.prefix, "NOS");
     assert_eq!(parsed.agent.unwrap().agent_type, "claude");
+    assert_eq!(parsed.review.unwrap().analyzers.len(), 3);
 }
 ```
 
@@ -676,10 +786,14 @@ fn init_bare_creates_noslop_toml_without_agent() {
     let toml_content = fs::read_to_string(repo.path().join(".noslop.toml")).unwrap();
     assert!(toml_content.contains("[project]"));
     assert!(!toml_content.contains("[agent]"));
+    assert!(!toml_content.contains("[review]"));
+
+    // pre-push hook should NOT be installed without agent
+    assert!(!repo.path().join(".git/hooks/pre-push").exists());
 }
 
 #[test]
-fn init_claude_creates_agent_section() {
+fn init_claude_creates_agent_and_review_sections() {
     let repo = TempGitRepo::new();
     // Note: this test requires `claude` CLI in PATH or uses a mock
     let output = Command::cargo_bin("noslop")
@@ -692,6 +806,11 @@ fn init_claude_creates_agent_section() {
     let toml_content = fs::read_to_string(repo.path().join(".noslop.toml")).unwrap();
     assert!(toml_content.contains("[agent]"));
     assert!(toml_content.contains("type = \"claude\""));
+    assert!(toml_content.contains("[review]"));
+    assert!(toml_content.contains("agent:security"));
+
+    // pre-push hook should be installed
+    assert!(repo.path().join(".git/hooks/pre-push").exists());
 }
 
 #[test]
@@ -710,18 +829,26 @@ fn init_unknown_agent_fails() {
 
 ## Summary
 
-The init expansion follows noslop's existing patterns:
+The init expansion follows noslop's existing patterns, reframed for the review tool:
 
 1. **CLI is a thin dispatch layer**: `app.rs` adds one field to the `Init` variant and passes it through
-2. **Command handlers do the work**: `init.rs` orchestrates the two-phase setup
+2. **Command handlers do the work**: `init.rs` orchestrates two-phase setup (core + agent)
 3. **Ports define interfaces**: `AgentConfig` trait (from 03-agent-port-design.md) abstracts agent differences
 4. **Adapters implement I/O**: `ClaudeConfig` and `CodexConfig` generate agent-specific files
-5. **Config is TOML**: The `[agent]` section extends `.noslop.toml` without breaking existing parsers
+5. **Config is TOML**: The `[agent]` and `[review]` sections extend `.noslop.toml` without breaking existing parsers
 6. **Error handling uses `anyhow::Result`**: Consistent with every other function in the codebase
+
+The key differences from the previous (code generation) design:
+
+- **`noslop init claude` configures Claude as the review agent**, not the coding agent
+- **`.noslop.toml` gains a `[review]` section** with the analyzer pipeline configuration
+- **Generated project instructions reference the review workflow**: `noslop review`, not `noslop run`
+- **Pre-push hook is installed** to gate pushes on unresolved review findings
+- **No references to code generation, plan files, or iteration loops**
 
 The changes are minimal and additive:
 
 - `app.rs`: 3 lines changed (add field, update dispatch)
-- `init.rs`: ~100 lines added (agent parsing, Phase 2, helpers)
-- `parser.rs`: ~10 lines added (`AgentSection` struct, field on `NoslopFile`)
+- `init.rs`: ~120 lines added (agent parsing, Phase 2, helpers, pre-push hook)
+- `parser.rs`: ~15 lines added (`AgentSection`, `ReviewSection` structs, fields on `NoslopFile`)
 - No changes to any existing core, adapter, or service code

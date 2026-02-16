@@ -1,15 +1,20 @@
 # Agent Port Trait Design
 
-Design specification for the `AgentConfig` and `AgentRuntime` port traits that will enable agent-agnostic iteration loops in noslop.
+Design specification for the `AgentConfig` and `AgentRuntime` port traits that enable agent-agnostic review inference in noslop.
 
 ## Overview
 
+noslop is a local code review tool for agent-generated code. The agent abstraction provides a uniform interface for invoking LLM-based review analysis. An `AgentRuntime` wraps a CLI agent (Claude, Codex, etc.) and is used to send review prompts containing diffs, prior findings, and focus areas. The agent responds with structured findings.
+
 The agent abstraction layer consists of two port traits:
 
-1. **`AgentConfig`** — Configuration generation for `noslop init <agent>`
-2. **`AgentRuntime`** — Agent invocation for `noslop run`
+1. **`AgentConfig`** -- Configuration generation for `noslop init <agent>`
+2. **`AgentRuntime`** -- Agent invocation for review inference
+
+The agent is one type of `ReviewAnalyzer`. The `AgentAnalyzer` adapter wraps an `AgentRuntime` and plugs it into the review pipeline alongside static and computed analyzers. Multiple agent passes are possible (security, quality, architecture) with different focused prompts.
 
 These traits follow noslop's existing port patterns:
+
 - Traits are `Send + Sync` for thread safety
 - Methods return `anyhow::Result<T>` for error handling
 - Traits are annotated with `#[cfg_attr(test, mockall::automock)]` for testing
@@ -22,9 +27,10 @@ src/core/ports/agent.rs
 ```
 
 Re-exported via `src/core/ports/mod.rs`:
+
 ```rust
 mod agent;
-pub use agent::{AgentConfig, AgentRuntime, AgentType, InvocationResult, IterationOutput};
+pub use agent::{AgentConfig, AgentRuntime, AgentType, InvocationResult, ReviewOutput, Finding, Severity};
 ```
 
 ## Type Definitions
@@ -145,13 +151,57 @@ pub struct AgentConfigBundle {
 }
 ```
 
-### Invocation Types
+### Finding and Review Types
 
 ```rust
+/// Severity level for a review finding
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    /// Informational note, no action needed
+    Info,
+    /// Suggestion for improvement
+    Warning,
+    /// Likely bug or significant issue
+    Error,
+    /// Critical problem that must be fixed
+    Critical,
+}
+
+/// A single finding from a review pass
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Finding {
+    /// Severity of the finding
+    pub severity: Severity,
+    /// File path relative to the repository root
+    pub file: String,
+    /// Line number (if applicable)
+    pub line: Option<u32>,
+    /// Short description of the finding
+    pub message: String,
+    /// Suggested fix or improvement (if any)
+    pub suggestion: Option<String>,
+    /// Which analyzer produced this finding (e.g., "agent:security", "clippy")
+    pub source: String,
+}
+
+/// Context passed to a review analyzer
+#[derive(Debug, Clone)]
+pub struct ReviewContext {
+    /// The unified diff being reviewed
+    pub diff: String,
+    /// List of changed files (paths relative to repo root)
+    pub changed_files: Vec<String>,
+    /// Repository root path
+    pub repo_root: PathBuf,
+    /// Optional commit range being reviewed (e.g., "main..HEAD")
+    pub commit_range: Option<String>,
+}
+
 /// Configuration for a single agent invocation
 #[derive(Debug, Clone)]
 pub struct InvocationConfig {
-    /// The prompt to send to the agent
+    /// The prompt to send to the agent (review prompt with diff, focus, prior findings)
     pub prompt: String,
     /// Working directory for the agent
     pub working_dir: PathBuf,
@@ -182,24 +232,16 @@ pub struct InvocationResult {
     pub output: String,
     /// Exit code (0 = success)
     pub exit_code: i32,
-    /// Whether the agent reported completion
-    pub completed: bool,
-    /// Parsed status line if present (e.g., "[RALPH:DONE task=\"...\"]")
-    pub status_line: Option<String>,
     /// Duration of the invocation
     pub duration: std::time::Duration,
 }
 
-/// Parsed output from an agent iteration
+/// Parsed output from an agent review pass
 #[derive(Debug, Clone, Default)]
-pub struct IterationOutput {
-    /// Whether the agent signaled full plan completion
-    pub plan_complete: bool,
-    /// Task description from status line (if present)
-    pub completed_task: Option<String>,
-    /// Iteration number from status line (if present)
-    pub iteration: Option<u32>,
-    /// Raw output for logging
+pub struct ReviewOutput {
+    /// Structured findings extracted from the agent's output
+    pub findings: Vec<Finding>,
+    /// Raw output for logging/debugging
     pub raw_output: String,
     /// Any error messages extracted from output
     pub errors: Vec<String>,
@@ -262,26 +304,28 @@ pub trait AgentConfig: Send + Sync {
     /// Generate project-local agent instructions (goes in .noslop/ or repo root)
     ///
     /// Unlike global_instructions which go in ~/.agent/, this generates
-    /// project-specific content that can reference noslop checks and conventions.
+    /// project-specific content that can reference noslop review commands.
     fn generate_project_instructions(&self, project_root: &Path) -> anyhow::Result<Option<String>>;
 }
 ```
 
 ### `AgentRuntime` Trait
 
-Handles agent invocation for `noslop run`.
+Handles agent invocation for review inference.
 
 ```rust
 //! Agent runtime port
 //!
-//! Defines the interface for invoking AI agents during iteration loops.
+//! Defines the interface for invoking AI agents during review analysis.
 
 use std::path::Path;
 
-/// Agent runtime for iteration loop invocation
+/// Agent runtime for review invocation
 ///
 /// Implementations handle the actual invocation of an AI agent, including
-/// command construction, execution, and output parsing.
+/// command construction, execution, and output parsing. The agent receives
+/// review prompts containing diffs and prior findings, and returns
+/// structured review findings.
 #[cfg_attr(test, mockall::automock)]
 pub trait AgentRuntime: Send + Sync {
     /// Returns the agent type this runtime handles
@@ -297,29 +341,15 @@ pub trait AgentRuntime: Send + Sync {
     /// 4. Return structured results
     fn invoke(&self, config: &InvocationConfig) -> anyhow::Result<InvocationResult>;
 
-    /// Parse the raw output into structured iteration output
+    /// Parse the raw output into structured review findings
     ///
-    /// Extracts completion signals, status lines, and error messages from
-    /// the agent's raw output.
-    fn parse_output(&self, result: &InvocationResult) -> IterationOutput;
+    /// Extracts findings (severity, file, line, message, suggestion) from
+    /// the agent's raw output. The agent is prompted to output findings in
+    /// a structured format (JSON array or tagged text).
+    fn parse_output(&self, result: &InvocationResult) -> ReviewOutput;
 
-    /// Check if the agent signaled completion of the entire plan
-    ///
-    /// Default implementation checks for `<promise>COMPLETE</promise>` tag.
-    /// Agents may override for different completion signals.
-    fn is_plan_complete(&self, output: &str) -> bool {
-        output.contains("<promise>COMPLETE</promise>")
-    }
-
-    /// Extract the status line from agent output
-    ///
-    /// Default implementation looks for `[RALPH:DONE task="..." iteration=N]`.
-    /// Returns None if no status line found.
-    fn extract_status_line(&self, output: &str) -> Option<String> {
-        // Regex pattern: [RALPH:DONE task="..." iteration=N]
-        let re = regex::Regex::new(r#"\[RALPH:DONE\s+task="([^"]+)"\s+iteration=(\d+)\]"#).ok()?;
-        re.captures(output).map(|c| c[0].to_string())
-    }
+    /// Check if the agent CLI is available in PATH
+    fn is_available(&self) -> bool;
 
     /// Build the CLI command arguments for this agent
     ///
@@ -333,13 +363,175 @@ pub trait AgentRuntime: Send + Sync {
 }
 ```
 
+## The ReviewAnalyzer Trait and AgentAnalyzer Bridge
+
+The review pipeline consists of three tiers of analyzers:
+
+```
+Static analyzers (free) --> Computed analyzers (local) --> Agent analyzers (LLM)
+```
+
+Each analyzer implements the `ReviewAnalyzer` trait:
+
+```rust
+/// A review analyzer that produces findings from code changes.
+///
+/// Analyzers run in order: static (free, fast) -> computed (local) -> agent (LLM).
+/// Each analyzer receives the findings from all prior analyzers, enabling
+/// the LLM to focus on issues that automated tools cannot catch.
+pub trait ReviewAnalyzer: Send + Sync {
+    /// What context this analyzer needs (e.g., diff, file contents, AST)
+    fn required_context(&self) -> Vec<ContextKind>;
+
+    /// Run the analysis and return findings
+    ///
+    /// `prior_findings` contains all findings from analyzers that ran earlier
+    /// in the pipeline. Agent analyzers use these to avoid duplicating work
+    /// and to provide deeper analysis building on static results.
+    fn analyze(&self, context: &ReviewContext, prior_findings: &[Finding]) -> Result<Vec<Finding>>;
+
+    /// Human-readable name for this analyzer (e.g., "agent:security", "clippy")
+    fn name(&self) -> &str;
+}
+```
+
+The `AgentAnalyzer` wraps an `AgentRuntime` and implements `ReviewAnalyzer`:
+
+```rust
+/// An agent-based review analyzer.
+///
+/// Wraps an `AgentRuntime` to run LLM-powered review passes.
+/// Each `AgentAnalyzer` instance is configured with a focus area
+/// (security, quality, architecture, etc.) and a prompt template.
+pub struct AgentAnalyzer {
+    /// The underlying agent runtime (Claude, Codex, etc.)
+    runtime: Box<dyn AgentRuntime>,
+    /// Focus area for this review pass (e.g., "security", "quality", "architecture")
+    focus: String,
+    /// Prompt template with placeholders: {diff}, {prior_findings}, {focus}
+    prompt_template: String,
+}
+
+impl AgentAnalyzer {
+    pub fn new(
+        runtime: Box<dyn AgentRuntime>,
+        focus: impl Into<String>,
+        prompt_template: impl Into<String>,
+    ) -> Self {
+        Self {
+            runtime,
+            focus: focus.into(),
+            prompt_template: prompt_template.into(),
+        }
+    }
+
+    /// Build the review prompt by substituting context into the template
+    fn build_prompt(&self, ctx: &ReviewContext, prior: &[Finding]) -> String {
+        let prior_summary = if prior.is_empty() {
+            "No prior findings from static analysis.".to_string()
+        } else {
+            prior.iter()
+                .map(|f| format!("- [{}] {}:{} {} (from {})",
+                    format!("{:?}", f.severity).to_uppercase(),
+                    f.file,
+                    f.line.map_or("?".to_string(), |l| l.to_string()),
+                    f.message,
+                    f.source,
+                ))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+
+        self.prompt_template
+            .replace("{diff}", &ctx.diff)
+            .replace("{focus}", &self.focus)
+            .replace("{prior_findings}", &prior_summary)
+            .replace("{changed_files}", &ctx.changed_files.join("\n"))
+    }
+}
+
+impl ReviewAnalyzer for AgentAnalyzer {
+    fn required_context(&self) -> Vec<ContextKind> {
+        vec![ContextKind::Diff, ContextKind::ChangedFiles]
+    }
+
+    fn analyze(&self, ctx: &ReviewContext, prior: &[Finding]) -> Result<Vec<Finding>> {
+        let prompt = self.build_prompt(ctx, prior);
+
+        let config = InvocationConfig {
+            prompt,
+            working_dir: ctx.repo_root.clone(),
+            timeout_secs: Some(120),
+            bypass_permissions: true,
+            ..Default::default()
+        };
+
+        let result = self.runtime.invoke(&config)?;
+        let output = self.runtime.parse_output(&result);
+
+        if !output.errors.is_empty() {
+            log::warn!(
+                "Agent {} ({} focus) reported errors: {:?}",
+                self.runtime.agent_type(),
+                self.focus,
+                output.errors
+            );
+        }
+
+        Ok(output.findings)
+    }
+
+    fn name(&self) -> &str {
+        // Returns e.g., "agent:security" or "agent:quality"
+        // (stored as formatted string in practice, simplified here)
+        Box::leak(format!("agent:{}", self.focus).into_boxed_str())
+    }
+}
+```
+
+### Multiple Agent Passes
+
+The pipeline can run multiple `AgentAnalyzer` instances with different focus areas:
+
+```rust
+fn build_agent_analyzers(
+    agent_type: AgentType,
+    prompts_dir: &Path,
+) -> Vec<Box<dyn ReviewAnalyzer>> {
+    let runtime_factory = || get_agent_runtime(agent_type);
+
+    let mut analyzers: Vec<Box<dyn ReviewAnalyzer>> = Vec::new();
+
+    // Each focus area gets its own AgentAnalyzer with a dedicated prompt template
+    let passes = ["security", "quality", "architecture"];
+
+    for focus in &passes {
+        let template_path = prompts_dir.join(format!("{focus}.md"));
+        let template = if template_path.exists() {
+            std::fs::read_to_string(&template_path)
+                .unwrap_or_else(|_| default_prompt_template(focus))
+        } else {
+            default_prompt_template(focus)
+        };
+
+        analyzers.push(Box::new(AgentAnalyzer::new(
+            runtime_factory(),
+            *focus,
+            template,
+        )));
+    }
+
+    analyzers
+}
+```
+
 ## Design Rationale
 
 ### Separation of Config and Runtime
 
 The two traits are separated because:
 
-1. **Different lifecycles**: Config is used once during `noslop init`, runtime is used repeatedly during `noslop run`
+1. **Different lifecycles**: Config is used once during `noslop init`, runtime is used during `noslop review`
 2. **Different dependencies**: Config may need filesystem access for templates, runtime needs process execution
 3. **Easier testing**: Can mock config generation separately from invocation
 4. **Single responsibility**: Each trait has a clear, focused purpose
@@ -347,6 +539,7 @@ The two traits are separated because:
 ### Trait Object Compatibility
 
 Both traits are designed to work with trait objects (`Box<dyn AgentConfig>`, `Box<dyn AgentRuntime>`):
+
 - `Send + Sync` bounds for thread safety
 - No generic methods (all methods use concrete types)
 - No `Self` constraints beyond `Sized`
@@ -371,12 +564,31 @@ pub fn get_agent_runtime(agent_type: AgentType) -> Box<dyn AgentRuntime> {
 
 ### Output Parsing Strategy
 
-The `parse_output` method on `AgentRuntime` handles agent-specific output parsing:
+The `parse_output` method on `AgentRuntime` handles agent-specific output parsing. The agent is prompted to output findings in a structured JSON format:
 
-- **Claude**: Looks for `<promise>COMPLETE</promise>` and `[RALPH:DONE ...]` patterns
-- **Codex**: May use different completion signals (TBD based on Codex CLI behavior)
+```json
+[
+  {
+    "severity": "warning",
+    "file": "src/auth.rs",
+    "line": 42,
+    "message": "Password comparison is not constant-time",
+    "suggestion": "Use `subtle::ConstantTimeEq` for password comparison to prevent timing attacks"
+  }
+]
+```
 
-The default implementations in the trait provide the current Ralph conventions, but adapters can override for agent-specific behavior.
+The parser extracts this JSON array from the agent's output. If the agent includes narrative text around the JSON, the parser looks for the JSON array boundary (`[` ... `]`) and extracts it. Adapters can override parsing for agent-specific output quirks.
+
+### AgentAnalyzer as Composition Layer
+
+The `AgentAnalyzer` is the bridge between the agent abstraction and the review pipeline. This composition approach means:
+
+- The `AgentRuntime` trait stays focused on "invoke a CLI agent and parse its output"
+- The `ReviewAnalyzer` trait stays focused on "analyze code and produce findings"
+- The `AgentAnalyzer` handles the translation: building review prompts, passing prior findings, invoking the runtime, and returning findings
+
+This separation allows non-agent analyzers (clippy, eslint, custom scripts) to implement `ReviewAnalyzer` directly without touching the agent abstraction.
 
 ### Configuration Bundle Design
 
@@ -410,6 +622,7 @@ AgentConfigBundle {
 ```
 
 This allows the init command to:
+
 1. Call `config.generate_config(project_root)?`
 2. Iterate over the bundle and write each file
 3. Handle conflicts/overwrites consistently
@@ -423,7 +636,7 @@ Adding a new agent (e.g., Cursor, Aider) requires:
 3. Implement `AgentRuntime` for invocation
 4. Register in factory functions
 
-No changes to core iteration loop logic or existing adapters.
+No changes to the review pipeline or existing adapters.
 
 ## Integration Points
 
@@ -452,31 +665,51 @@ pub fn run_init(agent: Option<AgentType>, force: bool) -> anyhow::Result<()> {
 }
 ```
 
-### With `noslop run`
+### With `noslop review`
 
-The run command uses `AgentRuntime`:
+The review command builds the analyzer pipeline and runs it:
 
 ```rust
-// cli/commands/run.rs
-pub fn run_iteration(
-    runtime: &dyn AgentRuntime,
-    plan_file: &Path,
-    iteration: u32,
-    context: &IterationContext,
-) -> anyhow::Result<IterationOutput> {
-    let prompt = build_iteration_prompt(plan_file, iteration, context)?;
-
-    let config = InvocationConfig {
-        prompt,
-        working_dir: plan_file.parent().unwrap().to_path_buf(),
-        bypass_permissions: true,
-        ..Default::default()
+// cli/commands/review.rs
+pub fn run_review(
+    agent_type: Option<AgentType>,
+    diff: &str,
+    changed_files: Vec<String>,
+    repo_root: &Path,
+) -> anyhow::Result<Vec<Finding>> {
+    let ctx = ReviewContext {
+        diff: diff.to_string(),
+        changed_files,
+        repo_root: repo_root.to_path_buf(),
+        commit_range: None,
     };
 
-    let result = runtime.invoke(&config)?;
-    let output = runtime.parse_output(&result);
+    // Build the pipeline: static -> computed -> agent
+    let mut all_findings: Vec<Finding> = Vec::new();
 
-    Ok(output)
+    // Tier 1: Static analyzers (free, fast)
+    for analyzer in static_analyzers() {
+        let findings = analyzer.analyze(&ctx, &all_findings)?;
+        all_findings.extend(findings);
+    }
+
+    // Tier 2: Computed analyzers (local, moderate cost)
+    for analyzer in computed_analyzers() {
+        let findings = analyzer.analyze(&ctx, &all_findings)?;
+        all_findings.extend(findings);
+    }
+
+    // Tier 3: Agent analyzers (LLM, highest cost, run last)
+    if let Some(agent_type) = agent_type {
+        let prompts_dir = repo_root.join(".noslop/prompts");
+        let agent_analyzers = build_agent_analyzers(agent_type, &prompts_dir);
+        for analyzer in &agent_analyzers {
+            let findings = analyzer.analyze(&ctx, &all_findings)?;
+            all_findings.extend(findings);
+        }
+    }
+
+    Ok(all_findings)
 }
 ```
 
@@ -491,10 +724,11 @@ prefix = "NOS"
 [agent]
 type = "claude"
 
-[loop]
-max_iterations = 20
-stuck_threshold = 3
-fail_threshold = 5
+[review]
+# Which agent focus passes to run
+passes = ["security", "quality"]
+# Timeout per agent pass in seconds
+pass_timeout = 120
 ```
 
 ## Test Strategy
@@ -510,7 +744,7 @@ mod tests {
     use mockall::predicate::*;
 
     #[test]
-    fn test_iteration_with_mock_runtime() {
+    fn test_review_with_mock_runtime() {
         let mut mock = MockAgentRuntime::new();
 
         mock.expect_agent_type()
@@ -519,23 +753,61 @@ mod tests {
         mock.expect_invoke()
             .with(predicate::always())
             .returning(|_| Ok(InvocationResult {
-                output: "[RALPH:DONE task=\"Test task\" iteration=1]\n<promise>COMPLETE</promise>".to_string(),
+                output: r#"[{"severity":"warning","file":"src/auth.rs","line":42,"message":"Password comparison is not constant-time","suggestion":"Use constant-time comparison"}]"#.to_string(),
                 exit_code: 0,
-                completed: true,
-                status_line: Some("[RALPH:DONE task=\"Test task\" iteration=1]".to_string()),
                 duration: std::time::Duration::from_secs(5),
             }));
 
         mock.expect_parse_output()
-            .returning(|result| IterationOutput {
-                plan_complete: result.output.contains("<promise>COMPLETE</promise>"),
-                completed_task: Some("Test task".to_string()),
-                iteration: Some(1),
-                raw_output: result.output.clone(),
-                errors: vec![],
+            .returning(|result| {
+                let findings: Vec<Finding> = serde_json::from_str(
+                    &result.output
+                ).unwrap_or_default();
+                ReviewOutput {
+                    findings,
+                    raw_output: result.output.clone(),
+                    errors: vec![],
+                }
             });
 
-        // Test iteration logic with mock
+        // Test review logic with mock
+    }
+
+    #[test]
+    fn test_agent_analyzer_builds_prompt() {
+        let mut mock = MockAgentRuntime::new();
+        mock.expect_agent_type().return_const(AgentType::Claude);
+        mock.expect_invoke().returning(|_| Ok(InvocationResult {
+            output: "[]".to_string(),
+            exit_code: 0,
+            duration: std::time::Duration::from_secs(1),
+        }));
+        mock.expect_parse_output().returning(|_| ReviewOutput::default());
+
+        let analyzer = AgentAnalyzer::new(
+            Box::new(mock),
+            "security",
+            "Review this diff for {focus} issues:\n\n{diff}\n\nPrior findings:\n{prior_findings}",
+        );
+
+        let ctx = ReviewContext {
+            diff: "+fn unsafe_thing() {}".to_string(),
+            changed_files: vec!["src/lib.rs".to_string()],
+            repo_root: PathBuf::from("/tmp/test"),
+            commit_range: None,
+        };
+
+        let prior = vec![Finding {
+            severity: Severity::Warning,
+            file: "src/lib.rs".to_string(),
+            line: Some(10),
+            message: "unused import".to_string(),
+            suggestion: None,
+            source: "clippy".to_string(),
+        }];
+
+        let findings = analyzer.analyze(&ctx, &prior).unwrap();
+        assert!(findings.is_empty()); // mock returns empty
     }
 }
 ```
@@ -547,7 +819,7 @@ For integration tests, create fixture-based tests that exercise real agent CLI t
 ```rust
 #[test]
 #[ignore] // Run with: cargo test -- --ignored
-fn test_claude_invocation_integration() {
+fn test_claude_review_integration() {
     let runtime = ClaudeRuntime::new();
 
     if !runtime.is_available() {
@@ -556,14 +828,18 @@ fn test_claude_invocation_integration() {
     }
 
     let config = InvocationConfig {
-        prompt: "echo 'Hello from test'".to_string(),
+        prompt: "Review this diff and return findings as JSON:\n\n+fn main() { panic!(\"todo\"); }".to_string(),
         working_dir: temp_dir(),
-        timeout_secs: Some(30),
+        timeout_secs: Some(60),
         ..Default::default()
     };
 
     let result = runtime.invoke(&config).unwrap();
     assert_eq!(result.exit_code, 0);
+
+    let output = runtime.parse_output(&result);
+    // Agent should produce at least one finding about the panic
+    assert!(!output.findings.is_empty() || !output.raw_output.is_empty());
 }
 ```
 
@@ -572,7 +848,10 @@ fn test_claude_invocation_integration() {
 ```rust
 //! Agent port traits
 //!
-//! Defines interfaces for AI agent configuration and runtime invocation.
+//! Defines interfaces for AI agent configuration and runtime invocation
+//! in the context of code review. Agents are invoked with review prompts
+//! containing diffs and prior findings, and return structured review findings.
+//!
 //! Implementations live in `adapters::agent`.
 
 use serde::{Deserialize, Serialize};
@@ -634,6 +913,36 @@ impl std::fmt::Display for AgentType {
     }
 }
 
+/// Severity level for a review finding
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Severity {
+    Info,
+    Warning,
+    Error,
+    Critical,
+}
+
+/// A single finding from a review pass
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Finding {
+    pub severity: Severity,
+    pub file: String,
+    pub line: Option<u32>,
+    pub message: String,
+    pub suggestion: Option<String>,
+    pub source: String,
+}
+
+/// Context passed to a review analyzer
+#[derive(Debug, Clone)]
+pub struct ReviewContext {
+    pub diff: String,
+    pub changed_files: Vec<String>,
+    pub repo_root: PathBuf,
+    pub commit_range: Option<String>,
+}
+
 /// Global instructions file to generate
 #[derive(Debug, Clone)]
 pub struct GlobalInstructions {
@@ -690,7 +999,7 @@ pub struct AgentConfigBundle {
 /// Configuration for a single agent invocation
 #[derive(Debug, Clone)]
 pub struct InvocationConfig {
-    /// The prompt to send to the agent
+    /// The review prompt to send to the agent
     pub prompt: String,
     /// Working directory for the agent
     pub working_dir: PathBuf,
@@ -721,23 +1030,15 @@ pub struct InvocationResult {
     pub output: String,
     /// Exit code (0 = success)
     pub exit_code: i32,
-    /// Whether the agent reported completion
-    pub completed: bool,
-    /// Parsed status line if present
-    pub status_line: Option<String>,
     /// Duration of the invocation
     pub duration: std::time::Duration,
 }
 
-/// Parsed output from an agent iteration
+/// Parsed output from an agent review pass
 #[derive(Debug, Clone, Default)]
-pub struct IterationOutput {
-    /// Whether the agent signaled full plan completion
-    pub plan_complete: bool,
-    /// Task description from status line
-    pub completed_task: Option<String>,
-    /// Iteration number from status line
-    pub iteration: Option<u32>,
+pub struct ReviewOutput {
+    /// Structured findings extracted from the agent's output
+    pub findings: Vec<Finding>,
     /// Raw output for logging
     pub raw_output: String,
     /// Any error messages extracted
@@ -785,9 +1086,11 @@ pub trait AgentConfig: Send + Sync {
     fn generate_project_instructions(&self, project_root: &Path) -> anyhow::Result<Option<String>>;
 }
 
-/// Agent runtime for iteration loop invocation
+/// Agent runtime for review invocation
 ///
-/// Implementations handle the actual invocation of an AI agent.
+/// Implementations handle the actual invocation of an AI agent for
+/// code review analysis. The agent receives review prompts and returns
+/// structured findings.
 #[cfg_attr(test, mockall::automock)]
 pub trait AgentRuntime: Send + Sync {
     /// Returns the agent type this runtime handles
@@ -796,19 +1099,11 @@ pub trait AgentRuntime: Send + Sync {
     /// Invoke the agent with the given configuration
     fn invoke(&self, config: &InvocationConfig) -> anyhow::Result<InvocationResult>;
 
-    /// Parse the raw output into structured iteration output
-    fn parse_output(&self, result: &InvocationResult) -> IterationOutput;
+    /// Parse the raw output into structured review findings
+    fn parse_output(&self, result: &InvocationResult) -> ReviewOutput;
 
-    /// Check if the agent signaled completion of the entire plan
-    fn is_plan_complete(&self, output: &str) -> bool {
-        output.contains("<promise>COMPLETE</promise>")
-    }
-
-    /// Extract the status line from agent output
-    fn extract_status_line(&self, output: &str) -> Option<String> {
-        let re = regex::Regex::new(r#"\[RALPH:DONE\s+task="([^"]+)"\s+iteration=(\d+)\]"#).ok()?;
-        re.captures(output).map(|c| c[0].to_string())
-    }
+    /// Check if the agent CLI is available in PATH
+    fn is_available(&self) -> bool;
 
     /// Build the CLI command arguments
     fn build_command(&self, config: &InvocationConfig) -> (String, Vec<String>);
@@ -824,12 +1119,16 @@ pub trait AgentRuntime: Send + Sync {
 
 The agent port design provides:
 
-1. **Clear abstraction**: `AgentConfig` for setup, `AgentRuntime` for execution
-2. **Type safety**: Strong types for configuration bundles and invocation results
-3. **Extensibility**: Easy to add new agents by implementing two traits
-4. **Testability**: Full mock support via `mockall`
-5. **Consistency**: Follows noslop's existing port patterns exactly
+1. **Clear abstraction**: `AgentConfig` for setup, `AgentRuntime` for review invocation
+2. **Review-focused types**: `Finding`, `Severity`, `ReviewOutput`, `ReviewContext` for structured review data
+3. **Pipeline composition**: `AgentAnalyzer` bridges `AgentRuntime` into the `ReviewAnalyzer` pipeline
+4. **Multi-pass review**: Different focus areas (security, quality, architecture) via separate `AgentAnalyzer` instances
+5. **Prior findings flow**: Agent analyzers receive findings from static/computed tiers to avoid duplication
+6. **Extensibility**: Easy to add new agents by implementing two traits
+7. **Testability**: Full mock support via `mockall`
+8. **Consistency**: Follows noslop's existing port patterns exactly
 
 Next steps:
-- Task 4: Design Claude and Codex adapter implementations
+
+- Task 4: Design Claude and Codex adapter implementations for review
 - Task 7: Integrate with `noslop init <agent>` expansion

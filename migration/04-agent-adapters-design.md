@@ -6,21 +6,28 @@ Design specification for the Claude and Codex adapter implementations of the `Ag
 
 Each agent adapter lives in `src/adapters/agent/` and implements both port traits from `src/core/ports/agent.rs`:
 
-- `AgentConfig` — generates configuration files during `noslop init <agent>`
-- `AgentRuntime` — invokes the agent during `noslop run`
+- `AgentConfig` -- generates configuration files during `noslop init <agent>`
+- `AgentRuntime` -- invokes the agent for review inference during `noslop review`
 
-```
+The agent is used for **review**, not code generation. Each adapter wraps a CLI tool (`claude -p` or `codex`) and sends it review prompts containing diffs, prior findings, and focus areas. The agent returns structured findings that noslop aggregates into the review report.
+
+```text
 src/adapters/agent/
 ├── mod.rs           # Module docs, re-exports, factory functions
 ├── claude.rs        # ClaudeConfig + ClaudeRuntime
 ├── codex.rs         # CodexConfig + CodexRuntime
+├── parsing.rs       # Shared finding extraction from agent output
 └── templates/       # Embedded template content (compile-time via include_str!)
     ├── claude_global_instructions.md
     ├── claude_branch_protection.sh
     ├── claude_auto_format.sh
     ├── claude_cmd_checkpoint.md
     ├── claude_cmd_worktree.md
-    └── codex_instructions.md
+    ├── codex_instructions.md
+    └── prompts/
+        ├── security.md
+        ├── quality.md
+        └── architecture.md
 ```
 
 Registration in `src/adapters/mod.rs`:
@@ -37,13 +44,15 @@ pub use agent::{ClaudeConfig, ClaudeRuntime, CodexConfig, CodexRuntime};
 //! Agent adapter implementations
 //!
 //! Provides concrete implementations of the [`AgentConfig`] and [`AgentRuntime`]
-//! port traits for supported AI agents.
+//! port traits for supported AI agents. These adapters invoke agents for
+//! review inference, not code generation.
 //!
 //! - [`claude`] - Anthropic Claude Code adapter
 //! - [`codex`] - OpenAI Codex CLI adapter
 
 pub mod claude;
 pub mod codex;
+mod parsing;
 
 pub use claude::{ClaudeConfig, ClaudeRuntime};
 pub use codex::{CodexConfig, CodexRuntime};
@@ -65,6 +74,137 @@ pub fn get_agent_runtime(agent_type: AgentType) -> Box<dyn AgentRuntime> {
     match agent_type {
         AgentType::Claude => Box::new(ClaudeRuntime::new()),
         AgentType::Codex => Box::new(CodexRuntime::new()),
+    }
+}
+```
+
+---
+
+## Shared Finding Parser (`parsing.rs`)
+
+Both adapters need to extract structured findings from raw agent output. The agent is prompted to emit a JSON array of findings, but may include narrative text around it. The shared parser handles this extraction.
+
+```rust
+//! Shared output parsing for agent review findings.
+//!
+//! Extracts structured `Finding` objects from raw agent output.
+//! Agents are prompted to output a JSON array of findings, but may
+//! include surrounding narrative text that must be stripped.
+
+use crate::core::ports::agent::{Finding, ReviewOutput};
+
+/// Extract findings from raw agent output.
+///
+/// Strategy:
+/// 1. Look for a JSON array (`[...]`) in the output
+/// 2. Try to parse it as `Vec<Finding>`
+/// 3. If no JSON array found, return empty findings with raw output preserved
+pub fn extract_findings(output: &str) -> ReviewOutput {
+    let findings = extract_json_array(output)
+        .and_then(|json_str| serde_json::from_str::<Vec<Finding>>(&json_str).ok())
+        .unwrap_or_default();
+
+    let errors = extract_errors(output);
+
+    ReviewOutput {
+        findings,
+        raw_output: output.to_string(),
+        errors,
+    }
+}
+
+/// Find the outermost JSON array in the output text.
+///
+/// Scans for `[` and finds the matching `]`, accounting for
+/// nested arrays and string literals.
+fn extract_json_array(output: &str) -> Option<String> {
+    let start = output.find('[')?;
+    let bytes = output.as_bytes();
+    let mut depth = 0;
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    for (i, &b) in bytes[start..].iter().enumerate() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+        match b {
+            b'\\' if in_string => escape_next = true,
+            b'"' => in_string = !in_string,
+            b'[' if !in_string => depth += 1,
+            b']' if !in_string => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(output[start..start + i + 1].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
+}
+
+/// Extract error patterns from agent output
+fn extract_errors(output: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    for line in output.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("Error:")
+            || trimmed.starts_with("error:")
+            || trimmed.starts_with("FAILED")
+            || trimmed.contains("panicked at")
+            || trimmed.contains("compilation error")
+        {
+            errors.push(trimmed.to_string());
+        }
+    }
+
+    errors
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ports::agent::Severity;
+
+    #[test]
+    fn extracts_findings_from_clean_json() {
+        let output = r#"[{"severity":"warning","file":"src/auth.rs","line":42,"message":"Timing attack","suggestion":"Use constant-time comparison","source":"agent:security"}]"#;
+        let result = extract_findings(output);
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].severity, Severity::Warning);
+        assert_eq!(result.findings[0].file, "src/auth.rs");
+    }
+
+    #[test]
+    fn extracts_findings_from_narrative_wrapper() {
+        let output = r#"Here are my findings from the security review:
+
+[{"severity":"error","file":"src/db.rs","line":15,"message":"SQL injection risk","suggestion":"Use parameterized queries","source":"agent:security"}]
+
+I also noticed the code style is generally clean."#;
+
+        let result = extract_findings(output);
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].message, "SQL injection risk");
+    }
+
+    #[test]
+    fn returns_empty_findings_when_no_json() {
+        let output = "I reviewed the code and found no issues.";
+        let result = extract_findings(output);
+        assert!(result.findings.is_empty());
+        assert_eq!(result.raw_output, output);
+    }
+
+    #[test]
+    fn extracts_error_lines() {
+        let output = "working...\nError: timeout exceeded\nFAILED to parse\n";
+        let result = extract_findings(output);
+        assert_eq!(result.errors.len(), 2);
     }
 }
 ```
@@ -334,11 +474,9 @@ Extracted from `setup/settings.json`. The adapter builds this programmatically v
 }
 ```
 
-**Key differences from raw setup**: The `"Bash(ralph *)"` permission is replaced with `"Bash(noslop *)"` since the iteration loop is now built into noslop itself.
-
 ### Generated Content: `CLAUDE.md`
 
-Extracted from `setup/CLAUDE.global.md`, adapted to reference noslop commands.
+Global instructions reference noslop review commands.
 
 ```markdown
 # Global Instructions
@@ -350,7 +488,13 @@ Use them proactively when appropriate.
 
 ### `noslop`
 
-Code review checks and autonomous iteration. See `noslop --help` for all commands.
+Local code review for agent-generated code. See `noslop --help` for all commands.
+
+Key commands:
+
+    noslop review              # Run full review pipeline on current changes
+    noslop review --agent      # Include LLM-powered review passes
+    noslop init claude         # Configure Claude as the review agent
 
 ### `checkpoint`
 
@@ -448,7 +592,7 @@ exit 0
 
 ### Generated Content: Slash Commands
 
-**`checkpoint.md`** — extracted from `setup/commands/checkpoint.md`:
+**`checkpoint.md`** -- extracted from `setup/commands/checkpoint.md`:
 
 ```markdown
 Create a safety checkpoint commit of all current changes.
@@ -482,7 +626,7 @@ You do NOT need to checkpoint after:
 - Changes already committed via normal git commit
 ```
 
-**`worktree.md`** — extracted from `setup/commands/worktree.md`:
+**`worktree.md`** -- extracted from `setup/commands/worktree.md`:
 
 ```markdown
 Manage git worktrees for isolated work. Worktrees let you work on a branch
@@ -509,6 +653,7 @@ in a separate directory without touching the main checkout.
 //! Claude Code adapter
 //!
 //! Implements [`AgentConfig`] and [`AgentRuntime`] for Anthropic's Claude Code CLI.
+//! Claude is invoked with review prompts and returns structured findings.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -517,7 +662,7 @@ use std::time::Instant;
 
 use crate::core::ports::agent::{
     AgentConfig, AgentConfigBundle, AgentRuntime, AgentType, GlobalInstructions,
-    HookDefinition, InvocationConfig, InvocationResult, IterationOutput,
+    HookDefinition, InvocationConfig, InvocationResult, ReviewOutput,
     SettingsFile, SlashCommand,
 };
 
@@ -778,27 +923,28 @@ impl AgentConfig for ClaudeConfig {
         &self,
         project_root: &Path,
     ) -> anyhow::Result<Option<String>> {
-        // Check if a CLAUDE.md already exists at the project root
+        // Don't overwrite existing project instructions
         let claude_md = project_root.join("CLAUDE.md");
         if claude_md.exists() {
-            return Ok(None); // Don't overwrite existing project instructions
+            return Ok(None);
         }
 
-        Ok(Some(format!(
+        Ok(Some(
             "# Project Instructions\n\
              \n\
-             This project uses [noslop](https://github.com/noslop/noslop) for code review checks.\n\
+             This project uses [noslop](https://github.com/noslop/noslop) for code review.\n\
+             \n\
+             ## Review workflow\n\
+             \n\
+             Run `noslop review` to analyze current changes.\n\
+             Run `noslop review --agent` to include LLM-powered review passes.\n\
              \n\
              ## Before committing\n\
              \n\
-             Run `noslop check` to verify all checks are acknowledged.\n\
-             Use `noslop ack <ID> -m \"reason\"` to acknowledge checks.\n\
-             \n\
-             ## Iteration loop\n\
-             \n\
-             Use `noslop run <plan.md>` for autonomous task iteration.\n\
+             Run `noslop review` to check for issues.\n\
              Use `checkpoint` before risky operations.\n"
-        )))
+                .to_string(),
+        ))
     }
 }
 ```
@@ -806,10 +952,10 @@ impl AgentConfig for ClaudeConfig {
 ### `ClaudeRuntime` Struct and Implementation
 
 ```rust
-/// Claude Code runtime for iteration loop invocation
+/// Claude Code runtime for review invocation
 ///
-/// Invokes `claude -p` with appropriate flags and parses output for
-/// completion signals and status lines.
+/// Invokes `claude -p` with review prompts and parses the output
+/// to extract structured findings.
 #[derive(Debug, Clone, Copy)]
 pub struct ClaudeRuntime;
 
@@ -859,46 +1005,23 @@ impl AgentRuntime for ClaudeRuntime {
         };
 
         let exit_code = output.status.code().unwrap_or(-1);
-        let completed = self.is_plan_complete(&combined);
-        let status_line = self.extract_status_line(&combined);
 
         Ok(InvocationResult {
             output: combined,
             exit_code,
-            completed,
-            status_line,
             duration,
         })
     }
 
-    fn parse_output(&self, result: &InvocationResult) -> IterationOutput {
-        let plan_complete = self.is_plan_complete(&result.output);
+    fn parse_output(&self, result: &InvocationResult) -> ReviewOutput {
+        super::parsing::extract_findings(&result.output)
+    }
 
-        // Extract task name and iteration from status line
-        let (completed_task, iteration) = result
-            .status_line
-            .as_ref()
-            .and_then(|line| {
-                let re = regex::Regex::new(
-                    r#"\[RALPH:DONE\s+task="([^"]+)"\s+iteration=(\d+)\]"#
-                ).ok()?;
-                let caps = re.captures(line)?;
-                let task = caps.get(1).map(|m| m.as_str().to_string());
-                let iter = caps.get(2).and_then(|m| m.as_str().parse().ok());
-                Some((task, iter))
-            })
-            .unwrap_or((None, None));
-
-        // Extract error patterns from output
-        let errors = Self::extract_errors(&result.output);
-
-        IterationOutput {
-            plan_complete,
-            completed_task,
-            iteration,
-            raw_output: result.output.clone(),
-            errors,
-        }
+    fn is_available(&self) -> bool {
+        Command::new("claude")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
     }
 
     fn build_command(&self, config: &InvocationConfig) -> (String, Vec<String>) {
@@ -926,97 +1049,109 @@ impl AgentRuntime for ClaudeRuntime {
         env
     }
 }
-
-impl ClaudeRuntime {
-    /// Extract error patterns from Claude's output
-    ///
-    /// Looks for common error indicators in the raw output text.
-    fn extract_errors(output: &str) -> Vec<String> {
-        let mut errors = Vec::new();
-
-        for line in output.lines() {
-            let trimmed = line.trim();
-            // Capture lines that look like error messages
-            if trimmed.starts_with("Error:")
-                || trimmed.starts_with("error:")
-                || trimmed.starts_with("FAILED")
-                || trimmed.contains("panicked at")
-                || trimmed.contains("compilation error")
-            {
-                errors.push(trimmed.to_string());
-            }
-        }
-
-        errors
-    }
-}
 ```
 
-### Claude Invocation Flow
+### Claude Review Invocation Flow
 
-```
-noslop run plan.md
-    │
-    ▼
-┌─────────────────────────────────────────────┐
-│ ClaudeRuntime::build_command()              │
-│                                             │
-│ claude -p "$PROMPT"                         │
-│        --output-format text                 │
-│        --permission-mode bypassPermissions  │
-│                                             │
-│ Environment:                                │
-│   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1│
-│   (working_dir set via .current_dir())      │
-└─────────────────┬───────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────┐
-│ ClaudeRuntime::invoke()                     │
-│                                             │
-│ 1. Build Command with args + env            │
-│ 2. Execute via std::process::Command        │
-│ 3. Capture stdout + stderr                  │
-│ 4. Record duration                          │
-│ 5. Check exit code                          │
-│ 6. Return InvocationResult                  │
-└─────────────────┬───────────────────────────┘
-                  │
-                  ▼
-┌─────────────────────────────────────────────┐
-│ ClaudeRuntime::parse_output()               │
-│                                             │
-│ 1. Check for <promise>COMPLETE</promise>    │
-│ 2. Extract [RALPH:DONE task="X" iteration=N]│
-│ 3. Scan for error patterns                  │
-│ 4. Return IterationOutput                   │
-└─────────────────────────────────────────────┘
+```text
+noslop review --agent
+    |
+    v
++---------------------------------------------+
+| AgentAnalyzer::analyze()                     |
+|                                              |
+| 1. Build review prompt from template:        |
+|    - System context (you are a reviewer)     |
+|    - Diff context (actual changes)           |
+|    - Prior findings (from static analyzers)  |
+|    - Focus area (security/quality/arch)      |
+|    - Output format instructions (JSON)       |
+| 2. Create InvocationConfig with prompt       |
++---------------------+-----------------------+
+                      |
+                      v
++---------------------------------------------+
+| ClaudeRuntime::build_command()               |
+|                                              |
+| claude -p "$REVIEW_PROMPT"                   |
+|        --output-format text                  |
+|        --permission-mode bypassPermissions   |
+|                                              |
+| Environment:                                 |
+|   CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 |
+|   (working_dir set via .current_dir())       |
++---------------------+-----------------------+
+                      |
+                      v
++---------------------------------------------+
+| ClaudeRuntime::invoke()                      |
+|                                              |
+| 1. Build Command with args + env             |
+| 2. Execute via std::process::Command         |
+| 3. Capture stdout + stderr                   |
+| 4. Record duration                           |
+| 5. Check exit code                           |
+| 6. Return InvocationResult                   |
++---------------------+-----------------------+
+                      |
+                      v
++---------------------------------------------+
+| ClaudeRuntime::parse_output()                |
+|   -> parsing::extract_findings()             |
+|                                              |
+| 1. Find JSON array in output                 |
+| 2. Parse as Vec<Finding>                     |
+| 3. Extract error lines                       |
+| 4. Return ReviewOutput                       |
++---------------------------------------------+
 ```
 
 ### Output Parsing Details
 
-Claude's raw text output is scanned for two structured signals:
+The agent is prompted to output findings as a JSON array. The parser (`parsing::extract_findings`) handles several cases:
 
-1. **Plan completion**: The literal string `<promise>COMPLETE</promise>` anywhere in the output signals that all tasks in the plan are done. This is a convention from the ralph iteration loop prompt template, not a Claude API feature.
+1. **Clean JSON output**: The agent outputs only the JSON array. Parsed directly.
 
-2. **Task status line**: The pattern `[RALPH:DONE task="<description>" iteration=<N>]` is emitted by the agent when it finishes a single task. Parsed with:
+2. **Narrative wrapper**: The agent includes explanatory text around the JSON. The parser extracts the `[...]` boundary and parses the inner JSON.
 
-   ```rust
-   r#"\[RALPH:DONE\s+task="([^"]+)"\s+iteration=(\d+)\]"#
-   ```
+3. **No findings**: The agent outputs narrative text with no JSON array. Returns empty findings with the raw output preserved for debugging.
 
-3. **Error extraction**: Lines matching error prefixes (`Error:`, `FAILED`, `panicked at`, `compilation error`) are collected into `IterationOutput.errors` for stuck detection and logging.
+4. **Malformed JSON**: The JSON array is found but fails to parse. Returns empty findings with raw output and error logged.
+
+Example agent output for a security review pass:
+
+```text
+I reviewed the diff for security issues. Here are my findings:
+
+[
+  {
+    "severity": "error",
+    "file": "src/auth.rs",
+    "line": 42,
+    "message": "Password comparison uses == which is vulnerable to timing attacks",
+    "suggestion": "Use `subtle::ConstantTimeEq` or `ring::constant_time::verify_slices_are_equal` for password comparison",
+    "source": "agent:security"
+  },
+  {
+    "severity": "warning",
+    "file": "src/api/handlers.rs",
+    "line": 118,
+    "message": "User input is interpolated directly into SQL query",
+    "suggestion": "Use parameterized queries via sqlx::query! macro instead of format!()",
+    "source": "agent:security"
+  }
+]
+```
 
 ### Claude Agent SDK Invocation (Future)
 
-The current design uses `claude -p` (headless CLI mode). A future version will use the Claude Agent SDK for structured communication:
+The current design uses `claude -p` (headless CLI mode). A future version may use the Claude Agent SDK for structured communication:
 
 ```rust
 // Future: SDK-based invocation (not implemented in v1)
 // let session = claude_sdk::Session::new()?;
-// let result = session.query(&prompt)
-//     .max_turns(50)
-//     .max_budget_usd(5.0)
+// let result = session.query(&review_prompt)
+//     .max_turns(1)      // Review is single-turn, not iterative
 //     .execute()
 //     .await?;
 ```
@@ -1046,7 +1181,13 @@ Codex CLI has a simpler configuration model than Claude Code. It reads instructi
 
 ### `noslop`
 
-Code review checks and autonomous iteration. See `noslop --help` for all commands.
+Local code review for agent-generated code. See `noslop --help` for all commands.
+
+Key commands:
+
+    noslop review              # Run full review pipeline on current changes
+    noslop review --agent      # Include LLM-powered review passes
+    noslop init codex          # Configure Codex as the review agent
 
 ### `checkpoint`
 
@@ -1082,6 +1223,7 @@ Git worktree management for isolated work.
 //! Codex CLI adapter
 //!
 //! Implements [`AgentConfig`] and [`AgentRuntime`] for OpenAI's Codex CLI.
+//! Codex is invoked with review prompts and returns structured findings.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -1090,7 +1232,7 @@ use std::time::Instant;
 
 use crate::core::ports::agent::{
     AgentConfig, AgentConfigBundle, AgentRuntime, AgentType, GlobalInstructions,
-    InvocationConfig, InvocationResult, IterationOutput,
+    InvocationConfig, InvocationResult, ReviewOutput,
 };
 
 /// Codex CLI configuration generator
@@ -1147,27 +1289,28 @@ impl AgentConfig for CodexConfig {
         &self,
         project_root: &Path,
     ) -> anyhow::Result<Option<String>> {
-        // Check if a AGENTS.md already exists (Codex convention)
+        // Don't overwrite existing project instructions (Codex convention)
         let agents_md = project_root.join("AGENTS.md");
         if agents_md.exists() {
             return Ok(None);
         }
 
-        Ok(Some(format!(
+        Ok(Some(
             "# Agent Instructions\n\
              \n\
-             This project uses [noslop](https://github.com/noslop/noslop) for code review checks.\n\
+             This project uses [noslop](https://github.com/noslop/noslop) for code review.\n\
+             \n\
+             ## Review workflow\n\
+             \n\
+             Run `noslop review` to analyze current changes.\n\
+             Run `noslop review --agent` to include LLM-powered review passes.\n\
              \n\
              ## Before committing\n\
              \n\
-             Run `noslop check` to verify all checks are acknowledged.\n\
-             Use `noslop ack <ID> -m \"reason\"` to acknowledge checks.\n\
-             \n\
-             ## Iteration loop\n\
-             \n\
-             Use `noslop run <plan.md>` for autonomous task iteration.\n\
+             Run `noslop review` to check for issues.\n\
              Use `checkpoint` before risky operations.\n"
-        )))
+                .to_string(),
+        ))
     }
 }
 ```
@@ -1175,10 +1318,10 @@ impl AgentConfig for CodexConfig {
 ### `CodexRuntime` Struct and Implementation
 
 ```rust
-/// Codex CLI runtime for iteration loop invocation
+/// Codex CLI runtime for review invocation
 ///
-/// Invokes `codex` with quiet/full-auto mode and parses output
-/// for completion signals and status lines.
+/// Invokes `codex` with quiet/full-auto mode and review prompts,
+/// then parses the output to extract structured findings.
 #[derive(Debug, Clone, Copy)]
 pub struct CodexRuntime;
 
@@ -1226,48 +1369,27 @@ impl AgentRuntime for CodexRuntime {
         };
 
         let exit_code = output.status.code().unwrap_or(-1);
-        let completed = self.is_plan_complete(&combined);
-        let status_line = self.extract_status_line(&combined);
 
         Ok(InvocationResult {
             output: combined,
             exit_code,
-            completed,
-            status_line,
             duration,
         })
     }
 
-    fn parse_output(&self, result: &InvocationResult) -> IterationOutput {
-        let plan_complete = self.is_plan_complete(&result.output);
+    fn parse_output(&self, result: &InvocationResult) -> ReviewOutput {
+        super::parsing::extract_findings(&result.output)
+    }
 
-        let (completed_task, iteration) = result
-            .status_line
-            .as_ref()
-            .and_then(|line| {
-                let re = regex::Regex::new(
-                    r#"\[RALPH:DONE\s+task="([^"]+)"\s+iteration=(\d+)\]"#
-                ).ok()?;
-                let caps = re.captures(line)?;
-                let task = caps.get(1).map(|m| m.as_str().to_string());
-                let iter = caps.get(2).and_then(|m| m.as_str().parse().ok());
-                Some((task, iter))
-            })
-            .unwrap_or((None, None));
-
-        let errors = Self::extract_errors(&result.output);
-
-        IterationOutput {
-            plan_complete,
-            completed_task,
-            iteration,
-            raw_output: result.output.clone(),
-            errors,
-        }
+    fn is_available(&self) -> bool {
+        Command::new("codex")
+            .arg("--version")
+            .output()
+            .is_ok_and(|o| o.status.success())
     }
 
     fn build_command(&self, config: &InvocationConfig) -> (String, Vec<String>) {
-        let mut args = vec![
+        let args = vec![
             "--quiet".to_string(),
             "--approval-mode".to_string(),
             "full-auto".to_string(),
@@ -1277,85 +1399,241 @@ impl AgentRuntime for CodexRuntime {
         // Codex does not have a separate bypass-permissions flag;
         // full-auto mode handles this.
 
-        args
+        ("codex".to_string(), args)
     }
 
     fn invocation_env(&self) -> HashMap<String, String> {
         HashMap::new()
     }
 }
-
-impl CodexRuntime {
-    /// Extract error patterns from Codex output
-    fn extract_errors(output: &str) -> Vec<String> {
-        let mut errors = Vec::new();
-
-        for line in output.lines() {
-            let trimmed = line.trim();
-            if trimmed.starts_with("Error:")
-                || trimmed.starts_with("error:")
-                || trimmed.starts_with("FAILED")
-                || trimmed.contains("panicked at")
-                || trimmed.contains("compilation error")
-            {
-                errors.push(trimmed.to_string());
-            }
-        }
-
-        errors
-    }
-}
 ```
 
-### Codex Invocation Flow
+### Codex Review Invocation Flow
 
+```text
+noslop review --agent codex
+    |
+    v
++------------------------------------------+
+| AgentAnalyzer::analyze()                  |
+|                                           |
+| Build review prompt (same as Claude)      |
++-------------------+----------------------+
+                    |
+                    v
++------------------------------------------+
+| CodexRuntime::build_command()             |
+|                                           |
+| codex --quiet                             |
+|       --approval-mode full-auto           |
+|       "$REVIEW_PROMPT"                    |
+|                                           |
+| (no special environment variables)        |
++-------------------+----------------------+
+                    |
+                    v
++------------------------------------------+
+| CodexRuntime::invoke()                    |
+|                                           |
+| 1. Build Command with args               |
+| 2. Execute via std::process::Command      |
+| 3. Capture stdout + stderr               |
+| 4. Record duration                        |
+| 5. Check exit code                        |
+| 6. Return InvocationResult                |
++-------------------+----------------------+
+                    |
+                    v
++------------------------------------------+
+| CodexRuntime::parse_output()              |
+|   -> parsing::extract_findings()          |
+|                                           |
+| Same JSON extraction as Claude:           |
+| 1. Find JSON array in output              |
+| 2. Parse as Vec<Finding>                  |
+| 3. Return ReviewOutput                    |
++------------------------------------------+
 ```
-noslop run plan.md --agent codex
-    │
-    ▼
-┌──────────────────────────────────────────┐
-│ CodexRuntime::build_command()            │
-│                                          │
-│ codex --quiet                            │
-│       --approval-mode full-auto          │
-│       "$PROMPT"                          │
-│                                          │
-│ (no special environment variables)       │
-└──────────────────┬───────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────┐
-│ CodexRuntime::invoke()                   │
-│                                          │
-│ 1. Build Command with args               │
-│ 2. Execute via std::process::Command     │
-│ 3. Capture stdout + stderr               │
-│ 4. Record duration                       │
-│ 5. Check exit code                       │
-│ 6. Return InvocationResult               │
-└──────────────────┬───────────────────────┘
-                   │
-                   ▼
-┌──────────────────────────────────────────┐
-│ CodexRuntime::parse_output()             │
-│                                          │
-│ Same signals as Claude:                  │
-│ 1. <promise>COMPLETE</promise>           │
-│ 2. [RALPH:DONE task="X" iteration=N]    │
-│ 3. Error pattern extraction              │
-│                                          │
-│ Return IterationOutput                   │
-└──────────────────────────────────────────┘
+
+---
+
+## Review Prompt Templates
+
+Prompt templates define what the agent reviews. noslop ships default templates and users can override them by placing files in `.noslop/prompts/`.
+
+### Template Resolution Order
+
+1. `.noslop/prompts/{focus}.md` -- project-specific override
+2. `~/.noslop/prompts/{focus}.md` -- user-level override
+3. Built-in default (compiled into the binary)
+
+### Default Prompt Template: Security
+
+```markdown
+You are a security-focused code reviewer. You are reviewing a diff of changes
+to a codebase. Your job is to identify security vulnerabilities, not style issues.
+
+## Focus area
+
+Security: authentication, authorization, injection, data exposure, cryptography,
+input validation, error handling that leaks information.
+
+## Diff to review
+
+{diff}
+
+## Changed files
+
+{changed_files}
+
+## Prior findings from automated analysis
+
+{prior_findings}
+
+## Output format
+
+Return your findings as a JSON array. Each finding must have these fields:
+
+- severity: "info", "warning", "error", or "critical"
+- file: relative file path
+- line: line number (null if not applicable)
+- message: short description of the issue
+- suggestion: how to fix it (null if no suggestion)
+- source: "agent:security"
+
+If you find no issues, return an empty array: []
+
+Return ONLY the JSON array, no surrounding text.
 ```
 
-### Codex Output Parsing
+### Default Prompt Template: Quality
 
-Codex uses the same completion signals as Claude because these are prompt-level conventions injected by the noslop iteration loop, not agent-specific API features:
+```markdown
+You are a code quality reviewer. You are reviewing a diff of changes to a
+codebase. Focus on correctness, maintainability, and design issues.
 
-- `<promise>COMPLETE</promise>` for plan completion
-- `[RALPH:DONE task="..." iteration=N]` for per-task status
+## Focus area
 
-The prompt template (owned by `noslop run`, not the adapter) instructs whatever agent is running to emit these markers. The adapter just parses them.
+Quality: logic errors, edge cases, error handling, resource management,
+naming clarity, code duplication, unnecessary complexity, missing tests
+for non-trivial logic.
+
+## Diff to review
+
+{diff}
+
+## Changed files
+
+{changed_files}
+
+## Prior findings from automated analysis
+
+{prior_findings}
+
+## Output format
+
+Return your findings as a JSON array. Each finding must have these fields:
+
+- severity: "info", "warning", "error", or "critical"
+- file: relative file path
+- line: line number (null if not applicable)
+- message: short description of the issue
+- suggestion: how to fix it (null if no suggestion)
+- source: "agent:quality"
+
+If you find no issues, return an empty array: []
+
+Return ONLY the JSON array, no surrounding text.
+```
+
+### Default Prompt Template: Architecture
+
+```markdown
+You are an architecture reviewer. You are reviewing a diff of changes to a
+codebase. Focus on design patterns, module boundaries, and systemic concerns.
+
+## Focus area
+
+Architecture: module coupling, abstraction leaks, dependency direction,
+separation of concerns, API contract changes, breaking changes,
+consistency with existing patterns in the codebase.
+
+## Diff to review
+
+{diff}
+
+## Changed files
+
+{changed_files}
+
+## Prior findings from automated analysis
+
+{prior_findings}
+
+## Output format
+
+Return your findings as a JSON array. Each finding must have these fields:
+
+- severity: "info", "warning", "error", or "critical"
+- file: relative file path
+- line: line number (null if not applicable)
+- message: short description of the issue
+- suggestion: how to fix it (null if no suggestion)
+- source: "agent:architecture"
+
+If you find no issues, return an empty array: []
+
+Return ONLY the JSON array, no surrounding text.
+```
+
+### Prompt Template Customization
+
+Users can provide custom prompt templates by creating files in `.noslop/prompts/`. The filename (without `.md`) becomes the focus area name.
+
+Example: `.noslop/prompts/accessibility.md` would create an `agent:accessibility` review pass.
+
+```markdown
+You are an accessibility reviewer. Review this diff for WCAG compliance issues.
+
+## Focus area
+
+Accessibility: missing alt text, incorrect ARIA attributes, keyboard navigation,
+color contrast, screen reader compatibility, focus management.
+
+## Diff to review
+
+{diff}
+
+## Changed files
+
+{changed_files}
+
+## Prior findings from automated analysis
+
+{prior_findings}
+
+## Output format
+
+Return your findings as a JSON array. Each finding must have these fields:
+
+- severity: "info", "warning", "error", or "critical"
+- file: relative file path
+- line: line number (null if not applicable)
+- message: short description of the issue
+- suggestion: how to fix it (null if no suggestion)
+- source: "agent:accessibility"
+
+If you find no issues, return an empty array: []
+
+Return ONLY the JSON array, no surrounding text.
+```
+
+The `.noslop.toml` config controls which passes run:
+
+```toml
+[review]
+passes = ["security", "quality", "accessibility"]
+```
 
 ---
 
@@ -1373,8 +1651,7 @@ The prompt template (owned by `noslop run`, not the adapter) instructs whatever 
 | **Permission bypass**    | `--permission-mode bypassPermissions`                                          | `--approval-mode full-auto`                         |
 | **Output format**        | `--output-format text`                                                         | Default text output with `--quiet`                  |
 | **Special env vars**     | `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`                                   | None                                                |
-| **Completion signal**    | `<promise>COMPLETE</promise>` (prompt convention)                              | Same (prompt convention)                            |
-| **Status line**          | `[RALPH:DONE ...]` (prompt convention)                                         | Same (prompt convention)                            |
+| **Output parsing**       | Shared `parsing::extract_findings()` -- JSON array extraction                  | Same shared parser                                  |
 | **Install command**      | `npm install -g @anthropic-ai/claude-code`                                     | `npm install -g @openai/codex`                      |
 
 ---
@@ -1618,7 +1895,7 @@ mod tests {
     fn claude_runtime_build_command_with_bypass() {
         let runtime = ClaudeRuntime::new();
         let config = InvocationConfig {
-            prompt: "do the thing".to_string(),
+            prompt: "Review this diff for security issues".to_string(),
             bypass_permissions: true,
             ..Default::default()
         };
@@ -1636,7 +1913,7 @@ mod tests {
     fn claude_runtime_build_command_without_bypass() {
         let runtime = ClaudeRuntime::new();
         let config = InvocationConfig {
-            prompt: "do the thing".to_string(),
+            prompt: "Review this diff".to_string(),
             bypass_permissions: false,
             ..Default::default()
         };
@@ -1650,7 +1927,7 @@ mod tests {
     fn codex_runtime_build_command() {
         let runtime = CodexRuntime::new();
         let config = InvocationConfig {
-            prompt: "do the thing".to_string(),
+            prompt: "Review this diff for quality issues".to_string(),
             ..Default::default()
         };
 
@@ -1662,52 +1939,60 @@ mod tests {
     }
 
     #[test]
-    fn parse_output_detects_completion() {
+    fn parse_output_extracts_findings() {
         let runtime = ClaudeRuntime::new();
         let result = InvocationResult {
-            output: "did some work\n<promise>COMPLETE</promise>\n".to_string(),
+            output: r#"[{"severity":"warning","file":"src/lib.rs","line":10,"message":"unused variable","suggestion":"remove or prefix with _","source":"agent:quality"}]"#.to_string(),
             exit_code: 0,
-            completed: true,
-            status_line: None,
             duration: std::time::Duration::from_secs(10),
         };
 
         let output = runtime.parse_output(&result);
-        assert!(output.plan_complete);
+        assert_eq!(output.findings.len(), 1);
+        assert_eq!(output.findings[0].file, "src/lib.rs");
+        assert_eq!(output.findings[0].line, Some(10));
     }
 
     #[test]
-    fn parse_output_extracts_status_line() {
+    fn parse_output_handles_empty_findings() {
         let runtime = ClaudeRuntime::new();
-        let status = "[RALPH:DONE task=\"implement auth\" iteration=3]".to_string();
         let result = InvocationResult {
-            output: format!("some output\n{status}\nmore output"),
+            output: "[]".to_string(),
             exit_code: 0,
-            completed: false,
-            status_line: Some(status),
-            duration: std::time::Duration::from_secs(10),
+            duration: std::time::Duration::from_secs(5),
         };
 
         let output = runtime.parse_output(&result);
-        assert_eq!(output.completed_task.as_deref(), Some("implement auth"));
-        assert_eq!(output.iteration, Some(3));
+        assert!(output.findings.is_empty());
+    }
+
+    #[test]
+    fn parse_output_handles_no_json() {
+        let runtime = ClaudeRuntime::new();
+        let result = InvocationResult {
+            output: "I reviewed the code and found no issues.".to_string(),
+            exit_code: 0,
+            duration: std::time::Duration::from_secs(5),
+        };
+
+        let output = runtime.parse_output(&result);
+        assert!(output.findings.is_empty());
+        assert!(!output.raw_output.is_empty());
     }
 
     #[test]
     fn parse_output_extracts_errors() {
         let runtime = ClaudeRuntime::new();
         let result = InvocationResult {
-            output: "working...\nError: file not found\nFAILED test_auth\n".to_string(),
+            output: "working...\nError: file not found\nFAILED to connect\n".to_string(),
             exit_code: 1,
-            completed: false,
-            status_line: None,
             duration: std::time::Duration::from_secs(5),
         };
 
         let output = runtime.parse_output(&result);
         assert_eq!(output.errors.len(), 2);
         assert!(output.errors[0].contains("file not found"));
-        assert!(output.errors[1].contains("test_auth"));
+        assert!(output.errors[1].contains("connect"));
     }
 }
 ```
@@ -1762,16 +2047,18 @@ mod integration_tests {
 
 The adapter design provides:
 
-1. **Claude adapter**: Full configuration generation covering settings.json (97 allow rules, deny rules, hooks, sandbox), global instructions, hook scripts (branch protection, auto-format), and slash commands (checkpoint, worktree). Runtime invokes `claude -p` with `--output-format text --permission-mode bypassPermissions`.
+1. **Claude adapter**: Full configuration generation covering settings.json (97 allow rules, deny rules, hooks, sandbox), global instructions, hook scripts (branch protection, auto-format), and slash commands (checkpoint, worktree). Runtime invokes `claude -p` with `--output-format text --permission-mode bypassPermissions` and parses JSON findings from the output.
 
 2. **Codex adapter**: Minimal configuration (instructions.md only). Runtime invokes `codex --quiet --approval-mode full-auto`. No hooks or slash commands because Codex CLI does not support them.
 
-3. **Shared patterns**: Both adapters parse the same completion signals (`<promise>COMPLETE</promise>`, `[RALPH:DONE ...]`) because these are prompt conventions, not agent-specific features. Config writing uses shared logic for backups, directory creation, and executable permissions.
+3. **Shared output parsing**: Both adapters use `parsing::extract_findings()` to extract structured `Finding` objects from raw agent output. The parser handles clean JSON, narrative-wrapped JSON, and no-JSON cases.
 
-4. **Extensibility**: Adding a new agent requires implementing `AgentConfig` and `AgentRuntime` with whatever config files and CLI flags that agent needs. No changes to the iteration loop or existing adapters.
+4. **Review prompt templates**: Configurable templates for security, quality, and architecture review passes. Users can override or add custom passes via `.noslop/prompts/`. Templates use `{diff}`, `{prior_findings}`, `{focus}`, and `{changed_files}` placeholders.
+
+5. **Extensibility**: Adding a new agent requires implementing `AgentConfig` and `AgentRuntime` with whatever config files and CLI flags that agent needs. The shared parser and prompt templates work for any agent that can output JSON findings.
 
 Next steps:
 
-- Task 5: Iteration loop design (`noslop run` command)
+- Task 5: Review pipeline design (`noslop review` command)
 - Task 6: Checkpoint and worktree Rust ports
-- Task 7: Extended `noslop init <agent>` command design
+- Task 7: `noslop init <agent>` command design

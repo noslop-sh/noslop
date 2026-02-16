@@ -1,10 +1,10 @@
 # Noslop Codebase Analysis
 
-Deep analysis of the noslop codebase for the setup migration project.
+Deep analysis of the noslop codebase. This analysis informed the design of noslop's new direction as a **local code review tool for agent-generated code** — a pipeline of analyzers that review code before push, rather than a code generation tool.
 
 ## Overview
 
-**noslop** is a Rust CLI tool for enforcing code review considerations via pre-commit hooks. It follows a hexagonal (ports & adapters) architecture with strict separation between business logic and I/O.
+**noslop** is a Rust CLI tool for enforcing code review considerations via pre-commit hooks. It follows a hexagonal (ports & adapters) architecture with strict separation between business logic and I/O. The existing architecture maps naturally onto the review tool design: checks become convention analyzers, acknowledgments become finding resolutions, and the hexagonal port/adapter pattern extends cleanly to support a `ReviewAnalyzer` trait and `ReviewPipeline` orchestrator.
 
 **Version**: 0.1.2
 **Rust Edition**: 2024
@@ -81,42 +81,45 @@ Pure domain logic with **no I/O dependencies**. All external interactions are ab
 
 ### Models (`src/core/models/`)
 
-| Model | File | Description |
-|-------|------|-------------|
-| `Check` | `check.rs` | "When this code changes, verify this" - ID, target, message, severity |
+| Model            | File                | Description                                                            |
+| ---------------- | ------------------- | ---------------------------------------------------------------------- |
+| `Check`          | `check.rs`          | "When this code changes, verify this" - ID, target, message, severity  |
 | `Acknowledgment` | `acknowledgment.rs` | Proof that a check was considered - check_id, message, acknowledged_by |
-| `Severity` | `severity.rs` | Enum: `Info`, `Warn`, `Block` |
-| `Target` | `target.rs` | Parsed target reference with `PathSpec` and `Fragment` |
-| `Review` | `review.rs` | Code review session with comments on a commit range |
-| `ReviewComment` | `review.rs` | Check + diff position + resolution status |
+| `Severity`       | `severity.rs`       | Enum: `Info`, `Warn`, `Block`                                          |
+| `Target`         | `target.rs`         | Parsed target reference with `PathSpec` and `Fragment`                 |
+| `Review`         | `review.rs`         | Code review session with comments on a commit range                    |
+| `ReviewComment`  | `review.rs`         | Check + diff position + resolution status                              |
 
 **Target Parsing** supports:
+
 - Exact paths: `src/auth.rs`
 - Glob patterns: `*.rs`, `src/**/*.rs`
 - Fragment identifiers: `#L42`, `#L42-L50`, `#Session`
 
 ### Ports (`src/core/ports/`)
 
-| Trait | File | Methods |
-|-------|------|---------|
-| `CheckRepository` | `check_repo.rs` | `find_for_files`, `add`, `remove`, `list`, `list_filtered` |
-| `AcknowledgmentStore` | `acknowledgment_store.rs` | `stage`, `staged`, `clear_staged`, `format_trailers`, `parse_from_commit` |
-| `VersionControl` | `vcs.rs` | `staged_files`, `repo_name`, `repo_root`, `install_hooks`, `is_inside_repo`, `current_branch` |
-| `ReviewStore` | `review_store.rs` | `save`, `load`, `list_all`, `list_open`, `delete`, `find_blocking_for_file` |
+| Trait                 | File                      | Methods                                                                                       |
+| --------------------- | ------------------------- | --------------------------------------------------------------------------------------------- |
+| `CheckRepository`     | `check_repo.rs`           | `find_for_files`, `add`, `remove`, `list`, `list_filtered`                                    |
+| `AcknowledgmentStore` | `acknowledgment_store.rs` | `stage`, `staged`, `clear_staged`, `format_trailers`, `parse_from_commit`                     |
+| `VersionControl`      | `vcs.rs`                  | `staged_files`, `repo_name`, `repo_root`, `install_hooks`, `is_inside_repo`, `current_branch` |
+| `ReviewStore`         | `review_store.rs`         | `save`, `load`, `list_all`, `list_open`, `delete`, `find_blocking_for_file`                   |
 
 **Key Design Patterns**:
+
 - All traits are `Send + Sync` for thread safety
 - Traits are annotated with `#[cfg_attr(test, mockall::automock)]` for auto-generated mocks
 - Return `anyhow::Result` for error handling
 
 ### Services (`src/core/services/`)
 
-| Service | File | Description |
-|---------|------|-------------|
-| `check_items` | `checker.rs` | Pure function: checks + acks + file_count → CheckResult |
+| Service          | File         | Description                                                   |
+| ---------------- | ------------ | ------------------------------------------------------------- |
+| `check_items`    | `checker.rs` | Pure function: checks + acks + file_count → CheckResult       |
 | `matches_target` | `matcher.rs` | Pattern matching: glob patterns, exact paths, recursive globs |
 
 **`CheckResult`** structure:
+
 - `passed: bool` - No blocking unacknowledged checks
 - `files_checked: usize`
 - `blocking: Vec<CheckItemResult>` - Need acknowledgment
@@ -125,20 +128,22 @@ Pure domain logic with **no I/O dependencies**. All external interactions are ab
 
 ### Adapters (`src/adapters/`)
 
-| Adapter | File | Implements |
-|---------|------|------------|
-| `TomlCheckRepository` | `toml/repository.rs` | `CheckRepository` - reads `.noslop.toml` files |
-| `GitVersionControl` | `git/mod.rs` | `VersionControl` - git operations via `Command` |
-| `TrailerAckStore` | `trailer/mod.rs` | `AcknowledgmentStore` - commit trailers |
-| `FileStore` | `file/mod.rs` | Staging storage in `.noslop/staged-acks.json` |
-| `FileReviewStore` | `review.rs` | `ReviewStore` - JSON files in `.noslop/reviews/` |
+| Adapter               | File                 | Implements                                       |
+| --------------------- | -------------------- | ------------------------------------------------ |
+| `TomlCheckRepository` | `toml/repository.rs` | `CheckRepository` - reads `.noslop.toml` files   |
+| `GitVersionControl`   | `git/mod.rs`         | `VersionControl` - git operations via `Command`  |
+| `TrailerAckStore`     | `trailer/mod.rs`     | `AcknowledgmentStore` - commit trailers          |
+| `FileStore`           | `file/mod.rs`        | Staging storage in `.noslop/staged-acks.json`    |
+| `FileReviewStore`     | `review.rs`          | `ReviewStore` - JSON files in `.noslop/reviews/` |
 
 **Git Hooks** (`adapters/git/hooks.rs`):
+
 - `pre-commit`: Runs `noslop check`
 - `commit-msg`: Runs `noslop add-trailers "$1"`
 - `post-commit`: Runs `noslop clear-staged`
 
 Hook installation:
+
 - Creates hooks in `.git/hooks/`
 - Appends to existing hooks if present
 - Sets executable permissions on Unix
@@ -148,25 +153,26 @@ Hook installation:
 
 Defined in `src/cli/app.rs`:
 
-| Command | Description |
-|---------|-------------|
-| `noslop init [--force]` | Initialize noslop in repo |
-| `noslop check [--ci]` | Validate checks for staged changes |
-| `noslop check add <target> -m <msg> [-s <sev>]` | Add a check |
-| `noslop check list [--target <filter>]` | List checks |
-| `noslop check remove <id>` | Remove a check |
-| `noslop ack <id> -m <msg>` | Acknowledge a check |
-| `noslop add-trailers <file>` | (hidden) Hook: add trailers |
-| `noslop clear-staged` | (hidden) Hook: clear staged acks |
-| `noslop review start <base> <head>` | Start code review |
-| `noslop review comment <id> <target> -m <msg>` | Add comment |
-| `noslop review list [--open]` | List reviews |
-| `noslop review show <id>` | Show review details |
-| `noslop review resolve <comment_id> [-m <msg>]` | Resolve comment |
-| `noslop review close <id>` | Close review |
-| `noslop version` | Show version |
+| Command                                         | Description                        |
+| ----------------------------------------------- | ---------------------------------- |
+| `noslop init [--force]`                         | Initialize noslop in repo          |
+| `noslop check [--ci]`                           | Validate checks for staged changes |
+| `noslop check add <target> -m <msg> [-s <sev>]` | Add a check                        |
+| `noslop check list [--target <filter>]`         | List checks                        |
+| `noslop check remove <id>`                      | Remove a check                     |
+| `noslop ack <id> -m <msg>`                      | Acknowledge a check                |
+| `noslop add-trailers <file>`                    | (hidden) Hook: add trailers        |
+| `noslop clear-staged`                           | (hidden) Hook: clear staged acks   |
+| `noslop review start <base> <head>`             | Start code review                  |
+| `noslop review comment <id> <target> -m <msg>`  | Add comment                        |
+| `noslop review list [--open]`                   | List reviews                       |
+| `noslop review show <id>`                       | Show review details                |
+| `noslop review resolve <comment_id> [-m <msg>]` | Resolve comment                    |
+| `noslop review close <id>`                      | Close review                       |
+| `noslop version`                                | Show version                       |
 
 **Output Modes**:
+
 - `--json` flag for machine-readable output
 - `--verbose` flag for debug logging
 
@@ -187,6 +193,7 @@ tags = ["security"]                        # Optional tags
 ```
 
 Features:
+
 - Multiple `.noslop.toml` files allowed (hierarchical, root-first)
 - Auto-generated JIRA-style IDs: `{PREFIX}-{N}`
 - Glob patterns: `*.rs`, `src/**/*.rs`, `src/*.rs`
@@ -206,43 +213,45 @@ Features:
 
 ### Runtime Dependencies
 
-| Crate | Version | Purpose |
-|-------|---------|---------|
-| `anyhow` | 1.0.100 | Error handling |
-| `chrono` | 0.4.42 | Timestamps |
-| `clap` | 4.5.51 | CLI parsing (derive) |
-| `colored` | 3.0.0 | Terminal colors |
-| `env_logger` | 0.11.8 | Logging |
-| `git2` | 0.20.2 | Git operations (vendored OpenSSL) |
-| `glob` | 0.3.3 | Glob pattern matching |
-| `log` | 0.4.28 | Logging facade |
-| `regex` | 1.12 | Pattern matching |
-| `serde` | 1.0.228 | Serialization |
-| `serde_json` | 1.0.145 | JSON handling |
-| `thiserror` | 2.0.17 | Error types |
-| `toml` | 0.9.8 | TOML parsing |
-| `walkdir` | 2.5.0 | Directory traversal |
+| Crate        | Version | Purpose                           |
+| ------------ | ------- | --------------------------------- |
+| `anyhow`     | 1.0.100 | Error handling                    |
+| `chrono`     | 0.4.42  | Timestamps                        |
+| `clap`       | 4.5.51  | CLI parsing (derive)              |
+| `colored`    | 3.0.0   | Terminal colors                   |
+| `env_logger` | 0.11.8  | Logging                           |
+| `git2`       | 0.20.2  | Git operations (vendored OpenSSL) |
+| `glob`       | 0.3.3   | Glob pattern matching             |
+| `log`        | 0.4.28  | Logging facade                    |
+| `regex`      | 1.12    | Pattern matching                  |
+| `serde`      | 1.0.228 | Serialization                     |
+| `serde_json` | 1.0.145 | JSON handling                     |
+| `thiserror`  | 2.0.17  | Error types                       |
+| `toml`       | 0.9.8   | TOML parsing                      |
+| `walkdir`    | 2.5.0   | Directory traversal               |
 
 **Optional (feature-gated)**:
+
 - `tokio` (1.48.0) + `reqwest` (0.12.24) for LLM features
 
 ### Dev Dependencies
 
-| Crate | Purpose |
-|-------|---------|
-| `assert_cmd` | CLI testing |
-| `mockall` | Mock generation for port traits |
-| `predicates` | Test assertions |
-| `pretty_assertions` | Diff assertions |
-| `proptest` | Property-based testing |
-| `tempfile` | Temporary directories |
-| `test-case` | Parameterized tests |
+| Crate               | Purpose                         |
+| ------------------- | ------------------------------- |
+| `assert_cmd`        | CLI testing                     |
+| `mockall`           | Mock generation for port traits |
+| `predicates`        | Test assertions                 |
+| `pretty_assertions` | Diff assertions                 |
+| `proptest`          | Property-based testing          |
+| `tempfile`          | Temporary directories           |
+| `test-case`         | Parameterized tests             |
 
 ## Code Conventions
 
 ### Clippy Settings
 
 From `lib.rs`:
+
 ```rust
 #![deny(
     clippy::all,
@@ -265,6 +274,7 @@ From `lib.rs`:
 ```
 
 From `clippy.toml`:
+
 - `cognitive-complexity-threshold = 30`
 - `too-many-arguments-threshold = 7`
 - `too-many-lines-threshold = 200`
@@ -299,6 +309,7 @@ tests/
 ### Test Fixtures
 
 **`CheckBuilder`**:
+
 ```rust
 let check = CheckBuilder::new()
     .id("TEST-1")
@@ -309,6 +320,7 @@ let check = CheckBuilder::new()
 ```
 
 **`TempGitRepo`**:
+
 ```rust
 let repo = TempGitRepo::new();
 repo.write_file("src/main.rs", "fn main() {}");
@@ -319,6 +331,7 @@ repo.commit("Initial commit");
 ### Mock Implementations
 
 All port traits have manual mock implementations in `tests/common/mocks.rs`:
+
 - `MockCheckRepository` - configurable check list
 - `MockAckStore` - in-memory staging
 - `MockVersionControl` - configurable staged files
@@ -352,51 +365,93 @@ The current init flow (`src/cli/commands/init.rs`):
 6. Check for existing docs (CLAUDE.md, AGENTS.md, ARCHITECTURE.md)
 
 Hook files are:
+
 - Created if missing
 - Appended to if existing (preserves other content)
 - Made executable on Unix
 
-## Key Extension Points for Agent Integration
+## Key Extension Points for Review Architecture
 
-### Where Agent Config Would Fit
+### Where Review Components Would Fit
 
-1. **New port trait**: `src/core/ports/agent.rs`
-   - `AgentConfig` - configuration generation
-   - `AgentRuntime` - invocation and output parsing
+1. **New port trait**: `src/core/ports/analyzer.rs`
+   - `ReviewAnalyzer` - the core abstraction; analyzers run in a pipeline, each seeing prior findings
+   - Three analyzer types: built-in (compiled Rust), script (external command), agent (LLM via `AgentRuntime`)
 
-2. **New adapters**: `src/adapters/agent/`
-   - `claude.rs` - Claude Code adapter
-   - `codex.rs` - Codex adapter
+2. **New port trait**: `src/core/ports/finding_store.rs`
+   - `FindingStore` - persistence for review findings (follows `CheckRepository` pattern)
 
-3. **Extended init**: `src/cli/commands/init.rs`
-   - `noslop init claude` / `noslop init codex`
-   - Generate agent-specific config files
+3. **New service**: `src/core/services/pipeline.rs`
+   - `ReviewPipeline` - orchestrator that runs analyzers in order (static first, then LLM)
+   - Follows the `Checker` service pattern but over a pipeline of `ReviewAnalyzer` implementations
 
-4. **New command**: `noslop run`
-   - Iteration loop orchestrator
-   - Uses `AgentRuntime` trait for agent invocation
+4. **New adapters**: `src/adapters/analyzer/`
+   - `convention.rs` - built-in `ConventionAnalyzer` (wraps existing check logic)
+   - `script.rs` - `ScriptAnalyzer` (runs external commands)
+   - `agent.rs` - `AgentAnalyzer` (uses `AgentRuntime` for LLM inference)
 
-5. **Config extension**: `.noslop.toml`
+5. **Extended init**: `src/cli/commands/init.rs`
+   - `noslop init <agent>` generates agent-specific config for LLM-based analyzers
+   - Installs pre-push hook (in addition to existing pre-commit hook)
+
+6. **Config extension**: `.noslop.toml`
+
    ```toml
-   [agent]
-   type = "claude"
-   # agent-specific settings
+   [[analyzer]]
+   type = "convention"  # built-in
 
-   [loop]
-   max_iterations = 20
-   # iteration loop settings
+   [[analyzer]]
+   type = "script"
+   command = "ruff check --output-format json"
+
+   [[analyzer]]
+   type = "agent"
+   runtime = "claude"
+   # LLM analyzers run last, informed by prior findings
    ```
 
 ### Patterns to Follow
 
-- Add new port trait in `src/core/ports/`
+- Add new port traits in `src/core/ports/`
 - Add adapter implementations in `src/adapters/`
-- Add command in `src/cli/commands/`
+- Add commands in `src/cli/commands/`
 - Add models in `src/core/models/`
 - Use `anyhow::Result` for errors
 - Annotate traits with `#[cfg_attr(test, mockall::automock)]`
 - Write unit tests with fixtures and mocks
 - Write integration tests with `TempGitRepo`
+
+## Relevance to Review Architecture
+
+The existing noslop components map directly onto the review tool design:
+
+| Existing Component          | Role in Review Tool                                                                                                      | Notes                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------- |
+| **Checks** (`.noslop.toml`) | Becomes the `ConventionAnalyzer` — a built-in `ReviewAnalyzer` that enforces "when this code changes, verify this" rules | Checks are the first static analyzer in the pipeline; free to run, no LLM needed                |
+| **Acknowledgments**         | The resolution mechanism for review findings — same workflow of stage/commit/clear                                       | Findings from any analyzer (built-in, script, or agent) are resolved the same way               |
+| **Git hooks**               | Pre-push gate enforcement — blocks push on unresolved findings                                                           | Extends from current pre-commit hook; adds `pre-push` that runs the full review pipeline        |
+| **`VersionControl` trait**  | Provides diff and commit context to analyzers — staged files, current branch, repo root                                  | Analyzers need to know what changed; this trait already abstracts that                          |
+| **`CheckRepository` trait** | Pattern for the new `FindingStore` trait — same CRUD + query interface, different domain type                            | `FindingStore` stores analyzer findings the way `CheckRepository` stores checks                 |
+| **`Checker` service**       | Pattern for the `ReviewPipeline` orchestrator — same "evaluate and produce results" shape                                | `Checker` evaluates checks against files; `ReviewPipeline` runs analyzers against diffs         |
+| **`ReviewStore` trait**     | Already stores review sessions with comments and resolution status — may be reused directly                              | The existing review model (comments, blocking status, resolution) aligns with finding lifecycle |
+| **GUI (Tauri+Svelte)**      | Displays findings from the review pipeline, manages resolutions interactively                                            | The GUI already shows checks and reviews; extends naturally to show pipeline findings           |
+
+### Pipeline Execution Order
+
+The review pipeline leverages the cost structure of different analyzer types:
+
+1. **Built-in analyzers** (free, fast): `ConventionAnalyzer` runs existing check logic, formatting checks, co-change correlation
+2. **Script analyzers** (free, fast): External tools like ruff, eslint, clippy produce structured findings
+3. **Agent analyzers** (expensive, slow): LLM-based review runs last, informed by all prior findings — avoids spending tokens on issues already caught by static analysis
+
+### Findings Lifecycle
+
+Findings integrate with the existing acknowledgment workflow:
+
+1. Pipeline produces findings (each with severity: info/warn/block)
+2. Blocking findings prevent push (pre-push hook)
+3. Developer resolves findings via `noslop ack` (same as today)
+4. Resolved findings can graduate to permanent checks (learning loop — a finding that keeps recurring becomes a `.noslop.toml` check)
 
 ## Summary
 
@@ -407,16 +462,20 @@ Noslop has a clean hexagonal architecture that separates concerns well:
 - **Adapters** handle all I/O
 - **CLI** is thin dispatch layer
 
-The codebase is well-suited for extension with agent support because:
+The codebase is well-suited for the review tool direction because:
 
-1. The port/adapter pattern makes it easy to add new capabilities
-2. Existing patterns (hooks, config, storage) can be reused
-3. Test infrastructure supports mocking and integration testing
-4. The init command already handles multi-step setup
+1. The port/adapter pattern extends naturally to `ReviewAnalyzer` with multiple implementation types
+2. Existing checks become the first built-in analyzer — no rewrite, just wrapping
+3. Acknowledgments already implement the finding resolution workflow
+4. Git hooks already gate on unresolved issues — extending to pre-push is incremental
+5. Test infrastructure (mocks, fixtures, `TempGitRepo`) supports testing the new pipeline
+6. The GUI already displays checks and reviews — extending to pipeline findings is additive
 
-Key areas that will need attention during migration:
+Key areas for the review architecture:
 
-1. Expanding `.noslop.toml` schema for agent config
-2. Adding new files (progress.md, failures.jsonl) to `.noslop/`
-3. Implementing agent invocation via trait
-4. Translating bash scripts (ralph, checkpoint, worktree) to Rust
+1. Defining the `ReviewAnalyzer` trait and pipeline orchestrator
+2. Adding `FindingStore` for persistence (following `CheckRepository` pattern)
+3. Wrapping existing checks as a `ConventionAnalyzer`
+4. Adding script and agent analyzer adapters
+5. Extending `.noslop.toml` with `[[analyzer]]` configuration
+6. Adding pre-push hook alongside existing pre-commit hook

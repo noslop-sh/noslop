@@ -1,6 +1,6 @@
 # Setup Codebase Analysis
 
-Deep analysis of the setup codebase (`/Users/saumil/Code/setup/`) for the migration project.
+Deep analysis of the setup codebase (`/Users/saumil/Code/setup/`). This analysis informed the **agent integration layer** of noslop's review tool — specifically, the `AgentRuntime` trait for LLM-based review inference, the `noslop init <agent>` configuration generation, and the pipeline orchestrator pattern derived from ralph's iteration loop.
 
 ## Overview
 
@@ -66,6 +66,7 @@ ralph plan.md 20 --worktree    # Run in isolated git worktree
 #### Context Generation
 
 The `generate_context()` function builds per-iteration context:
+
 - Iteration number and max
 - Plan status (done/total from `count_tasks`)
 - Recent git activity (last 5 commits via `git_activity`)
@@ -73,6 +74,7 @@ The `generate_context()` function builds per-iteration context:
 #### Prompt Template
 
 Static template (lines 108-175) instructs Claude to:
+
 1. Read the plan file
 2. Find the first incomplete task
 3. Orient: understand repo layout, run tests first
@@ -87,6 +89,7 @@ Mentions `TeamCreate` for parallelization of independent subtasks.
 #### Stuck Recovery
 
 Appended when `stuck_count >= 3`:
+
 - Instructs Claude to try a different approach
 - Re-read task requirements
 - Check test failures in detail
@@ -96,14 +99,14 @@ Appended when `stuck_count >= 3`:
 
 #### Agent-Specific Elements
 
-| Element | Claude-Specific? | Notes |
-|---------|------------------|-------|
-| `claude -p` invocation | **Yes** | CLI command |
-| `--output-format text` | **Yes** | Claude Code flag |
-| `--permission-mode bypassPermissions` | **Yes** | Claude Code flag |
-| Prompt template structure | No | Could work for any agent |
-| `<promise>COMPLETE</promise>` tag | No | Convention, not API |
-| TeamCreate reference | **Yes** | Claude Code feature |
+| Element                               | Claude-Specific? | Notes                    |
+| ------------------------------------- | ---------------- | ------------------------ |
+| `claude -p` invocation                | **Yes**          | CLI command              |
+| `--output-format text`                | **Yes**          | Claude Code flag         |
+| `--permission-mode bypassPermissions` | **Yes**          | Claude Code flag         |
+| Prompt template structure             | No               | Could work for any agent |
+| `<promise>COMPLETE</promise>` tag     | No               | Convention, not API      |
+| TeamCreate reference                  | **Yes**          | Claude Code feature      |
 
 ### 2. Checkpoint (`scripts/checkpoint`)
 
@@ -160,16 +163,17 @@ Example: `/Users/saumil/Code/noslop/` creates worktrees at `/Users/saumil/Code/n
 
 #### Functions
 
-| Function | Purpose | Used By |
-|----------|---------|---------|
+| Function         | Purpose                                      | Used By                     |
+| ---------------- | -------------------------------------------- | --------------------------- |
 | `detect_repos()` | Sets `MODE` (single/multi) and `REPOS` array | checkpoint, worktree, ralph |
-| `count_tasks()` | Count done/total tasks in plan file | ralph |
-| `git_activity()` | Recent commits from all repos | ralph |
-| `is_clean()` | Check if working tree is clean | checkpoint |
+| `count_tasks()`  | Count done/total tasks in plan file          | ralph                       |
+| `git_activity()` | Recent commits from all repos                | ralph                       |
+| `is_clean()`     | Check if working tree is clean               | checkpoint                  |
 
 #### `count_tasks()` Implementation
 
 Supports two formats:
+
 - **Markdown**: `grep -cE '^\s*- \['` for total, `grep -cE '^\s*- \[x\]'` for done
 - **JSON**: `grep -cE '"passes"\s*:'` for total, `grep -cE '"passes"\s*:\s*true'` for done
 
@@ -212,6 +216,7 @@ Reads tool input JSON from stdin: `jq -r '.tool_input.file_path // empty'`
 **Model**: `"model": "opus"`
 
 **Attribution**:
+
 ```json
 "attribution": {
   "commit": "Co-Authored-By: Claude <noreply@anthropic.com>",
@@ -220,6 +225,7 @@ Reads tool input JSON from stdin: `jq -r '.tool_input.file_path // empty'`
 ```
 
 **Permissions** (97 allow rules):
+
 - Core tools: Read, Edit, Write, Glob, Grep, WebFetch, WebSearch
 - Git: status, diff, log, branch, show, remote, rev-parse, add, commit, checkout, switch, stash, merge, rebase, fetch, cherry-pick, tag
 - Node: npm run/install/test/ci/exec, npx, node
@@ -230,6 +236,7 @@ Reads tool input JSON from stdin: `jq -r '.tool_input.file_path // empty'`
 - Custom: checkpoint, worktree, ralph
 
 **Deny rules**:
+
 - Secrets: `.env`, `.env.*`, `secrets/*.json`, `~/.ssh/**`, `ejson-keys/**`
 - Destructive: `rm -rf /`, `git push --force`, `git reset --hard`, `git clean -f`, `chmod 777`, disk writes
 
@@ -241,15 +248,17 @@ Reads tool input JSON from stdin: `jq -r '.tool_input.file_path // empty'`
 | PreToolUse | Edit\|Write | branch-protection.sh |
 | PostToolUse | Edit\|Write | auto-format.sh |
 | PostToolUse | Bash | Command logging to ~/.claude/command-log.txt |
-| Stop | * | LLM prompt to verify task completion |
-| Notification | * | Desktop notification (notify-send) |
+| Stop | _ | LLM prompt to verify task completion |
+| Notification | _ | Desktop notification (notify-send) |
 
 **Sandbox**:
+
 - Enabled with auto-allow
 - Network restricted to: GitHub, npm, PyPI, Docker Hub, Stack Overflow, MDN, docs sites
 - Docker excluded (incompatible)
 
 **Feature flags**:
+
 - `alwaysThinkingEnabled: true`
 - `teammateMode: "auto"`
 - `CLAUDE_CODE_EXPERIMENTAL_AGENT_TEAMS: "1"`
@@ -261,6 +270,7 @@ Reads tool input JSON from stdin: `jq -r '.tool_input.file_path // empty'`
 **44 lines**. Global instructions symlinked to `~/.claude/CLAUDE.md`.
 
 Content:
+
 - Lists available tools (checkpoint, worktree, ralph)
 - Usage examples for each
 - Coding conventions:
@@ -279,6 +289,7 @@ Slash command definitions for Claude Code's `/command` system.
 #### `/checkpoint` (checkpoint.md)
 
 32 lines. Instructs Claude when to run `checkpoint`:
+
 - Before: deletions, large refactors, config changes, resets, unfamiliar commands, switching approaches
 - Between: major implementation steps, feature completion, optimization attempts
 - Not after: read-only ops, minor edits, normal commits
@@ -292,6 +303,7 @@ Slash command definitions for Claude Code's `/command` system.
 169 lines. Complex slash command for launching ralph with live monitoring.
 
 Steps:
+
 1. Detect repo layout (single vs multi)
 2. Count initial plan status
 3. Launch ralph in background (`run_in_background: true`)
@@ -309,6 +321,7 @@ Steps:
 **115 lines**. Sets up symlinks and PATH.
 
 Creates:
+
 - `~/.claude/settings.json` → `./settings.json`
 - `~/.claude/hooks/*.sh` → `./hooks/*.sh`
 - `~/.claude/scripts/*` → `./scripts/*`
@@ -325,30 +338,31 @@ Adds `~/.claude/scripts` to PATH via `.zshrc` or `.bashrc`.
 
 These can be migrated directly to noslop as Rust code:
 
-| Component | Lines | Migration Notes |
-|-----------|-------|-----------------|
-| `checkpoint` | 56 | Use git2 crate. Multi-repo detection reusable. |
-| `worktree` | 223 | Use git2 crate for worktree ops. Same interface. |
-| `_lib.sh` (most) | ~60 | `detect_repos`, `is_clean`, `count_tasks` translate to Rust |
-| `count_tasks` | ~20 | Regex-based task counting, trivial in Rust |
+| Component        | Lines | Migration Notes                                             |
+| ---------------- | ----- | ----------------------------------------------------------- |
+| `checkpoint`     | 56    | Use git2 crate. Multi-repo detection reusable.              |
+| `worktree`       | 223   | Use git2 crate for worktree ops. Same interface.            |
+| `_lib.sh` (most) | ~60   | `detect_repos`, `is_clean`, `count_tasks` translate to Rust |
+| `count_tasks`    | ~20   | Regex-based task counting, trivial in Rust                  |
 
 ### Agent-Specific Components (Claude)
 
 These define what `noslop init claude` must generate:
 
-| Component | Purpose | Migration |
-|-----------|---------|-----------|
-| `settings.json` | Claude Code config | Generate on init |
-| `CLAUDE.global.md` | Global instructions | Generate on init |
-| `hooks/*.sh` | PreToolUse/PostToolUse | Generate on init |
-| Slash commands | /checkpoint, /worktree, /ralph | Generate on init |
-| `ralph` invocation | `claude -p` with flags | AgentRuntime trait impl |
+| Component          | Purpose                        | Migration               |
+| ------------------ | ------------------------------ | ----------------------- |
+| `settings.json`    | Claude Code config             | Generate on init        |
+| `CLAUDE.global.md` | Global instructions            | Generate on init        |
+| `hooks/*.sh`       | PreToolUse/PostToolUse         | Generate on init        |
+| Slash commands     | /checkpoint, /worktree, /ralph | Generate on init        |
+| `ralph` invocation | `claude -p` with flags         | AgentRuntime trait impl |
 
 ### Iteration Loop (ralph) — Hybrid
 
 The ralph script has both agent-agnostic and agent-specific parts:
 
 **Agent-agnostic** (port to core noslop):
+
 - Iteration loop structure
 - Plan file parsing (MD + JSON)
 - Task counting
@@ -359,6 +373,7 @@ The ralph script has both agent-agnostic and agent-specific parts:
 - Worktree integration
 
 **Agent-specific** (AgentRuntime trait):
+
 - Invocation command: `claude -p "$PROMPT" --output-format text --permission-mode bypassPermissions`
 - Output parsing (completion tag, status line)
 - Tool references (TeamCreate)
@@ -404,6 +419,7 @@ The `ralph-research-findings.md` (82KB) documents:
 3. **Competitor architectures**: Aider (architect/editor), SWE-agent, OpenHands, Cursor, Devin, SICA
 
 Key recommendations for ralph migration:
+
 - Add initializer phase (first iteration gets setup-focused prompt)
 - Create structured progress file (not just git history)
 - Prefer JSON plans over markdown
@@ -415,60 +431,72 @@ Key recommendations for ralph migration:
 ## Dependencies
 
 ### Shell Requirements
+
 - bash with `set -euo pipefail`
 - jq (for hook input parsing)
 - git (for all operations)
 
 ### Formatters (optional, for auto-format hook)
+
 - ruff (Python)
 - npx prettier (JS/TS/etc)
 - rustfmt (Rust)
 
 ### Claude Code Requirements
+
 - claude CLI in PATH
 - `~/.claude/` directory structure
 - Settings.json hook support
 
-## Extension Points for Codex
+## What Transfers to Review Tool
 
-To support Codex, noslop would need:
+These setup concepts carry over to noslop's review architecture, reframed for code review instead of code generation:
 
-1. **AgentConfig** (what `noslop init codex` generates):
-   - Codex-specific config files
-   - Different global instructions format
-   - Different hook mechanism (if any)
+| Setup Concept                        | Review Tool Role                                              | Notes                                                                                                                                                                                            |
+| ------------------------------------ | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **AgentRuntime concept**             | Stays — powers `AgentAnalyzer` for LLM-based review inference | Same trait shape: invoke agent, parse output. Different prompts (review instead of generation).                                                                                                  |
+| **Agent CLI invocation patterns**    | Same mechanism for calling Claude/Codex/etc.                  | `claude -p` with review prompts instead of generation prompts. Flags, output parsing, permission handling all transfer.                                                                          |
+| **Settings/hooks/config generation** | `noslop init <agent>` still generates agent-specific config   | Same install.sh pattern: settings.json, CLAUDE.md, hooks. Content changes but mechanism is identical.                                                                                            |
+| **Ralph loop concept**               | Becomes the `ReviewPipeline` orchestrator                     | Ralph iterates over plan tasks; `ReviewPipeline` iterates over analyzers. Same shape: ordered iteration, context accumulation, result aggregation.                                               |
+| **Context generation**               | Analyzers receive prior findings as context                   | Ralph's `generate_context()` builds per-iteration context from git history. Pipeline builds per-analyzer context from prior findings. Same principle: each step is informed by what came before. |
+| **Research findings**                | Applicable to review prompts                                  | Prompt caching, structured output, cost tracking (`max_budget_usd`), SDK `query()` — all apply to LLM review inference. Competitor analysis (Aider, SWE-agent) informs review prompt design.     |
+| **Auto-format hook**                 | Becomes a built-in `FormattingAnalyzer` or script analyzer    | Instead of formatting after edits, detects formatting issues in diffs before push.                                                                                                               |
+| **Branch protection hook**           | Policy enforcement in review pipeline                         | Could become a built-in analyzer that checks branch naming, protected paths, etc.                                                                                                                |
 
-2. **AgentRuntime** (how `noslop run` invokes Codex):
-   - Different CLI: `codex` instead of `claude`
-   - Different flags and input format
-   - Different output parsing
+## What Drops
 
-3. **Shared behaviors** (in noslop core):
-   - Plan file parsing (same MD/JSON format)
-   - Task counting (same algorithm)
-   - Stuck detection (same thresholds)
-   - Checkpoint/worktree (same git operations)
-   - Progress tracking (same file format)
+These setup concepts do not transfer to the review tool:
+
+| Setup Concept                                       | Why It Drops                                                                                                         |
+| --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| **Plan file parsing** (MD + JSON task formats)      | No plans in review — the pipeline operates on diffs, not task lists                                                  |
+| **Stuck detection** (3/5 iteration thresholds)      | Not applicable — analyzers either produce findings or they don't; there is no "stuck" state                          |
+| **Code generation prompts**                         | Review prompts replace them — the LLM reads code, not writes it                                                      |
+| **Checkpoint as primary feature**                   | Remains a utility script in PATH, but not a noslop command — review does not generate code that needs safety commits |
+| **Worktree for parallel coding**                    | Not needed for review — review runs in the current worktree against the current diff                                 |
+| **Multi-repo mode** (`detect_repos`)                | Already dropped in earlier planning                                                                                  |
+| **count_tasks / git_activity**                      | Plan-specific utilities with no review equivalent                                                                    |
+| **Slash commands** (/checkpoint, /worktree, /ralph) | Claude Code specific; not part of the review tool itself                                                             |
+| **Progress file management**                        | No long-running iterations to track — pipeline runs once and produces findings                                       |
 
 ## Summary
 
-The setup repo is a Claude Code configuration toolkit with:
+The setup repo is a Claude Code configuration toolkit. For the review tool direction, it informs the **agent integration layer** — how noslop invokes LLMs for review inference and how `noslop init <agent>` generates agent-specific configuration.
 
-| Category | Agent-Agnostic | Agent-Specific |
-|----------|----------------|----------------|
-| Git workflow | checkpoint, worktree | — |
-| Plan parsing | count_tasks, MD/JSON formats | — |
-| Loop structure | Iteration, stuck detection | — |
-| Invocation | — | `claude -p`, flags, output parsing |
-| Configuration | — | settings.json, CLAUDE.md, hooks |
-| Commands | — | /checkpoint, /worktree, /ralph |
-| Installation | Script structure | ~/.claude/ paths |
+| Category           | Transfers to Review Tool                                | Drops                                                |
+| ------------------ | ------------------------------------------------------- | ---------------------------------------------------- |
+| Agent invocation   | `AgentRuntime` trait, CLI patterns, output parsing      | —                                                    |
+| Configuration      | `noslop init <agent>`, settings/hooks/config generation | —                                                    |
+| Loop/orchestration | Pipeline orchestrator pattern (from ralph)              | Plan parsing, stuck detection, progress files        |
+| Git workflow       | checkpoint/worktree remain as PATH utilities            | Not noslop commands; not part of review              |
+| Prompts            | Prompt structure, caching, cost tracking                | Code generation prompts (replaced by review prompts) |
+| Research           | Competitor patterns, SDK integration, prompt design     | —                                                    |
+| Slash commands     | —                                                       | Claude Code specific, not part of review tool        |
 
-The migration strategy:
-1. Port checkpoint and worktree to Rust as `noslop checkpoint` and `noslop worktree`
-2. Port the iteration loop structure to `noslop run`
-3. Define `AgentConfig` trait for config generation
-4. Define `AgentRuntime` trait for invocation
-5. Implement Claude adapter (generates all Claude-specific files)
-6. Implement Codex adapter (generates Codex-specific equivalents)
-7. Make `noslop init [agent]` dispatch to the appropriate adapter
+The review tool strategy for setup's contributions:
+
+1. Define `AgentRuntime` trait for LLM review inference (from ralph's invocation pattern)
+2. Define `AgentConfig` trait for config generation (from install.sh/settings.json pattern)
+3. Implement Claude adapter for `noslop init claude` (generates settings.json, CLAUDE.md, hooks)
+4. Build `ReviewPipeline` orchestrator using ralph's iteration-with-context pattern
+5. Keep checkpoint and worktree as standalone PATH utilities (not noslop subcommands)

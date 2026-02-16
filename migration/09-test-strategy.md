@@ -1,68 +1,210 @@
 # Test Strategy
 
-Comprehensive test plan for all new modules introduced by the setup migration. Every test follows noslop's existing patterns exactly: inline `#[cfg(test)]` unit tests in service modules, `mockall::automock`-annotated traits, `test-case` for parameterized tests, `proptest` for property-based tests, `TempGitRepo`/`tempfile::TempDir` for git operations, `assert_cmd` for CLI integration tests, and builder fixtures in `tests/common/`.
+Comprehensive test plan for all new modules introduced by the review pipeline architecture. Every test follows noslop's existing patterns exactly: inline `#[cfg(test)]` unit tests in source modules, `mockall::automock`-annotated traits, `test-case` for parameterized tests, `proptest` for property-based tests, `TempGitRepo`/`tempfile::TempDir` for git operations, `assert_cmd` for CLI integration tests, and builder fixtures in `tests/common/`.
 
-## Test Infrastructure Extensions
+## Test Infrastructure
 
-### New Fixtures (`tests/common/fixtures.rs`)
+### Existing Patterns
+
+noslop's test infrastructure is already established:
+
+| Tool                                                      | Usage                                                  |
+| --------------------------------------------------------- | ------------------------------------------------------ |
+| `#[cfg(test)] mod tests`                                  | Inline unit tests in every source module               |
+| `mockall::automock`                                       | Auto-generated mocks via trait annotation              |
+| `test-case`                                               | Parameterized tests with `#[test_case(...)]`           |
+| `proptest`                                                | Property-based testing (used for matcher tests)        |
+| `TempGitRepo`                                             | Temporary git repos for adapter/integration tests      |
+| `assert_cmd`                                              | CLI integration tests via `Command::cargo_bin`         |
+| `tempfile::TempDir`                                       | Isolated temp directories for file I/O tests           |
+| `CheckBuilder`/`AckBuilder`                               | Builder-pattern fixtures in `tests/common/fixtures.rs` |
+| `MockCheckRepository`/`MockAckStore`/`MockVersionControl` | Manual mocks in `tests/common/mocks.rs`                |
+
+### New Test Fixtures (`tests/common/fixtures.rs`)
 
 Add builders alongside the existing `CheckBuilder` and `AckBuilder`:
 
 ```rust
-/// Builder for creating test Plan instances
-pub struct PlanBuilder {
-    format: PlanFormat,
-    path: PathBuf,
-    tasks: Vec<Task>,
-    raw_content: String,
+/// Builder for creating test Finding instances
+pub struct FindingBuilder {
+    severity: Severity,
+    file: String,
+    line: Option<u32>,
+    message: String,
+    suggestion: Option<String>,
+    source: String,
 }
 
-impl PlanBuilder {
-    pub fn markdown() -> Self { /* default 3 tasks, 1 complete */ }
-    pub fn json() -> Self { /* default 2 tasks, 0 complete */ }
-    pub fn all_complete(mut self) -> Self { /* mark all tasks complete */ }
-    pub fn add_task(mut self, desc: &str, status: TaskStatus) -> Self { /* append task */ }
-    pub fn build(self) -> Plan { /* construct Plan */ }
+impl FindingBuilder {
+    pub fn new() -> Self {
+        Self {
+            severity: Severity::Warning,
+            file: "src/lib.rs".to_string(),
+            line: Some(10),
+            message: "Test finding".to_string(),
+            suggestion: None,
+            source: "test".to_string(),
+        }
+    }
+
+    pub fn severity(mut self, severity: Severity) -> Self {
+        self.severity = severity;
+        self
+    }
+
+    pub fn file(mut self, file: &str) -> Self {
+        self.file = file.to_string();
+        self
+    }
+
+    pub fn line(mut self, line: u32) -> Self {
+        self.line = Some(line);
+        self
+    }
+
+    pub fn message(mut self, message: &str) -> Self {
+        self.message = message.to_string();
+        self
+    }
+
+    pub fn suggestion(mut self, suggestion: &str) -> Self {
+        self.suggestion = Some(suggestion.to_string());
+        self
+    }
+
+    pub fn source(mut self, source: &str) -> Self {
+        self.source = source.to_string();
+        self
+    }
+
+    pub fn build(self) -> Finding {
+        Finding {
+            severity: self.severity,
+            file: self.file,
+            line: self.line,
+            message: self.message,
+            suggestion: self.suggestion,
+            source: self.source,
+        }
+    }
 }
 
-/// Builder for creating test IterationRecord instances
-pub struct IterationRecordBuilder {
-    iteration: u32,
-    tasks_before: usize,
-    tasks_after: usize,
-    lines_changed: u32,
-    task_completed: bool,
+impl Default for FindingBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
-impl IterationRecordBuilder {
-    pub fn new(iteration: u32) -> Self { /* defaults: no progress */ }
-    pub fn with_progress(mut self, before: usize, after: usize) -> Self { /* set counts */ }
-    pub fn with_lines_changed(mut self, n: u32) -> Self { /* set churn */ }
-    pub fn build(self) -> IterationRecord { /* construct record */ }
+/// Builder for creating test ReviewContext instances
+pub struct ReviewContextBuilder {
+    diff: String,
+    changed_files: Vec<String>,
+    repo_root: PathBuf,
+    commit_range: Option<String>,
 }
 
-/// Builder for creating test ProgressFile instances
-pub struct ProgressFileBuilder { /* ... */ }
+impl ReviewContextBuilder {
+    pub fn new() -> Self {
+        Self {
+            diff: "+fn main() {}".to_string(),
+            changed_files: vec!["src/main.rs".to_string()],
+            repo_root: PathBuf::from("/tmp/test"),
+            commit_range: None,
+        }
+    }
 
-/// Builder for creating test FailureLog instances
-pub struct FailureLogBuilder { /* ... */ }
+    pub fn diff(mut self, diff: &str) -> Self {
+        self.diff = diff.to_string();
+        self
+    }
 
-/// Builder for creating test RunConfig instances
-pub struct RunConfigBuilder { /* ... */ }
+    pub fn changed_files(mut self, files: Vec<String>) -> Self {
+        self.changed_files = files;
+        self
+    }
+
+    pub fn repo_root(mut self, root: PathBuf) -> Self {
+        self.repo_root = root;
+        self
+    }
+
+    pub fn commit_range(mut self, range: &str) -> Self {
+        self.commit_range = Some(range.to_string());
+        self
+    }
+
+    pub fn build(self) -> ReviewContext {
+        ReviewContext {
+            diff: self.diff,
+            changed_files: self.changed_files,
+            repo_root: self.repo_root,
+            commit_range: self.commit_range,
+        }
+    }
+}
+
+impl Default for ReviewContextBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 /// Builder for creating test InvocationResult instances
-pub struct InvocationResultBuilder { /* ... */ }
+pub struct InvocationResultBuilder {
+    output: String,
+    exit_code: i32,
+    duration: std::time::Duration,
+}
+
+impl InvocationResultBuilder {
+    pub fn new() -> Self {
+        Self {
+            output: "[]".to_string(),
+            exit_code: 0,
+            duration: std::time::Duration::from_secs(1),
+        }
+    }
+
+    pub fn output(mut self, output: &str) -> Self {
+        self.output = output.to_string();
+        self
+    }
+
+    pub fn exit_code(mut self, code: i32) -> Self {
+        self.exit_code = code;
+        self
+    }
+
+    pub fn duration_secs(mut self, secs: u64) -> Self {
+        self.duration = std::time::Duration::from_secs(secs);
+        self
+    }
+
+    pub fn build(self) -> InvocationResult {
+        InvocationResult {
+            output: self.output,
+            exit_code: self.exit_code,
+            duration: self.duration,
+        }
+    }
+}
+
+impl Default for InvocationResultBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 ```
 
 ### Extended `TempGitRepo` (`tests/common/git_repo.rs`)
 
-Add methods to support checkpoint and worktree testing:
+Add methods to support checkpoint and review pipeline testing:
 
 ```rust
 impl TempGitRepo {
     // --- existing methods: new(), path(), write_file(), stage(), commit(), git() ---
 
-    /// Stage all files and create initial commit (required before worktree ops)
+    /// Stage all files and create initial commit (required before diff operations)
     pub fn init_with_commit(&self) {
         self.write_file("README.md", "# test");
         self.stage("README.md");
@@ -76,94 +218,1997 @@ impl TempGitRepo {
     }
 
     /// Get the HEAD short SHA
-    pub fn head_sha(&self) -> String { /* git rev-parse --short HEAD */ }
+    pub fn head_sha(&self) -> String {
+        let output = self.git(&["rev-parse", "--short", "HEAD"]);
+        String::from_utf8_lossy(&output.stdout).trim().to_string()
+    }
 
     /// Check if working tree is clean
-    pub fn is_clean(&self) -> bool { /* git status --porcelain is empty */ }
+    pub fn is_clean(&self) -> bool {
+        let output = self.git(&["status", "--porcelain"]);
+        String::from_utf8_lossy(&output.stdout).trim().is_empty()
+    }
 
     /// Count commits on current branch
-    pub fn commit_count(&self) -> usize { /* git rev-list --count HEAD */ }
+    pub fn commit_count(&self) -> usize {
+        let output = self.git(&["rev-list", "--count", "HEAD"]);
+        String::from_utf8_lossy(&output.stdout)
+            .trim()
+            .parse()
+            .unwrap_or(0)
+    }
 
     /// Create a branch from current HEAD
-    pub fn create_branch(&self, name: &str) { /* git branch <name> */ }
+    pub fn create_branch(&self, name: &str) {
+        self.git(&["branch", name]);
+    }
 
-    /// Get the worktree base dir path (for assertions)
-    pub fn worktree_base_dir(&self) -> PathBuf {
-        let name = self.path().file_name().unwrap().to_string_lossy();
-        self.path().parent().unwrap().join(format!("{name}-worktrees"))
+    /// Checkout a branch
+    pub fn checkout(&self, name: &str) {
+        self.git(&["checkout", name]);
     }
 }
 ```
 
 ### New Mock Implementations (`tests/common/mocks.rs`)
 
-Extend the existing manual mocks with new port trait implementations:
+Extend the existing manual mocks with `VersionControl` checkpoint and review pipeline methods. The `MockVersionControl` struct gains fields for the new trait methods:
 
 ```rust
-/// Mock implementation of PlanStore
-pub struct MockPlanStoreManual {
-    plan: RefCell<Plan>,
-}
-
-impl MockPlanStoreManual {
-    pub fn with_plan(plan: Plan) -> Self { /* ... */ }
-}
-
-impl PlanStore for MockPlanStoreManual {
-    fn load(&self, _path: &Path) -> anyhow::Result<Plan> { /* return clone */ }
-    fn save(&self, plan: &Plan) -> anyhow::Result<()> { /* update internal */ }
-    fn update_task_status(&self, _path: &Path, idx: usize, status: TaskStatus) -> anyhow::Result<()> { /* ... */ }
-}
-
-/// Mock implementation of TestRunner
-pub struct MockTestRunnerManual {
-    result: TestResult,
-}
-
-impl MockTestRunnerManual {
-    pub fn passing() -> Self { /* result.passed = true */ }
-    pub fn failing(output: &str) -> Self { /* result.passed = false, output = provided */ }
-}
-
-impl TestRunner for MockTestRunnerManual {
-    fn run_tests(&self, _working_dir: &Path) -> anyhow::Result<TestResult> { /* return clone */ }
-    fn detect(_working_dir: &Path) -> Option<Box<dyn TestRunner>> { None }
+/// Extended mock VersionControl with checkpoint and review pipeline support
+pub struct MockVersionControl {
+    staged_files: Vec<String>,
+    repo_name: String,
+    repo_root: PathBuf,
+    // New fields for review pipeline methods
+    is_clean_result: bool,
+    commit_all_result: Option<String>,
+    diff_between_result: Vec<FileDiff>,
+    commits_between_result: Vec<CommitInfo>,
 }
 ```
 
-These manual mocks complement the `mockall::automock`-generated mocks (which are used when fine-grained expectation control is needed).
+Additionally, all new port traits are annotated with `#[cfg_attr(test, mockall::automock)]`, which auto-generates `MockAgentConfig`, `MockAgentRuntime`, and `MockReviewAnalyzer` for fine-grained expectation control in unit tests.
 
 ---
 
-## Module 1: Agent Port Traits (`src/core/ports/agent.rs`)
+## Unit Tests (Pure Logic, No I/O)
 
-### Unit Tests (inline `#[cfg(test)]`)
+### 1. Review Pipeline Orchestrator Tests
 
-Located in `src/core/ports/agent.rs` under `#[cfg(test)] mod tests`.
+**Location**: `src/core/services/pipeline.rs` under `#[cfg(test)] mod tests`
 
-| Test Function                               | What It Asserts                                                                                              |
-| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `test_agent_type_from_str_claude`           | `"claude".parse::<AgentType>()` returns `Ok(AgentType::Claude)`                                              |
-| `test_agent_type_from_str_claude_code`      | `"claude-code".parse::<AgentType>()` returns `Ok(AgentType::Claude)`                                         |
-| `test_agent_type_from_str_codex`            | `"codex".parse::<AgentType>()` returns `Ok(AgentType::Codex)`                                                |
-| `test_agent_type_from_str_openai`           | `"openai".parse::<AgentType>()` returns `Ok(AgentType::Codex)`                                               |
-| `test_agent_type_from_str_case_insensitive` | `"CLAUDE".parse::<AgentType>()` returns `Ok(AgentType::Claude)`                                              |
-| `test_agent_type_from_str_unknown_errors`   | `"gpt".parse::<AgentType>()` returns `Err` containing "Unknown agent type"                                   |
-| `test_agent_type_display_claude`            | `AgentType::Claude.to_string()` is `"claude"`                                                                |
-| `test_agent_type_display_codex`             | `AgentType::Codex.to_string()` is `"codex"`                                                                  |
-| `test_agent_type_command_name`              | `AgentType::Claude.command_name()` is `"claude"`, `AgentType::Codex.command_name()` is `"codex"`             |
-| `test_agent_type_display_name`              | `AgentType::Claude.display_name()` is `"Claude Code"`, `AgentType::Codex.display_name()` is `"Codex CLI"`    |
-| `test_invocation_config_default`            | `InvocationConfig::default()` has empty prompt, `"."` working_dir, `None` timeout, `true` bypass_permissions |
-| `test_agent_config_bundle_default`          | `AgentConfigBundle::default()` has `None` global_instructions, `None` settings, empty hooks and commands     |
-
-### Parameterized Tests (`tests/unit/agent_type_test.rs`)
-
-Uses `test-case` for exhaustive `FromStr` coverage:
+The `ReviewPipeline` orchestrator runs analyzers in order, passing prior findings to each subsequent analyzer. Tests use `MockReviewAnalyzer` (auto-generated by `mockall`).
 
 ```rust
-use noslop::core::ports::AgentType;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockall::predicate::*;
+
+    fn mock_analyzer(name: &str, findings: Vec<Finding>) -> MockReviewAnalyzer {
+        let mut mock = MockReviewAnalyzer::new();
+        let name_owned = name.to_string();
+        mock.expect_name().return_const(name_owned);
+        mock.expect_required_context().returning(|| vec![ContextKind::Diff]);
+        mock.expect_analyze()
+            .returning(move |_ctx, _prior| Ok(findings.clone()));
+        mock
+    }
+
+    #[test]
+    fn pipeline_runs_analyzers_in_order() {
+        let a1 = mock_analyzer("conventions", vec![
+            FindingBuilder::new().source("conventions").message("unused import").build(),
+        ]);
+        let a2 = mock_analyzer("agent:security", vec![
+            FindingBuilder::new().source("agent:security").message("sql injection").build(),
+        ]);
+
+        let pipeline = ReviewPipeline::new(vec![Box::new(a1), Box::new(a2)]);
+        let ctx = ReviewContextBuilder::new().build();
+        let findings = pipeline.run(&ctx).unwrap();
+
+        assert_eq!(findings.len(), 2);
+        assert_eq!(findings[0].source, "conventions");
+        assert_eq!(findings[1].source, "agent:security");
+    }
+
+    #[test]
+    fn pipeline_passes_prior_findings_to_later_analyzers() {
+        let a1 = mock_analyzer("conventions", vec![
+            FindingBuilder::new().source("conventions").build(),
+        ]);
+
+        let mut a2 = MockReviewAnalyzer::new();
+        a2.expect_name().return_const("agent:security".to_string());
+        a2.expect_required_context().returning(|| vec![ContextKind::Diff]);
+        a2.expect_analyze()
+            .withf(|_ctx, prior| prior.len() == 1 && prior[0].source == "conventions")
+            .returning(|_ctx, _prior| Ok(vec![]));
+
+        let pipeline = ReviewPipeline::new(vec![Box::new(a1), Box::new(a2)]);
+        let ctx = ReviewContextBuilder::new().build();
+        pipeline.run(&ctx).unwrap();
+    }
+
+    #[test]
+    fn pipeline_empty_analyzers_returns_empty_findings() {
+        let pipeline = ReviewPipeline::new(vec![]);
+        let ctx = ReviewContextBuilder::new().build();
+        let findings = pipeline.run(&ctx).unwrap();
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn pipeline_continues_after_analyzer_error() {
+        let mut a1 = MockReviewAnalyzer::new();
+        a1.expect_name().return_const("failing".to_string());
+        a1.expect_required_context().returning(|| vec![]);
+        a1.expect_analyze()
+            .returning(|_ctx, _prior| Err(anyhow::anyhow!("analyzer crashed")));
+
+        let a2 = mock_analyzer("working", vec![
+            FindingBuilder::new().source("working").build(),
+        ]);
+
+        let pipeline = ReviewPipeline::new(vec![Box::new(a1), Box::new(a2)]);
+        let ctx = ReviewContextBuilder::new().build();
+        let findings = pipeline.run(&ctx).unwrap();
+
+        // Pipeline should continue past the failed analyzer
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].source, "working");
+    }
+
+    #[test]
+    fn pipeline_accumulates_findings_across_analyzers() {
+        let a1 = mock_analyzer("conventions", vec![
+            FindingBuilder::new().source("conventions").message("a").build(),
+            FindingBuilder::new().source("conventions").message("b").build(),
+        ]);
+        let a2 = mock_analyzer("formatting", vec![
+            FindingBuilder::new().source("formatting").message("c").build(),
+        ]);
+        let a3 = mock_analyzer("agent:quality", vec![
+            FindingBuilder::new().source("agent:quality").message("d").build(),
+        ]);
+
+        let pipeline = ReviewPipeline::new(vec![
+            Box::new(a1), Box::new(a2), Box::new(a3),
+        ]);
+        let ctx = ReviewContextBuilder::new().build();
+        let findings = pipeline.run(&ctx).unwrap();
+        assert_eq!(findings.len(), 4);
+    }
+}
+```
+
+| Test                                                | What It Asserts                                                       |
+| --------------------------------------------------- | --------------------------------------------------------------------- |
+| `pipeline_runs_analyzers_in_order`                  | Findings from earlier analyzers appear first in the result            |
+| `pipeline_passes_prior_findings_to_later_analyzers` | The second analyzer's `analyze()` receives findings from the first    |
+| `pipeline_empty_analyzers_returns_empty_findings`   | Pipeline with no analyzers returns `Ok(vec![])`                       |
+| `pipeline_continues_after_analyzer_error`           | A failing analyzer does not prevent subsequent analyzers from running |
+| `pipeline_accumulates_findings_across_analyzers`    | Findings from all three tiers (static, computed, agent) are collected |
+
+### 2. ConventionAnalyzer Tests
+
+**Location**: `src/adapters/analyzer/convention.rs` under `#[cfg(test)] mod tests`
+
+The `ConventionAnalyzer` wraps existing check logic from `CheckRepository` and runs it against diff context. Tests verify that convention checks produce the correct findings.
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn convention_analyzer_produces_finding_for_matching_check() {
+        let checks = vec![
+            CheckBuilder::new()
+                .id("NOS-1")
+                .target("src/auth.rs")
+                .message("Verify auth logic")
+                .severity(Severity::Block)
+                .build(),
+        ];
+
+        let analyzer = ConventionAnalyzer::new(checks);
+        let ctx = ReviewContextBuilder::new()
+            .changed_files(vec!["src/auth.rs".to_string()])
+            .build();
+
+        let findings = analyzer.analyze(&ctx, &[]).unwrap();
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].message, "Verify auth logic");
+        assert_eq!(findings[0].source, "conventions");
+    }
+
+    #[test]
+    fn convention_analyzer_no_findings_for_unmatched_files() {
+        let checks = vec![
+            CheckBuilder::new()
+                .target("src/auth.rs")
+                .build(),
+        ];
+
+        let analyzer = ConventionAnalyzer::new(checks);
+        let ctx = ReviewContextBuilder::new()
+            .changed_files(vec!["src/main.rs".to_string()])
+            .build();
+
+        let findings = analyzer.analyze(&ctx, &[]).unwrap();
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn convention_analyzer_glob_pattern_matching() {
+        let checks = vec![
+            CheckBuilder::new()
+                .target("*.rs")
+                .message("Review Rust files")
+                .build(),
+        ];
+
+        let analyzer = ConventionAnalyzer::new(checks);
+        let ctx = ReviewContextBuilder::new()
+            .changed_files(vec![
+                "src/main.rs".to_string(),
+                "src/lib.rs".to_string(),
+                "README.md".to_string(),
+            ])
+            .build();
+
+        let findings = analyzer.analyze(&ctx, &[]).unwrap();
+        assert_eq!(findings.len(), 2); // Only .rs files match
+    }
+
+    #[test]
+    fn convention_analyzer_maps_severity_correctly() {
+        let checks = vec![
+            CheckBuilder::new()
+                .target("*.rs")
+                .severity(Severity::Warn)
+                .build(),
+        ];
+
+        let analyzer = ConventionAnalyzer::new(checks);
+        let ctx = ReviewContextBuilder::new().build();
+        let findings = analyzer.analyze(&ctx, &[]).unwrap();
+
+        assert_eq!(findings[0].severity, Severity::Warning);
+    }
+}
+```
+
+### 3. CoChangeAnalyzer Tests
+
+**Location**: `src/adapters/analyzer/co_change.rs` under `#[cfg(test)] mod tests`
+
+The `CoChangeAnalyzer` detects files that historically change together but are missing from the current diff. Tests use fixture git histories built with `TempGitRepo`.
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a co-change correlation map from fixture data
+    fn fixture_correlations() -> HashMap<String, Vec<(String, f64)>> {
+        let mut map = HashMap::new();
+        map.insert(
+            "src/core/ports/analyzer.rs".to_string(),
+            vec![
+                ("src/core/services/pipeline.rs".to_string(), 0.85),
+                ("src/adapters/analyzer/convention.rs".to_string(), 0.72),
+            ],
+        );
+        map.insert(
+            "src/cli/app.rs".to_string(),
+            vec![
+                ("src/cli/commands/mod.rs".to_string(), 0.90),
+            ],
+        );
+        map
+    }
+
+    #[test]
+    fn co_change_flags_missing_correlated_file() {
+        let analyzer = CoChangeAnalyzer::with_correlations(
+            fixture_correlations(),
+            CoChangeConfig { min_correlation: 0.7, lookback: 500, min_commits: 10 },
+        );
+
+        let ctx = ReviewContextBuilder::new()
+            .changed_files(vec!["src/core/ports/analyzer.rs".to_string()])
+            .build();
+
+        let findings = analyzer.analyze(&ctx, &[]).unwrap();
+
+        // Should flag pipeline.rs and convention.rs as missing
+        assert_eq!(findings.len(), 2);
+        assert!(findings.iter().any(|f| f.message.contains("pipeline.rs")));
+        assert!(findings.iter().any(|f| f.message.contains("convention.rs")));
+    }
+
+    #[test]
+    fn co_change_no_findings_when_all_correlated_files_present() {
+        let analyzer = CoChangeAnalyzer::with_correlations(
+            fixture_correlations(),
+            CoChangeConfig::default(),
+        );
+
+        let ctx = ReviewContextBuilder::new()
+            .changed_files(vec![
+                "src/core/ports/analyzer.rs".to_string(),
+                "src/core/services/pipeline.rs".to_string(),
+                "src/adapters/analyzer/convention.rs".to_string(),
+            ])
+            .build();
+
+        let findings = analyzer.analyze(&ctx, &[]).unwrap();
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn co_change_respects_min_correlation_threshold() {
+        let analyzer = CoChangeAnalyzer::with_correlations(
+            fixture_correlations(),
+            CoChangeConfig { min_correlation: 0.80, lookback: 500, min_commits: 10 },
+        );
+
+        let ctx = ReviewContextBuilder::new()
+            .changed_files(vec!["src/core/ports/analyzer.rs".to_string()])
+            .build();
+
+        let findings = analyzer.analyze(&ctx, &[]).unwrap();
+
+        // Only pipeline.rs (0.85) should be flagged, not convention.rs (0.72)
+        assert_eq!(findings.len(), 1);
+        assert!(findings[0].message.contains("pipeline.rs"));
+    }
+
+    #[test]
+    fn co_change_no_findings_for_uncorrelated_file() {
+        let analyzer = CoChangeAnalyzer::with_correlations(
+            fixture_correlations(),
+            CoChangeConfig::default(),
+        );
+
+        let ctx = ReviewContextBuilder::new()
+            .changed_files(vec!["README.md".to_string()])
+            .build();
+
+        let findings = analyzer.analyze(&ctx, &[]).unwrap();
+        assert!(findings.is_empty());
+    }
+}
+```
+
+### 4. FormattingAnalyzer Tests
+
+**Location**: `src/adapters/analyzer/formatting.rs` under `#[cfg(test)] mod tests`
+
+The `FormattingAnalyzer` delegates to external formatters and flags files that would change.
+
+| Test                                              | What It Asserts                                                       |
+| ------------------------------------------------- | --------------------------------------------------------------------- |
+| `formatting_no_findings_when_no_tools_configured` | `FormattingAnalyzer` with empty `tools` list returns no findings      |
+| `formatting_flags_unformatted_rust_file`          | With `rustfmt` configured, unformatted `.rs` file produces a finding  |
+| `formatting_ignores_non_matching_extensions`      | `.py` file is not checked by `rustfmt` formatter                      |
+| `formatting_multiple_tools_each_checked`          | With both `rustfmt` and `prettier`, both produce independent findings |
+
+### 5. ScriptAnalyzer Tests
+
+**Location**: `src/adapters/analyzer/script.rs` under `#[cfg(test)] mod tests`
+
+The `ScriptAnalyzer` runs an external command and parses its stdout as JSON findings.
+
+| Test                                               | What It Asserts                                                     |
+| -------------------------------------------------- | ------------------------------------------------------------------- |
+| `script_analyzer_parses_json_findings_from_stdout` | Command outputting valid JSON array produces correct `Vec<Finding>` |
+| `script_analyzer_empty_output_returns_no_findings` | Command producing empty output returns empty findings               |
+| `script_analyzer_nonzero_exit_returns_error`       | Command exiting with code 1 returns `Err`                           |
+| `script_analyzer_passes_prior_findings_on_stdin`   | Prior findings are serialized to JSON and piped as stdin            |
+
+### 6. AgentAnalyzer Tests
+
+**Location**: `src/adapters/analyzer/agent.rs` under `#[cfg(test)] mod tests`
+
+The `AgentAnalyzer` wraps an `AgentRuntime` and implements `ReviewAnalyzer`. Tests use `MockAgentRuntime`.
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use mockall::predicate::*;
+
+    #[test]
+    fn agent_analyzer_builds_prompt_with_diff_and_prior_findings() {
+        let mut mock = MockAgentRuntime::new();
+        mock.expect_agent_type().return_const(AgentType::Claude);
+        mock.expect_invoke()
+            .withf(|config: &InvocationConfig| {
+                config.prompt.contains("+fn unsafe_thing()")
+                    && config.prompt.contains("unused import")
+                    && config.prompt.contains("security")
+            })
+            .returning(|_| Ok(InvocationResult {
+                output: "[]".to_string(),
+                exit_code: 0,
+                duration: std::time::Duration::from_secs(1),
+            }));
+        mock.expect_parse_output().returning(|_| ReviewOutput::default());
+
+        let analyzer = AgentAnalyzer::new(
+            Box::new(mock),
+            "security",
+            "Review for {focus} issues:\n\n{diff}\n\nPrior:\n{prior_findings}",
+        );
+
+        let ctx = ReviewContextBuilder::new()
+            .diff("+fn unsafe_thing() {}".to_string())
+            .build();
+
+        let prior = vec![
+            FindingBuilder::new().source("clippy").message("unused import").build(),
+        ];
+
+        analyzer.analyze(&ctx, &prior).unwrap();
+    }
+
+    #[test]
+    fn agent_analyzer_returns_parsed_findings() {
+        let mut mock = MockAgentRuntime::new();
+        mock.expect_agent_type().return_const(AgentType::Claude);
+        mock.expect_invoke().returning(|_| Ok(InvocationResult {
+            output: r#"[{"severity":"error","file":"src/db.rs","line":15,"message":"SQL injection","suggestion":"Use parameterized queries","source":"agent:security"}]"#.to_string(),
+            exit_code: 0,
+            duration: std::time::Duration::from_secs(5),
+        }));
+        mock.expect_parse_output().returning(|result| {
+            let findings: Vec<Finding> = serde_json::from_str(&result.output).unwrap_or_default();
+            ReviewOutput {
+                findings,
+                raw_output: result.output.clone(),
+                errors: vec![],
+            }
+        });
+
+        let analyzer = AgentAnalyzer::new(
+            Box::new(mock),
+            "security",
+            "{diff}",
+        );
+
+        let ctx = ReviewContextBuilder::new().build();
+        let findings = analyzer.analyze(&ctx, &[]).unwrap();
+
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].severity, Severity::Error);
+        assert_eq!(findings[0].file, "src/db.rs");
+        assert_eq!(findings[0].message, "SQL injection");
+    }
+
+    #[test]
+    fn agent_analyzer_empty_prior_findings_message() {
+        let mut mock = MockAgentRuntime::new();
+        mock.expect_agent_type().return_const(AgentType::Claude);
+        mock.expect_invoke()
+            .withf(|config: &InvocationConfig| {
+                config.prompt.contains("No prior findings from static analysis")
+            })
+            .returning(|_| Ok(InvocationResult {
+                output: "[]".to_string(),
+                exit_code: 0,
+                duration: std::time::Duration::from_secs(1),
+            }));
+        mock.expect_parse_output().returning(|_| ReviewOutput::default());
+
+        let analyzer = AgentAnalyzer::new(
+            Box::new(mock),
+            "quality",
+            "Prior: {prior_findings}",
+        );
+
+        let ctx = ReviewContextBuilder::new().build();
+        analyzer.analyze(&ctx, &[]).unwrap();
+    }
+
+    #[test]
+    fn agent_analyzer_name_includes_focus() {
+        let mut mock = MockAgentRuntime::new();
+        mock.expect_agent_type().return_const(AgentType::Claude);
+
+        let analyzer = AgentAnalyzer::new(Box::new(mock), "security", "");
+        assert_eq!(analyzer.name(), "agent:security");
+    }
+}
+```
+
+### 7. Finding Deduplication and Merging Tests
+
+**Location**: `src/core/services/finding_merge.rs` under `#[cfg(test)] mod tests`
+
+Findings from multiple analyzers may overlap. Deduplication ensures the same issue is not reported twice.
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dedup_removes_exact_duplicates() {
+        let findings = vec![
+            FindingBuilder::new().file("src/lib.rs").line(10).message("unused").source("clippy").build(),
+            FindingBuilder::new().file("src/lib.rs").line(10).message("unused").source("agent:quality").build(),
+        ];
+
+        let deduped = deduplicate_findings(findings);
+        assert_eq!(deduped.len(), 1);
+    }
+
+    #[test]
+    fn dedup_keeps_distinct_findings() {
+        let findings = vec![
+            FindingBuilder::new().file("src/lib.rs").line(10).message("unused import").build(),
+            FindingBuilder::new().file("src/lib.rs").line(20).message("missing error handling").build(),
+        ];
+
+        let deduped = deduplicate_findings(findings);
+        assert_eq!(deduped.len(), 2);
+    }
+
+    #[test]
+    fn dedup_prefers_higher_severity() {
+        let findings = vec![
+            FindingBuilder::new().file("src/auth.rs").line(42).message("timing attack").severity(Severity::Warning).build(),
+            FindingBuilder::new().file("src/auth.rs").line(42).message("timing attack").severity(Severity::Error).build(),
+        ];
+
+        let deduped = deduplicate_findings(findings);
+        assert_eq!(deduped.len(), 1);
+        assert_eq!(deduped[0].severity, Severity::Error);
+    }
+
+    #[test]
+    fn dedup_same_file_different_lines_kept() {
+        let findings = vec![
+            FindingBuilder::new().file("src/lib.rs").line(10).message("issue A").build(),
+            FindingBuilder::new().file("src/lib.rs").line(50).message("issue B").build(),
+        ];
+
+        let deduped = deduplicate_findings(findings);
+        assert_eq!(deduped.len(), 2);
+    }
+
+    #[test]
+    fn dedup_empty_input_returns_empty() {
+        let deduped = deduplicate_findings(vec![]);
+        assert!(deduped.is_empty());
+    }
+}
+```
+
+### 8. TOML Parser Tests for New Sections
+
+**Location**: `src/adapters/toml/parser.rs` under `#[cfg(test)] mod tests`
+
+These tests are already sketched in [08-config-design.md](./08-config-design.md). The full set verifies that all new config sections parse correctly alongside existing sections.
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_minimal_config() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(file.project.prefix, "NOS");
+        assert!(file.agent.is_none());
+        assert!(file.review.is_none());
+        assert!(file.checks.is_empty());
+    }
+
+    #[test]
+    fn parse_with_agent_section() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [agent]
+            type = "claude"
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(file.agent.unwrap().agent_type, "claude");
+    }
+
+    #[test]
+    fn parse_with_review_pipeline() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [review]
+            analyzers = ["conventions", "formatting", "co-change"]
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        let review = file.review.unwrap();
+        assert_eq!(review.analyzers.len(), 3);
+        assert_eq!(review.analyzers[0], "conventions");
+    }
+
+    #[test]
+    fn parse_with_co_change_config() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [review]
+            analyzers = ["co-change"]
+
+            [review.co-change]
+            min_correlation = 0.8
+            lookback = 1000
+            min_commits = 5
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        let cc = file.review.unwrap().co_change.unwrap();
+        assert!((cc.min_correlation - 0.8).abs() < f64::EPSILON);
+        assert_eq!(cc.lookback, 1000);
+        assert_eq!(cc.min_commits, 5);
+    }
+
+    #[test]
+    fn parse_with_agent_analyzer() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [agent]
+            type = "claude"
+
+            [review]
+            analyzers = ["agent:security"]
+
+            [review."agent:security"]
+            agent = "claude"
+            prompt_template = ".noslop/prompts/security.md"
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        let review = file.review.unwrap();
+        assert!(review.analyzer_configs.contains_key("agent:security"));
+    }
+
+    #[test]
+    fn parse_with_script_analyzer() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [review]
+            analyzers = ["custom:migrations"]
+
+            [review."custom:migrations"]
+            type = "script"
+            command = "python ./scripts/check-migrations.py"
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        let review = file.review.unwrap();
+        assert!(review.analyzer_configs.contains_key("custom:migrations"));
+    }
+
+    #[test]
+    fn parse_with_formatting_config() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [review]
+            analyzers = ["formatting"]
+
+            [review.formatting]
+            tools = ["rustfmt", "prettier"]
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        let fmt = file.review.unwrap().formatting.unwrap();
+        assert_eq!(fmt.tools, vec!["rustfmt", "prettier"]);
+    }
+
+    #[test]
+    fn parse_full_review_config() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [agent]
+            type = "claude"
+
+            [review]
+            analyzers = ["conventions", "formatting", "co-change", "agent:security", "custom:lint"]
+
+            [review.co-change]
+            min_correlation = 0.8
+            lookback = 1000
+            min_commits = 5
+
+            [review."agent:security"]
+            agent = "claude"
+            prompt_template = ".noslop/prompts/security.md"
+
+            [review."custom:lint"]
+            type = "script"
+            command = "eslint --format json ."
+
+            [review.formatting]
+            tools = ["rustfmt", "prettier"]
+
+            [[check]]
+            target = "*.rs"
+            message = "Check Rust files"
+            severity = "warn"
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+
+        assert!(file.agent.is_some());
+        let review = file.review.unwrap();
+        assert_eq!(review.analyzers.len(), 5);
+        assert!(review.co_change.is_some());
+        assert!(review.formatting.is_some());
+        assert!(review.analyzer_configs.contains_key("agent:security"));
+        assert!(review.analyzer_configs.contains_key("custom:lint"));
+        assert_eq!(file.checks.len(), 1);
+    }
+
+    #[test]
+    fn existing_config_without_new_sections_parses() {
+        let toml_str = r#"
+            [project]
+            prefix = "NOS"
+
+            [[check]]
+            id = "NOS-1"
+            target = "src/adapters/git/hooks.rs"
+            message = "Verify hook installation preserves permissions"
+            severity = "block"
+        "#;
+        let file: NoslopFile = toml::from_str(toml_str).unwrap();
+        assert_eq!(file.project.prefix, "NOS");
+        assert!(file.agent.is_none());
+        assert!(file.review.is_none());
+        assert_eq!(file.checks.len(), 1);
+    }
+
+    #[test]
+    fn agent_section_to_agent_type() {
+        let section = AgentSection { agent_type: "claude".to_string() };
+        assert_eq!(section.to_agent_type().unwrap().command_name(), "claude");
+    }
+
+    #[test]
+    fn agent_section_unknown_type_errors() {
+        let section = AgentSection { agent_type: "cursor".to_string() };
+        assert!(section.to_agent_type().is_err());
+    }
+
+    #[test]
+    fn co_change_config_defaults() {
+        let config = CoChangeConfig::default();
+        assert!((config.min_correlation - 0.7).abs() < f64::EPSILON);
+        assert_eq!(config.lookback, 500);
+        assert_eq!(config.min_commits, 10);
+    }
+
+    #[test]
+    fn review_section_default_analyzers() {
+        let section = ReviewSection::default();
+        assert_eq!(section.analyzers, vec!["conventions"]);
+    }
+}
+```
+
+### 9. AgentType Parsing Tests
+
+**Location**: `src/core/ports/agent.rs` under `#[cfg(test)] mod tests`
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn agent_type_from_str_claude() {
+        assert_eq!("claude".parse::<AgentType>().unwrap(), AgentType::Claude);
+    }
+
+    #[test]
+    fn agent_type_from_str_claude_code() {
+        assert_eq!("claude-code".parse::<AgentType>().unwrap(), AgentType::Claude);
+    }
+
+    #[test]
+    fn agent_type_from_str_codex() {
+        assert_eq!("codex".parse::<AgentType>().unwrap(), AgentType::Codex);
+    }
+
+    #[test]
+    fn agent_type_from_str_openai_alias() {
+        assert_eq!("openai".parse::<AgentType>().unwrap(), AgentType::Codex);
+    }
+
+    #[test]
+    fn agent_type_from_str_case_insensitive() {
+        assert_eq!("CLAUDE".parse::<AgentType>().unwrap(), AgentType::Claude);
+    }
+
+    #[test]
+    fn agent_type_from_str_unknown_errors() {
+        assert!("gpt".parse::<AgentType>().is_err());
+    }
+
+    #[test]
+    fn agent_type_display() {
+        assert_eq!(AgentType::Claude.to_string(), "claude");
+        assert_eq!(AgentType::Codex.to_string(), "codex");
+    }
+
+    #[test]
+    fn agent_type_command_name() {
+        assert_eq!(AgentType::Claude.command_name(), "claude");
+        assert_eq!(AgentType::Codex.command_name(), "codex");
+    }
+
+    #[test]
+    fn agent_type_display_name() {
+        assert_eq!(AgentType::Claude.display_name(), "Claude Code");
+        assert_eq!(AgentType::Codex.display_name(), "Codex CLI");
+    }
+
+    #[test]
+    fn invocation_config_default() {
+        let config = InvocationConfig::default();
+        assert!(config.prompt.is_empty());
+        assert_eq!(config.working_dir, PathBuf::from("."));
+        assert!(config.timeout_secs.is_none());
+        assert!(config.bypass_permissions);
+    }
+
+    #[test]
+    fn agent_config_bundle_default() {
+        let bundle = AgentConfigBundle::default();
+        assert!(bundle.global_instructions.is_none());
+        assert!(bundle.settings.is_none());
+        assert!(bundle.hooks.is_empty());
+        assert!(bundle.commands.is_empty());
+    }
+}
+```
+
+### 10. Validation Tests
+
+**Location**: `src/cli/commands/review.rs` or `src/adapters/toml/parser.rs`
+
+```rust
+#[test]
+fn validate_known_analyzer_names() {
+    let review = ReviewSection {
+        analyzers: vec![
+            "conventions".to_string(),
+            "formatting".to_string(),
+            "co-change".to_string(),
+        ],
+        ..Default::default()
+    };
+    assert!(validate_analyzers(&review).is_ok());
+}
+
+#[test]
+fn validate_unknown_analyzer_name_errors() {
+    let review = ReviewSection {
+        analyzers: vec!["nonexistent".to_string()],
+        ..Default::default()
+    };
+    assert!(validate_analyzers(&review).is_err());
+}
+
+#[test]
+fn validate_agent_prefix_accepted() {
+    let review = ReviewSection {
+        analyzers: vec!["agent:security".to_string()],
+        ..Default::default()
+    };
+    assert!(validate_analyzers(&review).is_ok());
+}
+
+#[test]
+fn validate_custom_prefix_accepted() {
+    let review = ReviewSection {
+        analyzers: vec!["custom:lint".to_string()],
+        ..Default::default()
+    };
+    assert!(validate_analyzers(&review).is_ok());
+}
+```
+
+---
+
+## Adapter Tests (Real I/O, Temp Dirs)
+
+### 1. Checkpoint Adapter Tests
+
+**Location**: `src/adapters/git/checkpoint.rs` under `#[cfg(test)] mod tests`
+
+Each test creates a `TempDir` with `git2::Repository::init`.
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use git2::{Repository, Signature};
+    use tempfile::TempDir;
+
+    fn setup_repo() -> (TempDir, Repository) {
+        let dir = TempDir::new().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+
+        // Create initial commit so HEAD exists
+        let mut index = repo.index().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+        let sig = Signature::now("test", "test@test.com").unwrap();
+        repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[]).unwrap();
+
+        (dir, repo)
+    }
+
+    #[test]
+    fn is_clean_on_fresh_repo() {
+        let (_dir, repo) = setup_repo();
+        assert!(is_clean(&repo).unwrap());
+    }
+
+    #[test]
+    fn is_clean_with_untracked_file() {
+        let (dir, repo) = setup_repo();
+        std::fs::write(dir.path().join("new.txt"), "content").unwrap();
+        assert!(!is_clean(&repo).unwrap());
+    }
+
+    #[test]
+    fn is_clean_with_staged_file() {
+        let (dir, repo) = setup_repo();
+        std::fs::write(dir.path().join("staged.txt"), "content").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("staged.txt")).unwrap();
+        index.write().unwrap();
+        assert!(!is_clean(&repo).unwrap());
+    }
+
+    #[test]
+    fn commit_all_stages_and_commits() {
+        let (dir, repo) = setup_repo();
+        std::fs::write(dir.path().join("file.txt"), "content").unwrap();
+
+        let result = commit_all(&repo, "test checkpoint").unwrap();
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().len(), 7); // short SHA length
+        assert!(is_clean(&repo).unwrap());
+    }
+
+    #[test]
+    fn commit_all_returns_none_on_clean_tree() {
+        let (_dir, repo) = setup_repo();
+        let result = commit_all(&repo, "nothing here").unwrap();
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn commit_all_handles_deleted_files() {
+        let (dir, repo) = setup_repo();
+
+        // Create and commit a file
+        std::fs::write(dir.path().join("to_delete.txt"), "content").unwrap();
+        commit_all(&repo, "add file").unwrap();
+
+        // Delete it
+        std::fs::remove_file(dir.path().join("to_delete.txt")).unwrap();
+
+        let result = commit_all(&repo, "delete file").unwrap();
+        assert!(result.is_some());
+        assert!(is_clean(&repo).unwrap());
+    }
+
+    #[test]
+    fn commit_all_message_in_commit() {
+        let (dir, repo) = setup_repo();
+        std::fs::write(dir.path().join("file.txt"), "content").unwrap();
+
+        commit_all(&repo, "my checkpoint message").unwrap();
+
+        let head = repo.head().unwrap().peel_to_commit().unwrap();
+        assert_eq!(head.message().unwrap(), "my checkpoint message");
+    }
+}
+```
+
+| Test                                    | What It Asserts                                         |
+| --------------------------------------- | ------------------------------------------------------- |
+| `is_clean_on_fresh_repo`                | Clean repo returns `true`                               |
+| `is_clean_with_untracked_file`          | Untracked file means not clean                          |
+| `is_clean_with_staged_file`             | Staged but uncommitted means not clean                  |
+| `commit_all_stages_and_commits`         | Returns `Some(sha)` with 7-char SHA, tree becomes clean |
+| `commit_all_returns_none_on_clean_tree` | Returns `None` when nothing to commit                   |
+| `commit_all_handles_deleted_files`      | Deletion is committed correctly                         |
+| `commit_all_message_in_commit`          | Commit message matches the argument                     |
+
+### 2. Git Diff Extraction Tests
+
+**Location**: `src/adapters/git/mod.rs` under `#[cfg(test)] mod review_vcs_tests`
+
+Tests for the `VersionControl` trait extensions (`diff_between`, `commits_between`, `file_at_revision`) against real `git2` repositories.
+
+```rust
+#[cfg(test)]
+mod review_vcs_tests {
+    use super::*;
+    use git2::{Repository, Signature};
+    use tempfile::TempDir;
+
+    fn setup_repo_with_branch() -> (TempDir, Repository) {
+        let dir = TempDir::new().unwrap();
+        let repo = Repository::init(dir.path()).unwrap();
+
+        // Create initial commit on main
+        std::fs::write(dir.path().join("README.md"), "# test").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("README.md")).unwrap();
+        index.write().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+        let sig = Signature::now("test", "test@test.com").unwrap();
+        let main_commit = repo.commit(
+            Some("HEAD"), &sig, &sig, "initial", &tree, &[]
+        ).unwrap();
+
+        // Create feature branch with an additional file
+        let head = repo.find_commit(main_commit).unwrap();
+        repo.branch("feature", &head, false).unwrap();
+        repo.set_head("refs/heads/feature").unwrap();
+        repo.checkout_head(Some(
+            git2::build::CheckoutBuilder::new().force()
+        )).unwrap();
+
+        std::fs::write(dir.path().join("new_file.rs"), "fn main() {}").unwrap();
+        let mut index = repo.index().unwrap();
+        index.add_path(Path::new("new_file.rs")).unwrap();
+        index.write().unwrap();
+        let tree_oid = index.write_tree().unwrap();
+        let tree = repo.find_tree(tree_oid).unwrap();
+        repo.commit(
+            Some("HEAD"), &sig, &sig, "add new file", &tree, &[&head]
+        ).unwrap();
+
+        (dir, repo)
+    }
+
+    #[test]
+    fn diff_between_shows_added_file() {
+        let (dir, _repo) = setup_repo_with_branch();
+        let vcs = GitVersionControl::new(dir.path());
+
+        let diffs = vcs.diff_between("refs/heads/master", "refs/heads/feature").unwrap();
+        assert_eq!(diffs.len(), 1);
+        assert_eq!(diffs[0].path, PathBuf::from("new_file.rs"));
+        assert_eq!(diffs[0].status, DiffStatus::Added);
+    }
+
+    #[test]
+    fn commits_between_lists_feature_commits() {
+        let (dir, _repo) = setup_repo_with_branch();
+        let vcs = GitVersionControl::new(dir.path());
+
+        let commits = vcs.commits_between("refs/heads/master", "refs/heads/feature").unwrap();
+        assert_eq!(commits.len(), 1);
+        assert_eq!(commits[0].summary, "add new file");
+    }
+
+    #[test]
+    fn file_at_revision_reads_content() {
+        let (dir, _repo) = setup_repo_with_branch();
+        let vcs = GitVersionControl::new(dir.path());
+
+        let content = vcs.file_at_revision(
+            Path::new("new_file.rs"), "refs/heads/feature"
+        ).unwrap();
+        assert_eq!(content, "fn main() {}");
+    }
+
+    #[test]
+    fn file_at_revision_returns_error_for_missing_file() {
+        let (dir, _repo) = setup_repo_with_branch();
+        let vcs = GitVersionControl::new(dir.path());
+
+        let result = vcs.file_at_revision(
+            Path::new("nonexistent.rs"), "refs/heads/feature"
+        );
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn recent_commits_returns_correct_count() {
+        let (dir, _repo) = setup_repo_with_branch();
+        let vcs = GitVersionControl::new(dir.path());
+
+        let commits = vcs.recent_commits(10).unwrap();
+        assert_eq!(commits.len(), 2); // initial + feature commit
+    }
+
+    #[test]
+    fn diff_stat_since_counts_changes() {
+        let (dir, _repo) = setup_repo_with_branch();
+        let vcs = GitVersionControl::new(dir.path());
+
+        let stat = vcs.diff_stat_since("refs/heads/master").unwrap();
+        assert_eq!(stat.files_changed, 1);
+        assert!(stat.insertions > 0);
+    }
+}
+```
+
+### 3. Review Session File I/O Tests
+
+**Location**: `tests/adapter/review_session_test.rs`
+
+Tests for reading and writing review session JSON files in `.noslop/reviews/`.
+
+```rust
+use tempfile::TempDir;
+use std::fs;
+
+#[test]
+fn write_and_read_review_session() {
+    let temp = TempDir::new().unwrap();
+    let reviews_dir = temp.path().join(".noslop/reviews");
+    fs::create_dir_all(&reviews_dir).unwrap();
+
+    let session = ReviewSession {
+        id: "review-abc123".to_string(),
+        target: ReviewTarget {
+            base: "main".to_string(),
+            head: "feature/x".to_string(),
+            base_commit: "a1b2c3d".to_string(),
+            head_commit: "e4f5g6h".to_string(),
+        },
+        started_at: "2026-02-16T10:00:00Z".to_string(),
+        completed_at: Some("2026-02-16T10:02:30Z".to_string()),
+        analyzers_run: vec!["conventions".to_string(), "agent:security".to_string()],
+        findings: vec![
+            FindingBuilder::new().source("conventions").message("unused import").build(),
+        ],
+        resolutions: HashMap::new(),
+    };
+
+    let path = reviews_dir.join("review-abc123.json");
+    let json = serde_json::to_string_pretty(&session).unwrap();
+    fs::write(&path, &json).unwrap();
+
+    let loaded: ReviewSession = serde_json::from_str(
+        &fs::read_to_string(&path).unwrap()
+    ).unwrap();
+
+    assert_eq!(loaded.id, "review-abc123");
+    assert_eq!(loaded.findings.len(), 1);
+    assert_eq!(loaded.analyzers_run.len(), 2);
+}
+
+#[test]
+fn list_review_sessions_finds_all_json_files() {
+    let temp = TempDir::new().unwrap();
+    let reviews_dir = temp.path().join(".noslop/reviews");
+    fs::create_dir_all(&reviews_dir).unwrap();
+
+    fs::write(reviews_dir.join("review-001.json"), "{}").unwrap();
+    fs::write(reviews_dir.join("review-002.json"), "{}").unwrap();
+    fs::write(reviews_dir.join("memory.json"), "{}").unwrap(); // Not a session
+
+    let sessions = list_review_sessions(&reviews_dir).unwrap();
+    assert_eq!(sessions.len(), 2); // Only review-*.json
+}
+```
+
+### 4. Agent Adapter Tests (Command Building, Output Parsing)
+
+**Location**: `tests/adapter/claude_adapter_test.rs` and `tests/adapter/codex_adapter_test.rs`
+
+These tests verify command construction and output parsing without invoking the real agent CLIs.
+
+```rust
+// Claude adapter tests
+use noslop::adapters::agent::{ClaudeConfig, ClaudeRuntime};
+use noslop::core::ports::agent::*;
+use std::path::Path;
+
+#[test]
+fn claude_config_generates_all_files() {
+    let config = ClaudeConfig::new();
+    let bundle = config.generate_config(Path::new("/tmp/test")).unwrap();
+
+    assert!(bundle.global_instructions.is_some());
+    assert!(bundle.settings.is_some());
+    assert_eq!(bundle.hooks.len(), 2);
+    assert_eq!(bundle.commands.len(), 2);
+}
+
+#[test]
+fn claude_settings_is_valid_json() {
+    let config = ClaudeConfig::new();
+    let bundle = config.generate_config(Path::new("/tmp/test")).unwrap();
+    let settings = bundle.settings.unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_str(&settings.content).unwrap();
+    assert_eq!(parsed["model"], "opus");
+    assert!(parsed["permissions"]["allow"].is_array());
+}
+
+#[test]
+fn claude_settings_includes_noslop_permission() {
+    let config = ClaudeConfig::new();
+    let bundle = config.generate_config(Path::new("/tmp/test")).unwrap();
+    let settings = bundle.settings.unwrap();
+
+    let parsed: serde_json::Value = serde_json::from_str(&settings.content).unwrap();
+    let allow = parsed["permissions"]["allow"].as_array().unwrap();
+    let allow_strings: Vec<&str> = allow.iter().filter_map(|v| v.as_str()).collect();
+
+    assert!(allow_strings.contains(&"Bash(noslop *)"));
+    assert!(allow_strings.contains(&"Bash(checkpoint *)"));
+}
+
+#[test]
+fn claude_hooks_have_correct_events() {
+    let config = ClaudeConfig::new();
+    let bundle = config.generate_config(Path::new("/tmp/test")).unwrap();
+
+    let events: Vec<&str> = bundle.hooks.iter().map(|h| h.event.as_str()).collect();
+    assert!(events.contains(&"PreToolUse"));
+    assert!(events.contains(&"PostToolUse"));
+}
+
+#[test]
+fn claude_runtime_build_command_with_bypass() {
+    let runtime = ClaudeRuntime::new();
+    let config = InvocationConfig {
+        prompt: "Review this diff for security issues".to_string(),
+        bypass_permissions: true,
+        ..Default::default()
+    };
+
+    let (cmd, args) = runtime.build_command(&config);
+    assert_eq!(cmd, "claude");
+    assert!(args.contains(&"-p".to_string()));
+    assert!(args.contains(&"--output-format".to_string()));
+    assert!(args.contains(&"text".to_string()));
+    assert!(args.contains(&"--permission-mode".to_string()));
+    assert!(args.contains(&"bypassPermissions".to_string()));
+}
+
+#[test]
+fn claude_runtime_build_command_without_bypass() {
+    let runtime = ClaudeRuntime::new();
+    let config = InvocationConfig {
+        prompt: "Review this diff".to_string(),
+        bypass_permissions: false,
+        ..Default::default()
+    };
+
+    let (_cmd, args) = runtime.build_command(&config);
+    assert!(!args.contains(&"--permission-mode".to_string()));
+}
+
+#[test]
+fn codex_config_has_no_hooks_or_commands() {
+    let config = CodexConfig::new();
+    let bundle = config.generate_config(Path::new("/tmp/test")).unwrap();
+
+    assert!(bundle.global_instructions.is_some());
+    assert!(bundle.settings.is_none());
+    assert!(bundle.hooks.is_empty());
+    assert!(bundle.commands.is_empty());
+}
+
+#[test]
+fn codex_instructions_path_is_correct() {
+    let config = CodexConfig::new();
+    let bundle = config.generate_config(Path::new("/tmp/test")).unwrap();
+    let instructions = bundle.global_instructions.unwrap();
+
+    assert_eq!(instructions.relative_path, PathBuf::from(".codex/instructions.md"));
+}
+
+#[test]
+fn codex_runtime_build_command() {
+    let runtime = CodexRuntime::new();
+    let config = InvocationConfig {
+        prompt: "Review this diff for quality issues".to_string(),
+        ..Default::default()
+    };
+
+    let (cmd, args) = runtime.build_command(&config);
+    assert_eq!(cmd, "codex");
+    assert!(args.contains(&"--quiet".to_string()));
+    assert!(args.contains(&"--approval-mode".to_string()));
+    assert!(args.contains(&"full-auto".to_string()));
+}
+```
+
+### 5. Shared Output Parser Tests
+
+**Location**: `src/adapters/agent/parsing.rs` under `#[cfg(test)] mod tests`
+
+Already defined in [04-agent-adapters-design.md](./04-agent-adapters-design.md):
+
+```rust
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::ports::agent::Severity;
+
+    #[test]
+    fn extracts_findings_from_clean_json() {
+        let output = r#"[{"severity":"warning","file":"src/auth.rs","line":42,"message":"Timing attack","suggestion":"Use constant-time comparison","source":"agent:security"}]"#;
+        let result = extract_findings(output);
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].severity, Severity::Warning);
+        assert_eq!(result.findings[0].file, "src/auth.rs");
+    }
+
+    #[test]
+    fn extracts_findings_from_narrative_wrapper() {
+        let output = r#"Here are my findings from the security review:
+
+[{"severity":"error","file":"src/db.rs","line":15,"message":"SQL injection risk","suggestion":"Use parameterized queries","source":"agent:security"}]
+
+I also noticed the code style is generally clean."#;
+
+        let result = extract_findings(output);
+        assert_eq!(result.findings.len(), 1);
+        assert_eq!(result.findings[0].message, "SQL injection risk");
+    }
+
+    #[test]
+    fn returns_empty_findings_when_no_json() {
+        let output = "I reviewed the code and found no issues.";
+        let result = extract_findings(output);
+        assert!(result.findings.is_empty());
+        assert_eq!(result.raw_output, output);
+    }
+
+    #[test]
+    fn extracts_error_lines() {
+        let output = "working...\nError: timeout exceeded\nFAILED to parse\n";
+        let result = extract_findings(output);
+        assert_eq!(result.errors.len(), 2);
+    }
+
+    #[test]
+    fn handles_empty_json_array() {
+        let output = "[]";
+        let result = extract_findings(output);
+        assert!(result.findings.is_empty());
+        assert!(result.errors.is_empty());
+    }
+
+    #[test]
+    fn handles_malformed_json() {
+        let output = "[{invalid json}]";
+        let result = extract_findings(output);
+        assert!(result.findings.is_empty());
+        assert!(!result.raw_output.is_empty());
+    }
+
+    #[test]
+    fn handles_nested_json_arrays() {
+        let output = r#"[{"severity":"info","file":"a.rs","line":1,"message":"note","suggestion":null,"source":"test"}]"#;
+        let result = extract_findings(output);
+        assert_eq!(result.findings.len(), 1);
+    }
+}
+```
+
+### 6. Config Bundle Writing Tests
+
+**Location**: `tests/adapter/config_writer_test.rs`
+
+```rust
+use tempfile::TempDir;
+
+#[test]
+fn write_config_bundle_to_tempdir() {
+    let home = TempDir::new().unwrap();
+    let config = ClaudeConfig::new();
+    let bundle = config.generate_config(Path::new("/tmp/test")).unwrap();
+
+    let written = write_config_bundle(home.path(), &bundle, false).unwrap();
+
+    assert!(home.path().join(".claude/CLAUDE.md").exists());
+    assert!(home.path().join(".claude/settings.json").exists());
+    assert!(home.path().join(".claude/commands/checkpoint.md").exists());
+    assert!(home.path().join(".claude/commands/worktree.md").exists());
+    assert!(written.len() >= 4);
+}
+
+#[test]
+fn write_config_bundle_creates_backup() {
+    let home = TempDir::new().unwrap();
+    let claude_dir = home.path().join(".claude");
+    std::fs::create_dir_all(&claude_dir).unwrap();
+    std::fs::write(claude_dir.join("CLAUDE.md"), "old content").unwrap();
+
+    let config = ClaudeConfig::new();
+    let bundle = config.generate_config(Path::new("/tmp/test")).unwrap();
+
+    write_config_bundle(home.path(), &bundle, false).unwrap();
+
+    // Original should be backed up
+    assert!(claude_dir.join("CLAUDE.bak").exists());
+    let backup = std::fs::read_to_string(claude_dir.join("CLAUDE.bak")).unwrap();
+    assert_eq!(backup, "old content");
+}
+```
+
+---
+
+## Integration Tests (assert_cmd, Real CLI)
+
+### 1. `noslop review` End-to-End Tests
+
+**Location**: `tests/integration/review_test.rs`
+
+```rust
+use assert_cmd::Command;
+use predicates::prelude::*;
+
+#[test]
+fn cli_review_with_no_changes() {
+    let repo = TempGitRepo::new();
+    repo.init_with_commit();
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["review"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("No changes to review"));
+}
+
+#[test]
+fn cli_review_with_changes_runs_conventions() {
+    let repo = TempGitRepo::new();
+    repo.init_with_commit();
+
+    // Initialize noslop with a check
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["check", "add", "*.rs", "-m", "Review Rust files"])
+        .assert()
+        .success();
+
+    // Create a branch with changes
+    repo.create_branch("feature");
+    repo.checkout("feature");
+    repo.write_file("src/new.rs", "fn main() {}");
+    repo.write_and_stage("src/new.rs", "fn main() {}");
+    repo.commit("add new file");
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["review", "--base", "master"])
+        .assert()
+        .success();
+}
+
+#[test]
+fn cli_review_check_mode_exits_nonzero_on_blocking_findings() {
+    let repo = TempGitRepo::new();
+    repo.init_with_commit();
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["init"])
+        .assert()
+        .success();
+
+    // Add a blocking check that will trigger
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["check", "add", "*.rs", "-m", "Must review", "-s", "block"])
+        .assert()
+        .success();
+
+    // Create changes matching the check
+    repo.create_branch("feature");
+    repo.checkout("feature");
+    repo.write_and_stage("src/new.rs", "fn main() {}");
+    repo.commit("add file");
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["review", "--check", "--base", "master"])
+        .assert()
+        .failure();
+}
+
+#[test]
+fn cli_review_json_output() {
+    let repo = TempGitRepo::new();
+    repo.init_with_commit();
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["init"])
+        .assert()
+        .success();
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["review", "--json"])
+        .assert()
+        .success()
+        .stdout(predicates::str::starts_with("{"));
+}
+```
+
+### 2. `noslop findings` Subcommand Tests
+
+**Location**: `tests/integration/findings_test.rs`
+
+| Test                                      | What It Asserts                                                           |
+| ----------------------------------------- | ------------------------------------------------------------------------- |
+| `cli_findings_list_empty_when_no_reviews` | `noslop findings` with no review sessions outputs "No findings"           |
+| `cli_findings_list_shows_findings`        | After a review produces findings, `noslop findings` lists them            |
+| `cli_findings_resolve_marks_resolved`     | `noslop findings resolve F-001` marks the finding as resolved             |
+| `cli_findings_dismiss_marks_dismissed`    | `noslop findings dismiss F-001 -m "not applicable"` dismisses with reason |
+
+### 3. `noslop checkpoint` CLI Tests
+
+**Location**: `tests/integration/checkpoint_test.rs`
+
+```rust
+use assert_cmd::Command;
+use predicates::prelude::*;
+
+#[test]
+fn cli_checkpoint_with_changes() {
+    let repo = TempGitRepo::new();
+    repo.init_with_commit();
+    repo.write_file("test.txt", "content");
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["checkpoint", "test message"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Checkpoint:"));
+}
+
+#[test]
+fn cli_checkpoint_clean_tree() {
+    let repo = TempGitRepo::new();
+    repo.init_with_commit();
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["checkpoint"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Nothing to checkpoint"));
+}
+
+#[test]
+fn cli_checkpoint_json_output() {
+    let repo = TempGitRepo::new();
+    repo.init_with_commit();
+    repo.write_file("test.txt", "content");
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["checkpoint", "--json", "test"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("\"success\": true"));
+}
+
+#[test]
+fn cli_checkpoint_multiple_files_committed() {
+    let repo = TempGitRepo::new();
+    repo.init_with_commit();
+    repo.write_file("a.txt", "a");
+    repo.write_file("b.txt", "b");
+    repo.write_file("c.txt", "c");
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["checkpoint", "batch"])
+        .assert()
+        .success();
+
+    assert!(repo.is_clean());
+}
+```
+
+### 4. `noslop init claude` CLI Tests
+
+**Location**: `tests/integration/init_test.rs`
+
+```rust
+#[test]
+fn init_bare_creates_noslop_toml_without_agent() {
+    let repo = TempGitRepo::new();
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .arg("init")
+        .assert()
+        .success();
+
+    let toml_content = std::fs::read_to_string(
+        repo.path().join(".noslop.toml")
+    ).unwrap();
+    assert!(toml_content.contains("[project]"));
+    assert!(!toml_content.contains("[agent]"));
+    assert!(!toml_content.contains("[review]"));
+
+    // Pre-push hook should NOT be installed without agent
+    assert!(!repo.path().join(".git/hooks/pre-push").exists());
+}
+
+#[test]
+fn init_claude_creates_agent_and_review_sections() {
+    let repo = TempGitRepo::new();
+
+    // Note: this test succeeds for .noslop.toml generation even
+    // if claude CLI is not installed (agent validation is Phase 2)
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["init", "claude"])
+        .assert();
+
+    let toml_content = std::fs::read_to_string(
+        repo.path().join(".noslop.toml")
+    ).unwrap();
+    assert!(toml_content.contains("[agent]"));
+    assert!(toml_content.contains("type = \"claude\""));
+    assert!(toml_content.contains("[review]"));
+
+    // Pre-push hook should be installed
+    assert!(repo.path().join(".git/hooks/pre-push").exists());
+}
+
+#[test]
+fn init_unknown_agent_fails() {
+    let repo = TempGitRepo::new();
+
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["init", "cursor"])
+        .assert()
+        .failure()
+        .stderr(predicates::str::contains("Unknown agent type"));
+}
+
+#[test]
+fn init_force_overwrites_existing() {
+    let repo = TempGitRepo::new();
+
+    // First init
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .arg("init")
+        .assert()
+        .success();
+
+    // Second init without --force
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .arg("init")
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Already initialized"));
+
+    // Second init with --force
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["init", "--force"])
+        .assert()
+        .success()
+        .stdout(predicates::str::contains("Initializing"));
+}
+```
+
+### 5. Pre-Push Hook Integration Tests
+
+**Location**: `tests/integration/hook_test.rs`
+
+```rust
+#[test]
+fn pre_push_hook_blocks_on_unresolved_findings() {
+    let repo = TempGitRepo::new();
+    repo.init_with_commit();
+
+    // Initialize with agent to get pre-push hook
+    Command::cargo_bin("noslop")
+        .unwrap()
+        .current_dir(repo.path())
+        .args(["init", "claude"])
+        .assert();
+
+    // Verify pre-push hook exists and is executable
+    let hook_path = repo.path().join(".git/hooks/pre-push");
+    assert!(hook_path.exists());
+
+    let content = std::fs::read_to_string(&hook_path).unwrap();
+    assert!(content.contains("noslop review --check"));
+}
+```
+
+---
+
+## Agent Integration Tests (#[ignore], Require Real CLI)
+
+These tests invoke real agent CLIs and are `#[ignore]`-tagged. Run with `cargo test -- --ignored`.
+
+**Location**: `tests/integration/agent_integration_test.rs`
+
+### Claude Review Invocation
+
+```rust
+#[test]
+#[ignore] // Run with: cargo test -- --ignored
+fn claude_review_produces_findings() {
+    let runtime = ClaudeRuntime::new();
+
+    if !runtime.is_available() {
+        eprintln!("Skipping: claude CLI not found");
+        return;
+    }
+
+    let config = InvocationConfig {
+        prompt: r#"Review this diff and return findings as a JSON array.
+
++fn handle_login(username: &str, password: &str) -> bool {
++    let stored = db::get_password(username);
++    stored == password  // direct comparison
++}
+
+Return ONLY a JSON array of findings with: severity, file, line, message, suggestion, source."#
+            .to_string(),
+        working_dir: std::env::temp_dir(),
+        timeout_secs: Some(60),
+        bypass_permissions: true,
+        ..Default::default()
+    };
+
+    let result = runtime.invoke(&config).unwrap();
+    assert_eq!(result.exit_code, 0);
+
+    let output = runtime.parse_output(&result);
+    // Agent should identify the timing-attack-vulnerable comparison
+    assert!(!output.findings.is_empty() || !output.raw_output.is_empty());
+}
+
+#[test]
+#[ignore]
+fn claude_is_available_check() {
+    let config = ClaudeConfig::new();
+    if config.is_available() {
+        assert!(config.validate().is_ok());
+    }
+}
+```
+
+### Codex Review Invocation
+
+```rust
+#[test]
+#[ignore]
+fn codex_review_produces_findings() {
+    let runtime = CodexRuntime::new();
+
+    if !runtime.is_available() {
+        eprintln!("Skipping: codex CLI not found");
+        return;
+    }
+
+    let config = InvocationConfig {
+        prompt: r#"Review this diff for security issues. Return findings as JSON array.
+
++fn query_user(name: &str) -> String {
++    format!("SELECT * FROM users WHERE name = '{name}'")
++}
+
+Return ONLY a JSON array."#.to_string(),
+        working_dir: std::env::temp_dir(),
+        timeout_secs: Some(60),
+        ..Default::default()
+    };
+
+    let result = runtime.invoke(&config).unwrap();
+    assert_eq!(result.exit_code, 0);
+
+    let output = runtime.parse_output(&result);
+    assert!(!output.findings.is_empty() || !output.raw_output.is_empty());
+}
+
+#[test]
+#[ignore]
+fn codex_is_available_check() {
+    let config = CodexConfig::new();
+    if config.is_available() {
+        assert!(config.validate().is_ok());
+    }
+}
+```
+
+---
+
+## Property-Based Tests (proptest)
+
+### Finding Deduplication Invariants
+
+**Location**: `tests/unit/proptest_findings.rs`
+
+```rust
+use noslop::core::ports::agent::{Finding, Severity};
+use proptest::prelude::*;
+
+fn arb_severity() -> impl Strategy<Value = Severity> {
+    prop_oneof![
+        Just(Severity::Info),
+        Just(Severity::Warning),
+        Just(Severity::Error),
+        Just(Severity::Critical),
+    ]
+}
+
+fn arb_finding() -> impl Strategy<Value = Finding> {
+    (
+        arb_severity(),
+        "[a-z]{3,10}\\.rs",
+        proptest::option::of(1u32..200),
+        "[A-Za-z ]{5,30}",
+        proptest::option::of("[A-Za-z ]{5,30}"),
+        "[a-z:]{3,15}",
+    )
+        .prop_map(|(severity, file, line, message, suggestion, source)| Finding {
+            severity,
+            file,
+            line,
+            message,
+            suggestion,
+            source,
+        })
+}
+
+proptest! {
+    /// Deduplication never increases the number of findings
+    #[test]
+    fn dedup_never_adds_findings(
+        findings in proptest::collection::vec(arb_finding(), 0..20)
+    ) {
+        let count_before = findings.len();
+        let deduped = deduplicate_findings(findings);
+        prop_assert!(deduped.len() <= count_before);
+    }
+
+    /// Deduplication is idempotent
+    #[test]
+    fn dedup_is_idempotent(
+        findings in proptest::collection::vec(arb_finding(), 0..20)
+    ) {
+        let once = deduplicate_findings(findings);
+        let twice = deduplicate_findings(once.clone());
+        prop_assert_eq!(once.len(), twice.len());
+    }
+
+    /// All output findings were present in the input
+    #[test]
+    fn dedup_preserves_messages(
+        findings in proptest::collection::vec(arb_finding(), 1..10)
+    ) {
+        let input_messages: Vec<String> = findings.iter()
+            .map(|f| f.message.clone())
+            .collect();
+        let deduped = deduplicate_findings(findings);
+        for f in &deduped {
+            prop_assert!(input_messages.contains(&f.message));
+        }
+    }
+}
+```
+
+### TOML Round-Trip Parsing
+
+**Location**: `tests/unit/proptest_toml.rs`
+
+```rust
+use proptest::prelude::*;
+
+proptest! {
+    /// Any valid prefix string round-trips through TOML
+    #[test]
+    fn toml_prefix_round_trip(prefix in "[A-Z]{3}") {
+        let toml_str = format!(
+            "[project]\nprefix = \"{prefix}\"\n"
+        );
+        let file: NoslopFile = toml::from_str(&toml_str).unwrap();
+        prop_assert_eq!(file.project.prefix, prefix);
+    }
+
+    /// Analyzer list round-trips through TOML
+    #[test]
+    fn toml_analyzer_list_round_trip(
+        analyzers in proptest::collection::vec("[a-z:-]{3,20}", 1..5)
+    ) {
+        let list = analyzers.iter()
+            .map(|a| format!("\"{a}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let toml_str = format!(
+            "[project]\nprefix = \"TST\"\n\n[review]\nanalyzers = [{list}]\n"
+        );
+        let file: NoslopFile = toml::from_str(&toml_str).unwrap();
+        let review = file.review.unwrap();
+        prop_assert_eq!(review.analyzers.len(), analyzers.len());
+    }
+}
+```
+
+### AgentType Parsing
+
+**Location**: `tests/unit/proptest_agent_type.rs`
+
+```rust
+use noslop::core::ports::agent::AgentType;
+use proptest::prelude::*;
 use test_case::test_case;
 
+// Parameterized tests for known aliases
 #[test_case("claude", AgentType::Claude ; "lowercase claude")]
 #[test_case("Claude", AgentType::Claude ; "titlecase claude")]
 #[test_case("CLAUDE", AgentType::Claude ; "uppercase claude")]
@@ -171,7 +2216,7 @@ use test_case::test_case;
 #[test_case("codex", AgentType::Codex ; "lowercase codex")]
 #[test_case("Codex", AgentType::Codex ; "titlecase codex")]
 #[test_case("openai", AgentType::Codex ; "openai alias")]
-fn test_agent_type_parsing(input: &str, expected: AgentType) {
+fn agent_type_parsing(input: &str, expected: AgentType) {
     let parsed: AgentType = input.parse().unwrap();
     assert_eq!(parsed, expected);
 }
@@ -180,601 +2225,146 @@ fn test_agent_type_parsing(input: &str, expected: AgentType) {
 #[test_case("cursor" ; "cursor is unknown")]
 #[test_case("" ; "empty string")]
 #[test_case("aider" ; "aider is unknown")]
-fn test_agent_type_parsing_errors(input: &str) {
+fn agent_type_parsing_errors(input: &str) {
     let result: Result<AgentType, _> = input.parse();
     assert!(result.is_err());
 }
-```
-
-### Unit Tests for Mock Verification
-
-Verify that `MockAgentConfig` and `MockAgentRuntime` (auto-generated by `mockall`) work correctly:
-
-| Test Function                                   | What It Asserts                                                                                                            |
-| ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `test_mock_agent_config_generate`               | `MockAgentConfig` with `expect_generate_config` returning a bundle with one hook produces the expected `AgentConfigBundle` |
-| `test_mock_agent_config_is_available`           | `MockAgentConfig` with `expect_is_available().return_const(true)` returns `true`                                           |
-| `test_mock_agent_runtime_invoke`                | `MockAgentRuntime` with `expect_invoke` returning a success `InvocationResult` produces expected output                    |
-| `test_mock_agent_runtime_parse_output_complete` | `MockAgentRuntime` with `expect_parse_output` returning `plan_complete: true` signals completion                           |
-
----
-
-## Module 2: Plan Parser (`src/core/services/plan_parser.rs`)
-
-### Unit Tests (inline `#[cfg(test)]`)
-
-All pure function tests -- no mocks, no I/O.
-
-| Test Function                                  | What It Asserts                                                                                                                               |
-| ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_parse_markdown_basic`                    | `"- [ ] Task 1\n- [x] Task 2\n- [ ] Task 3\n"` parses to 3 tasks, format `Markdown`, `done_count() == 1`, `total_count() == 3`                |
-| `test_parse_markdown_with_headers`             | `"# Plan\n\nSome text\n\n- [ ] Task 1\n\nMore text\n\n- [x] Task 2\n"` correctly extracts 2 tasks, ignoring non-checkbox lines                |
-| `test_parse_markdown_uppercase_x`              | `"- [X] Task 1\n"` parses `TaskStatus::Complete` (uppercase X accepted)                                                                       |
-| `test_parse_markdown_indented`                 | `"  - [ ] Indented task\n"` parses as 1 incomplete task (leading whitespace handled)                                                          |
-| `test_parse_markdown_preserves_description`    | Task description is `"Implement the parser module"`, not `"- [ ] Implement the parser module"` (checkbox prefix stripped)                     |
-| `test_parse_markdown_empty_description`        | `"- [ ] \n"` parses as a task with empty description (whitespace trimmed)                                                                     |
-| `test_parse_json_array`                        | `[{"description": "Setup", "passes": true}, {"description": "Build", "passes": false}]` parses to 2 tasks, format `Json`, `done_count() == 1` |
-| `test_parse_json_nested`                       | `{"tasks": [{"description": "A", "passes": false}]}` recursively finds the task inside nested object                                          |
-| `test_parse_json_with_steps`                   | Task with `"steps": ["write code", "run tests"]` has `acceptance_criteria.len() == 2`                                                         |
-| `test_parse_json_unnamed_task`                 | `{"passes": false}` without `"description"` gets description `"(unnamed task)"`                                                               |
-| `test_parse_empty_file_errors`                 | Empty string `""` returns `Err` with message containing "No tasks found"                                                                      |
-| `test_parse_no_tasks_errors`                   | `"# Just a header\n\nSome text but no checkboxes\n"` returns `Err` with message containing "No tasks found"                                   |
-| `test_parse_format_detection_prefers_markdown` | Content containing both `- [ ]` checkboxes and `"passes"` JSON returns `PlanFormat::Markdown` (markdown takes priority)                       |
-| `test_plan_is_complete_all_done`               | Plan with all `Complete` tasks returns `is_complete() == true`                                                                                |
-| `test_plan_is_complete_with_skipped`           | Plan with 1 `Complete` and 1 `Skipped` returns `is_complete() == true` (skipped are excluded)                                                 |
-| `test_plan_is_complete_with_incomplete`        | Plan with 1 `Complete` and 1 `Incomplete` returns `is_complete() == false`                                                                    |
-| `test_plan_next_incomplete`                    | Plan with tasks `[Complete, Incomplete, Incomplete]` returns second task from `next_incomplete()`                                             |
-| `test_plan_next_incomplete_none`               | All-complete plan returns `None` from `next_incomplete()`                                                                                     |
-| `test_plan_total_count_excludes_skipped`       | Plan with 3 tasks (1 complete, 1 incomplete, 1 skipped) returns `total_count() == 2`                                                          |
-
-### Parameterized Tests (`tests/unit/plan_parser_test.rs`)
-
-```rust
-use noslop::core::services::plan_parser::parse_plan;
-use noslop::core::models::PlanFormat;
-use std::path::Path;
-use test_case::test_case;
-
-#[test_case(
-    "- [ ] A\n- [x] B\n",
-    PlanFormat::Markdown, 2, 1
-    ; "two markdown tasks one done"
-)]
-#[test_case(
-    "- [ ] A\n- [ ] B\n- [ ] C\n",
-    PlanFormat::Markdown, 3, 0
-    ; "three markdown tasks none done"
-)]
-#[test_case(
-    "- [x] A\n- [x] B\n",
-    PlanFormat::Markdown, 2, 2
-    ; "two markdown tasks all done"
-)]
-#[test_case(
-    r#"[{"description":"A","passes":true},{"description":"B","passes":false}]"#,
-    PlanFormat::Json, 2, 1
-    ; "json array two tasks one done"
-)]
-fn test_plan_parsing(content: &str, expected_format: PlanFormat, total: usize, done: usize) {
-    let plan = parse_plan(Path::new("plan.md"), content).unwrap();
-    assert_eq!(plan.format, expected_format);
-    assert_eq!(plan.tasks.len(), total);
-    assert_eq!(plan.done_count(), done);
-}
-```
-
-### Property-Based Tests (`tests/unit/proptest_plan_parser.rs`)
-
-```rust
-use noslop::core::services::plan_parser::parse_plan;
-use noslop::core::models::TaskStatus;
-use proptest::prelude::*;
-use std::path::Path;
 
 proptest! {
-    /// Any sequence of markdown checkboxes should parse to the correct count
+    /// Random strings that are not known agent names always fail to parse
     #[test]
-    fn markdown_task_count_matches_checkboxes(
-        complete in 0u32..10,
-        incomplete in 0u32..10,
+    fn random_strings_are_not_agent_types(
+        s in "[a-z]{8,20}"
     ) {
-        prop_assume!(complete + incomplete > 0);
-        let mut content = String::from("# Plan\n\n");
-        for i in 0..complete {
-            content.push_str(&format!("- [x] Complete task {i}\n"));
-        }
-        for i in 0..incomplete {
-            content.push_str(&format!("- [ ] Incomplete task {i}\n"));
-        }
-        let plan = parse_plan(Path::new("plan.md"), &content).unwrap();
-        prop_assert_eq!(plan.tasks.len(), (complete + incomplete) as usize);
-        prop_assert_eq!(plan.done_count(), complete as usize);
-    }
-
-    /// Round-trip: descriptions survive parsing
-    #[test]
-    fn markdown_descriptions_preserved(desc in "[A-Za-z ]{3,50}") {
-        let content = format!("- [ ] {desc}\n");
-        let plan = parse_plan(Path::new("plan.md"), &content).unwrap();
-        prop_assert_eq!(&plan.tasks[0].description, desc.trim());
+        // Filter out the known valid inputs
+        prop_assume!(
+            !["claude", "claude-code", "codex", "openai"]
+                .contains(&s.to_lowercase().as_str())
+        );
+        let result: Result<AgentType, _> = s.parse();
+        prop_assert!(result.is_err());
     }
 }
 ```
 
 ---
 
-## Module 3: Stuck Detector (`src/core/services/stuck_detector.rs`)
+## Test File Layout
 
-### Unit Tests (inline `#[cfg(test)]`)
-
-All pure logic tests -- no mocks, no I/O.
-
-| Test Function                                         | What It Asserts                                                                                                                                                                                    |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_escalation_level_none_at_zero`                  | `EscalationLevel::from_stuck_count_with_policy(0, &default)` is `None`                                                                                                                             |
-| `test_escalation_level_none_at_one`                   | `EscalationLevel::from_stuck_count_with_policy(1, &default)` is `None`                                                                                                                             |
-| `test_escalation_level_suggest_at_two`                | `from_stuck_count_with_policy(2, &default)` is `Suggest`                                                                                                                                           |
-| `test_escalation_level_suggest_at_three`              | `from_stuck_count_with_policy(3, &default)` is `Suggest`                                                                                                                                           |
-| `test_escalation_level_analyze_at_four`               | `from_stuck_count_with_policy(4, &default)` is `AnalyzeRootCause`                                                                                                                                  |
-| `test_escalation_level_force_at_six`                  | `from_stuck_count_with_policy(6, &default)` is `ForceStrategyChange`                                                                                                                               |
-| `test_escalation_level_diagnostic_at_eight`           | `from_stuck_count_with_policy(8, &default)` is `DiagnosticExit`                                                                                                                                    |
-| `test_escalation_level_diagnostic_above_eight`        | `from_stuck_count_with_policy(15, &default)` is still `DiagnosticExit`                                                                                                                             |
-| `test_escalation_level_custom_policy`                 | Custom `StuckPolicy { level_1: 3, level_2: 5, level_3: 7, level_4: 10 }`: `from_stuck_count_with_policy(3, &custom)` is `Suggest`, `from_stuck_count_with_policy(10, &custom)` is `DiagnosticExit` |
-| `test_assess_stuck_progress_resets_count`             | `assess_stuck` with `tasks_after > tasks_before` returns `stuck_count == 0`, `level == None`                                                                                                       |
-| `test_assess_stuck_no_progress_increments`            | `assess_stuck` with `tasks_after == tasks_before` and prior `stuck_count == 1` returns `stuck_count == 2`, `level == Suggest`                                                                      |
-| `test_assess_stuck_code_churn_detected`               | `assess_stuck` with `lines_changed > 0` but `tasks_after == tasks_before` returns `has_code_churn == true`                                                                                         |
-| `test_assess_stuck_no_churn_no_progress`              | `assess_stuck` with `lines_changed == 0` and `tasks_after == tasks_before` returns `has_code_churn == false`                                                                                       |
-| `test_assess_stuck_should_terminate_at_level4`        | `assess_stuck` with stuck_count reaching level_4 returns `should_terminate == true`                                                                                                                |
-| `test_assess_stuck_should_not_terminate_below_level4` | `assess_stuck` with stuck_count at level_3 returns `should_terminate == false`                                                                                                                     |
-| `test_build_escalation_prompt_none`                   | Level `None` returns `prompt_injection == None`                                                                                                                                                    |
-| `test_build_escalation_prompt_suggest`                | Level `Suggest` returns prompt containing "DIFFERENT approach"                                                                                                                                     |
-| `test_build_escalation_prompt_analyze`                | Level `AnalyzeRootCause` returns prompt containing "Root Cause Analysis Required" and "3 possible root causes"                                                                                     |
-| `test_build_escalation_prompt_force`                  | Level `ForceStrategyChange` returns prompt containing "Must Change Strategy" and "Skip", "Decompose", "Simplify"                                                                                   |
-| `test_build_escalation_prompt_diagnostic`             | Level `DiagnosticExit` returns prompt containing "FINAL ATTEMPT" and "stuck-report.md"                                                                                                             |
-| `test_build_escalation_prompt_with_churn`             | Any non-None level with `has_code_churn == true` includes "churn without progress" warning                                                                                                         |
-| `test_build_escalation_prompt_without_churn`          | Non-None level with `has_code_churn == false` does NOT contain "churn without progress"                                                                                                            |
-
-### Parameterized Tests (`tests/unit/stuck_detector_test.rs`)
-
-```rust
-use noslop::core::models::{EscalationLevel, StuckPolicy};
-use test_case::test_case;
-
-#[test_case(0, EscalationLevel::None ; "zero stuck")]
-#[test_case(1, EscalationLevel::None ; "one stuck")]
-#[test_case(2, EscalationLevel::Suggest ; "two stuck")]
-#[test_case(3, EscalationLevel::Suggest ; "three stuck")]
-#[test_case(4, EscalationLevel::AnalyzeRootCause ; "four stuck")]
-#[test_case(5, EscalationLevel::AnalyzeRootCause ; "five stuck")]
-#[test_case(6, EscalationLevel::ForceStrategyChange ; "six stuck")]
-#[test_case(7, EscalationLevel::ForceStrategyChange ; "seven stuck")]
-#[test_case(8, EscalationLevel::DiagnosticExit ; "eight stuck")]
-#[test_case(100, EscalationLevel::DiagnosticExit ; "hundred stuck")]
-fn test_escalation_levels(stuck_count: u32, expected: EscalationLevel) {
-    let policy = StuckPolicy::default();
-    assert_eq!(
-        EscalationLevel::from_stuck_count_with_policy(stuck_count, &policy),
-        expected
-    );
-}
-```
-
----
-
-## Module 4: Prompt Builder (`src/core/services/prompt_builder.rs`)
-
-### Unit Tests (inline `#[cfg(test)]`)
-
-Pure string-construction tests. Uses `PlanBuilder` fixture.
-
-| Test Function                                 | What It Asserts                                                                                                                                              |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `test_build_prompt_contains_plan_path`        | Output contains `"Plan file: /path/to/plan.md"`                                                                                                              |
-| `test_build_prompt_contains_iteration_number` | Output contains `"This is iteration 3 of 20."`                                                                                                               |
-| `test_build_prompt_contains_task_counts`      | Output contains `"Tasks: 2 / 5 complete"`                                                                                                                    |
-| `test_build_prompt_initializer_template`      | When `is_initializer == true`, output contains `"Initialization Phase"` and `"Explore the repository structure"`                                             |
-| `test_build_prompt_standard_template`         | When `is_initializer == false`, output contains `"Find the first incomplete task"` and does NOT contain `"Initialization Phase"`                             |
-| `test_build_prompt_includes_escalation`       | When `escalation_prompt == Some("## Stuck...")`, output contains that string verbatim                                                                        |
-| `test_build_prompt_no_escalation`             | When `escalation_prompt == None`, output does NOT contain `"## Stuck"` or `"## Attention"`                                                                   |
-| `test_build_prompt_includes_failure_context`  | When `failure_log` has entries for the current task, output contains `"Previous Failed Approaches"`                                                          |
-| `test_build_prompt_no_failure_context`        | When `failure_log` has no entries for the current task, output does NOT contain `"Previous Failed Approaches"`                                               |
-| `test_build_prompt_includes_test_failures`    | When `test_failures == Some("FAILED tests::my_test")`, output contains the test output inside a code block and `"Fix these failures BEFORE proceeding"`      |
-| `test_build_prompt_no_test_failures`          | When `test_failures == None`, output does NOT contain `"Test Failures From Previous Iteration"`                                                              |
-| `test_build_prompt_confidence_gate`           | When `confidence_threshold == Some(4)`, output contains `"[CONFIDENCE: N]"` and `"below 4"`                                                                  |
-| `test_build_prompt_no_confidence_gate`        | When `confidence_threshold == None`, output does NOT contain `"CONFIDENCE"`                                                                                  |
-| `test_build_prompt_includes_progress_history` | When `progress` has 3 iteration records, output contains `"Recent Iteration History"` with summaries                                                         |
-| `test_build_prompt_includes_git_activity`     | When `git_activity` is non-empty, output contains `"Recent Git Activity"` followed by the activity string                                                    |
-| `test_build_prompt_static_before_dynamic`     | The static template text (e.g., `"Read the plan file"`) appears before the dynamic context (e.g., `"This is iteration"`) -- verifies prompt caching ordering |
-| `test_build_prompt_includes_next_focus`       | When `progress.next_focus == Some("Implement parser")`, output contains `"Suggested Focus"` and `"Implement parser"`                                         |
-
-### `parse_confidence` Tests (inline `#[cfg(test)]`)
-
-| Test Function                                | What It Asserts                                                              |
-| -------------------------------------------- | ---------------------------------------------------------------------------- |
-| `test_parse_confidence_valid`                | `parse_confidence("output [CONFIDENCE: 4] more")` returns `Some(4)`          |
-| `test_parse_confidence_missing`              | `parse_confidence("no confidence here")` returns `None`                      |
-| `test_parse_confidence_out_of_range_high`    | `parse_confidence("[CONFIDENCE: 6]")` returns `None`                         |
-| `test_parse_confidence_out_of_range_zero`    | `parse_confidence("[CONFIDENCE: 0]")` returns `None`                         |
-| `test_parse_confidence_boundary_one`         | `parse_confidence("[CONFIDENCE: 1]")` returns `Some(1)`                      |
-| `test_parse_confidence_boundary_five`        | `parse_confidence("[CONFIDENCE: 5]")` returns `Some(5)`                      |
-| `test_parse_confidence_with_spaces`          | `parse_confidence("[CONFIDENCE:  3]")` returns `Some(3)` (extra space)       |
-| `test_parse_confidence_multiple_takes_first` | `parse_confidence("[CONFIDENCE: 3] text [CONFIDENCE: 5]")` returns `Some(3)` |
-
----
-
-## Module 5: Failure Memory (`src/core/models/failure.rs`)
-
-### Unit Tests (inline `#[cfg(test)]`)
-
-| Test Function                                         | What It Asserts                                                                                                                                             |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_failure_log_for_task_filters`                   | Log with entries for tasks A, B, A: `for_task("A")` returns 2 entries, `for_task("B")` returns 1                                                            |
-| `test_failure_log_for_task_empty`                     | Log with entries for task A: `for_task("C")` returns empty vec                                                                                              |
-| `test_failure_log_for_task_on_empty_log`              | Empty log: `for_task("A")` returns empty vec                                                                                                                |
-| `test_failure_log_as_prompt_context_formats`          | Log with 2 entries for task A: `as_prompt_context("A")` returns `Some(...)` containing `"Previous Failed Approaches"`, `"Iteration 1"`, and `"Iteration 2"` |
-| `test_failure_log_as_prompt_context_no_match`         | Log with entries for task A: `as_prompt_context("B")` returns `None`                                                                                        |
-| `test_failure_log_as_prompt_context_includes_lessons` | Output string contains each entry's `lesson` field verbatim                                                                                                 |
-| `test_failure_log_default_empty`                      | `FailureLog::default()` has `entries.len() == 0`                                                                                                            |
-
----
-
-## Module 6: Progress File (`src/core/models/progress.rs`)
-
-### Unit Tests (inline `#[cfg(test)]`)
-
-| Test Function                                             | What It Asserts                                                                                                                                      |
-| --------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_progress_file_new`                                  | `ProgressFile::new("plan.md", "claude", 20)` has `iterations_completed == 0`, `stuck_count == 0`, `escalation_level == None`, empty `iterations` vec |
-| `test_record_iteration_with_progress_resets_stuck`        | After `record_iteration` where `tasks_after > tasks_before`: `stuck_count == 0`, `escalation_level == None`, `iterations_completed == 1`             |
-| `test_record_iteration_no_progress_increments_stuck`      | After `record_iteration` where `tasks_after == tasks_before`: `stuck_count == 1`                                                                     |
-| `test_record_iteration_consecutive_no_progress_escalates` | After 3 no-progress iterations: `stuck_count == 3`, `escalation_level == Suggest`                                                                    |
-| `test_record_iteration_progress_after_stuck_resets`       | After 3 no-progress iterations then 1 progress iteration: `stuck_count == 0`, `escalation_level == None`                                             |
-| `test_record_iteration_pushes_to_vec`                     | After recording 5 iterations: `iterations.len() == 5` and `iterations_completed == 5`                                                                |
-
----
-
-## Module 7: Run Configuration (`src/core/models/run_config.rs`)
-
-### Unit Tests (inline `#[cfg(test)]`)
-
-| Test Function               | What It Asserts                                                                                                                                                        |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_run_config_default`   | `RunConfig::default()` has `max_iterations == 20`, `post_loop_review == true`, `use_worktree == false`, `confidence_threshold == Some(4)`, `initializer_phase == true` |
-| `test_stuck_policy_default` | `StuckPolicy::default()` has thresholds `2, 4, 6, 8`                                                                                                                   |
-| `test_test_gate_default`    | `TestGate::default()` has empty command, `timeout_secs == 300`, `max_output_lines == 50`                                                                               |
-
----
-
-## Module 8: Checkpoint Adapter (`src/adapters/git/checkpoint.rs`)
-
-### Unit Tests (inline `#[cfg(test)]`)
-
-Each test creates a `TempDir` with `git2::Repository::init`. These are adapter-level tests that exercise real `git2` operations against temporary repos.
-
-```rust
-fn setup_repo() -> (TempDir, Repository) {
-    let dir = TempDir::new().unwrap();
-    let repo = Repository::init(dir.path()).unwrap();
-    let mut index = repo.index().unwrap();
-    let tree_oid = index.write_tree().unwrap();
-    let tree = repo.find_tree(tree_oid).unwrap();
-    let sig = Signature::now("test", "test@test.com").unwrap();
-    repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[]).unwrap();
-    (dir, repo)
-}
-```
-
-| Test Function                              | What It Asserts                                                                                                                       |
-| ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_is_clean_on_fresh_repo`              | `is_clean(&repo)` returns `true` on a repo with only the initial commit                                                               |
-| `test_is_clean_with_untracked_file`        | After writing a file (not staged): `is_clean(&repo)` returns `false`                                                                  |
-| `test_is_clean_with_staged_file`           | After staging a file: `is_clean(&repo)` returns `false`                                                                               |
-| `test_is_clean_with_modified_tracked_file` | After modifying a committed file: `is_clean(&repo)` returns `false`                                                                   |
-| `test_checkpoint_creates_commit`           | After writing a file: `checkpoint(&repo, "test")` returns `Some(sha)` where `sha.len() == 7`                                          |
-| `test_checkpoint_stages_untracked`         | After writing an untracked file: `checkpoint(&repo, "test")` succeeds, and then `is_clean(&repo)` returns `true`                      |
-| `test_checkpoint_stages_modified`          | After modifying a committed file: `checkpoint(&repo, "test")` succeeds, and then `is_clean(&repo)` returns `true`                     |
-| `test_checkpoint_handles_deleted_files`    | After deleting a committed file: `checkpoint(&repo, "test")` succeeds (the deletion is committed)                                     |
-| `test_checkpoint_returns_none_on_clean`    | On a clean repo: `checkpoint(&repo, "nothing")` returns `None`                                                                        |
-| `test_checkpoint_message_in_commit`        | After checkpoint: `repo.head().peel_to_commit().message()` contains the provided message                                              |
-| `test_checkpoint_does_not_invoke_hooks`    | Implicit: `git2` commits bypass hooks by design. Verified by the fact that `checkpoint` succeeds even when no hooks directory exists. |
-
-### Adapter Tests (`tests/adapter/checkpoint_test.rs`)
-
-Tests that exercise the `GitVersionControl` adapter's checkpoint integration:
-
-| Test Function                             | What It Asserts                                                                                |
-| ----------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `test_git_vcs_is_clean`                   | `GitVersionControl::new(path).is_clean()` returns correct results for clean/dirty repos        |
-| `test_git_vcs_checkpoint`                 | `GitVersionControl::new(path).checkpoint("msg")` returns `Some(sha)` and leaves the repo clean |
-| `test_git_vcs_checkpoint_default_message` | Checkpoint with a timestamped message: commit message starts with `"checkpoint: "`             |
-
----
-
-## Module 9: Worktree Adapter (`src/adapters/git/worktree.rs`)
-
-### Unit Tests (inline `#[cfg(test)]`)
-
-Each test creates a `TempDir` with `git2::Repository::init` and an initial commit.
-
-```rust
-fn setup_repo_with_commit() -> (TempDir, Repository) {
-    let dir = TempDir::new().unwrap();
-    let repo = Repository::init(dir.path()).unwrap();
-    std::fs::write(dir.path().join("README.md"), "# test").unwrap();
-    let mut index = repo.index().unwrap();
-    index.add_path(Path::new("README.md")).unwrap();
-    index.write().unwrap();
-    let tree_oid = index.write_tree().unwrap();
-    let tree = repo.find_tree(tree_oid).unwrap();
-    let sig = Signature::now("test", "test@test.com").unwrap();
-    repo.commit(Some("HEAD"), &sig, &sig, "initial", &tree, &[]).unwrap();
-    (dir, repo)
-}
-```
-
-| Test Function                                | What It Asserts                                                                                                                 |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
-| `test_worktree_base_dir_appends_suffix`      | `worktree_base_dir(Path::new("/code/noslop"))` returns `/code/noslop-worktrees`                                                 |
-| `test_worktree_base_dir_preserves_parent`    | `worktree_base_dir(Path::new("/a/b/myrepo"))` returns `/a/b/myrepo-worktrees`                                                   |
-| `test_worktree_path_composes`                | `worktree_path(Path::new("/code/repo"), "feat-a")` returns `/code/repo-worktrees/feat-a`                                        |
-| `test_list_worktrees_returns_main`           | On a fresh repo: `list_worktrees(&repo)` returns 1 entry with `is_main == true`                                                 |
-| `test_list_worktrees_main_has_branch`        | Main worktree entry has `branch == Some("main")` or `Some("master")`                                                            |
-| `test_create_worktree_new_branch`            | `create_worktree(&repo, &wt_path, "feat-a", "HEAD")` succeeds; `wt_path.exists()` is `true`; `list_worktrees` returns 2 entries |
-| `test_create_worktree_existing_branch`       | After creating branch `feat-b`: `create_worktree(&repo, &wt_path, "feat-b", "HEAD")` succeeds (reuses existing branch)          |
-| `test_create_worktree_creates_parent_dirs`   | Worktree path with missing parent directory: `create_worktree` creates the parent automatically                                 |
-| `test_remove_worktree_cleans_up_dir`         | After creating and then removing a worktree: `wt_path.exists()` is `false`                                                      |
-| `test_remove_worktree_deletes_merged_branch` | Branch created at HEAD (trivially merged): `remove_worktree` returns `BranchCleanupResult::Deleted`                             |
-| `test_remove_worktree_keeps_unmerged_branch` | Branch with additional commits beyond HEAD: `remove_worktree` returns `BranchCleanupResult::Kept("not merged")`                 |
-| `test_clean_worktrees_removes_all`           | After creating 3 worktrees: `clean_worktrees` returns `CleanResult { removed: 3 }`; worktree base dir is removed                |
-| `test_clean_worktrees_noop_when_none`        | On a fresh repo: `clean_worktrees` returns `CleanResult { removed: 0 }`                                                         |
-| `test_is_branch_merged_detects_ancestor`     | Branch at HEAD: `is_branch_merged` returns `true`                                                                               |
-| `test_is_branch_merged_detects_diverged`     | Branch with commits not in HEAD: `is_branch_merged` returns `false`                                                             |
-
-### Adapter Tests (`tests/adapter/worktree_test.rs`)
-
-Test the `GitVersionControl` adapter's worktree method delegation:
-
-| Test Function                             | What It Asserts                                                                                                 |
-| ----------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `test_git_vcs_list_worktrees`             | `GitVersionControl::new(path).list_worktrees()` returns at least the main worktree                              |
-| `test_git_vcs_create_and_remove_worktree` | Create via `GitVersionControl`, verify `list_worktrees` count increases, then remove and verify count decreases |
-
----
-
-## Module 10: Run Loop Orchestrator (`src/core/services/run_loop.rs`)
-
-### Unit Tests with Mocks (inline `#[cfg(test)]`)
-
-These tests inject `MockAgentRuntime`, `MockPlanStore`, `MockTestRunner`, and `MockVersionControl` (all auto-generated by `mockall`). They verify orchestration logic without any I/O.
-
-| Test Function                                  | What It Asserts                                                                                                                                                                  |
-| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_run_loop_completes_in_one_iteration`     | Mock runtime returns `plan_complete: true`; mock plan store returns all-complete plan on reload. `execute()` returns `RunOutcome::Complete { iterations_used: 1 }`               |
-| `test_run_loop_completes_in_three_iterations`  | Mock plan store returns incrementally more complete plans across 3 `load` calls. Runtime signals complete on 3rd. Returns `RunOutcome::Complete { iterations_used: 3 }`          |
-| `test_run_loop_max_iterations_reached`         | Runtime never signals complete. `max_iterations == 5`. Returns `RunOutcome::MaxIterationsReached { iterations_used: 5, tasks_completed: 0, tasks_total: 3 }`                     |
-| `test_run_loop_stuck_terminates`               | Runtime returns no progress for `level_4_threshold` consecutive iterations. Returns `RunOutcome::Stuck`                                                                          |
-| `test_run_loop_stuck_signal_in_output`         | Runtime output contains `<promise>STUCK</promise>`. Returns `RunOutcome::Stuck` immediately                                                                                      |
-| `test_run_loop_checkpoints_between_iterations` | Mock `vcs.checkpoint` is called exactly once per iteration (verified with `expect_checkpoint().times(n)`)                                                                        |
-| `test_run_loop_test_gate_failures_injected`    | Mock test runner returns `passed: false` with output `"FAILED test_foo"`. On next iteration, the prompt (captured from mock runtime's `invoke` arg) contains `"FAILED test_foo"` |
-| `test_run_loop_test_gate_passing_no_injection` | Mock test runner returns `passed: true`. Next iteration's prompt does NOT contain `"Test Failures"`                                                                              |
-| `test_run_loop_skips_tests_when_none`          | With `test_runner: None`, the loop runs without calling any test runner. No `"Test Failures"` in prompts.                                                                        |
-| `test_run_loop_false_completion_continues`     | Runtime signals `plan_complete: true` but plan store returns plan with incomplete tasks. Loop continues to next iteration instead of returning `Complete`.                       |
-| `test_run_loop_post_loop_review_called`        | With `post_loop_review: true`, after completion, runtime `invoke` is called one extra time with a prompt containing `"Review all changes"`.                                      |
-| `test_run_loop_post_loop_review_skipped`       | With `post_loop_review: false`, after completion, runtime `invoke` is called exactly N times (one per iteration, no extra review call).                                          |
-| `test_run_loop_initializer_phase_iteration_1`  | With `initializer_phase: true`, the first iteration's prompt contains `"Initialization Phase"`. Iteration 2's prompt does NOT.                                                   |
-| `test_run_loop_progress_recorded`              | After each iteration, the internal `ProgressFile` has the correct `iterations_completed` count and the latest `IterationRecord` matches the agent's output.                      |
-
----
-
-## Module 11: Config Parsing Extension (`.noslop.toml` agent/run sections)
-
-### Unit Tests (`tests/adapter/toml_agent_config_test.rs`)
-
-Tests for parsing the new `[agent]` and `[run]` sections from `.noslop.toml`.
-
-| Test Function                      | What It Asserts                                                                                                                         |
-| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_parse_agent_section`         | TOML with `[agent]\ntype = "claude"` parses `agent_type == AgentType::Claude`                                                           |
-| `test_parse_agent_section_codex`   | TOML with `[agent]\ntype = "codex"` parses `agent_type == AgentType::Codex`                                                             |
-| `test_parse_agent_section_missing` | TOML without `[agent]` section: `agent_type` is `None`                                                                                  |
-| `test_parse_run_section_defaults`  | TOML with empty `[run]` section: all fields take default values                                                                         |
-| `test_parse_run_section_custom`    | TOML with `max_iterations = 30`, `confidence_threshold = 3`: parsed values match                                                        |
-| `test_parse_stuck_policy`          | TOML with `[run.stuck_policy]\nlevel_1 = 3\nlevel_4 = 12`: thresholds are `3, 4, 6, 12` (only overridden values change)                 |
-| `test_parse_test_gate`             | TOML with `[run.test_gate]\ncommand = "cargo test"\ntimeout_secs = 600`: parsed correctly                                               |
-| `test_parse_test_gate_missing`     | TOML without `[run.test_gate]`: `test_gate` is `None`                                                                                   |
-| `test_parse_full_config`           | Complete TOML with all sections (`[project]`, `[agent]`, `[run]`, `[run.stuck_policy]`, `[run.test_gate]`): all fields parsed correctly |
-
-### Test Fixture
-
-```toml
-# tests/fixtures/full_config.toml
-[project]
-prefix = "TST"
-
-[agent]
-type = "claude"
-
-[[check]]
-target = "*.rs"
-message = "Review Rust"
-severity = "block"
-
-[run]
-max_iterations = 30
-confidence_threshold = 3
-post_loop_review = true
-initializer_phase = false
-
-[run.stuck_policy]
-level_1 = 3
-level_2 = 5
-level_3 = 7
-level_4 = 10
-
-[run.test_gate]
-command = "cargo test"
-timeout_secs = 600
-max_output_lines = 100
-```
-
----
-
-## Module 12: Agent Adapters (`src/adapters/agent/`)
-
-### Claude Config Adapter Tests (`tests/adapter/claude_config_test.rs`)
-
-| Test Function                                         | What It Asserts                                                                                                             |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `test_claude_config_agent_type`                       | `ClaudeConfig::new().agent_type()` returns `AgentType::Claude`                                                              |
-| `test_claude_config_generate_has_global_instructions` | `generate_config(root)` returns bundle where `global_instructions.relative_path` ends with `"CLAUDE.md"`                    |
-| `test_claude_config_generate_has_settings`            | `generate_config(root)` returns bundle where `settings.relative_path` ends with `"settings.json"` and content is valid JSON |
-| `test_claude_config_generate_has_hooks`               | `generate_config(root)` returns bundle with at least one hook for `"PreToolUse"` event                                      |
-| `test_claude_config_generate_has_checkpoint_command`  | Bundle `commands` includes a `SlashCommand` with `name == "checkpoint"`                                                     |
-| `test_claude_config_install_instructions`             | `install_instructions()` returns a non-empty string containing a URL or install command                                     |
-| `test_claude_config_project_instructions`             | `generate_project_instructions(root)` returns `Some(content)` containing noslop-specific conventions                        |
-
-### Claude Runtime Adapter Tests (`tests/adapter/claude_runtime_test.rs`)
-
-| Test Function                                        | What It Asserts                                                                                                                                                                                |
-| ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `test_claude_runtime_agent_type`                     | `ClaudeRuntime::new().agent_type()` returns `AgentType::Claude`                                                                                                                                |
-| `test_claude_runtime_build_command`                  | `build_command(&config)` returns `("claude", args)` where `args` contains `-p`, `--output-format`, `text`, `--permission-mode`, `bypassPermissions`                                            |
-| `test_claude_runtime_build_command_respects_timeout` | With `timeout_secs: Some(60)`, args contain `--timeout` and `60`                                                                                                                               |
-| `test_claude_runtime_parse_output_complete`          | Output containing `<promise>COMPLETE</promise>` and `[RALPH:DONE task="X" iteration=1]`: `parse_output` returns `plan_complete == true`, `completed_task == Some("X")`, `iteration == Some(1)` |
-| `test_claude_runtime_parse_output_incomplete`        | Output without completion markers: `parse_output` returns `plan_complete == false`, `completed_task == None`                                                                                   |
-| `test_claude_runtime_is_plan_complete`               | `is_plan_complete("text <promise>COMPLETE</promise> text")` returns `true`                                                                                                                     |
-| `test_claude_runtime_is_plan_complete_absent`        | `is_plan_complete("text without marker")` returns `false`                                                                                                                                      |
-| `test_claude_runtime_extract_status_line`            | `extract_status_line("...[RALPH:DONE task=\"Setup\" iteration=3]...")` returns `Some(...)` containing the full match                                                                           |
-| `test_claude_runtime_extract_status_line_absent`     | `extract_status_line("no status here")` returns `None`                                                                                                                                         |
-
-### Codex Config/Runtime Tests (parallel structure)
-
-Same test function patterns as Claude, adapted for Codex-specific command names and output formats.
-
----
-
-## CLI Integration Tests (`tests/integration/`)
-
-### Checkpoint CLI Tests (`tests/integration/checkpoint_test.rs`)
-
-All tests use `TempGitRepo` and `assert_cmd`.
-
-| Test Function                         | What It Asserts                                                                                                          |
-| ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `test_cli_checkpoint_with_changes`    | `noslop checkpoint "test"` in a repo with untracked file: exits 0, stdout contains `"Checkpoint:"` and a 7-char SHA      |
-| `test_cli_checkpoint_clean_tree`      | `noslop checkpoint` in a clean repo: exits 0, stdout contains `"Nothing to checkpoint"`                                  |
-| `test_cli_checkpoint_default_message` | `noslop checkpoint` (no message arg) in a dirty repo: commit message matches `"checkpoint: YYYY-MM-DD HH:MM:SS"` pattern |
-| `test_cli_checkpoint_custom_message`  | `noslop checkpoint "before refactor"`: commit message is `"before refactor"`                                             |
-| `test_cli_checkpoint_json_output`     | `noslop checkpoint --json "test"` with changes: stdout is valid JSON with `"success": true` and `"sha"` field            |
-| `test_cli_checkpoint_json_clean`      | `noslop checkpoint --json` with clean tree: stdout is valid JSON with `"clean": true`                                    |
-| `test_cli_checkpoint_multiple_files`  | Write 3 files, run checkpoint: all 3 are committed (verified by `git status --porcelain` being empty)                    |
-
-### Worktree CLI Tests (`tests/integration/worktree_test.rs`)
-
-| Test Function                                 | What It Asserts                                                                                                                                                    |
-| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `test_cli_worktree_create`                    | `noslop worktree create feature-test` in repo with initial commit: exits 0, stdout contains `"Branch: feature-test"` and a path, worktree directory exists on disk |
-| `test_cli_worktree_list_shows_main`           | `noslop worktree list`: stdout contains the repo path and `"(main)"`                                                                                               |
-| `test_cli_worktree_list_shows_created`        | After creating `feat-a`: `noslop worktree list` stdout contains `"feat-a"`                                                                                         |
-| `test_cli_worktree_remove`                    | After creating `feat-b`: `noslop worktree remove feat-b` exits 0, stdout contains `"Removed:"`, worktree directory no longer exists                                |
-| `test_cli_worktree_remove_nonexistent_errors` | `noslop worktree remove nonexistent`: exits non-zero, stderr contains `"not found"`                                                                                |
-| `test_cli_worktree_clean`                     | After creating 2 worktrees: `noslop worktree clean` exits 0, stdout contains `"Cleaned 2 worktree(s)"`, worktree base directory removed                            |
-| `test_cli_worktree_clean_noop`                | On repo with no worktrees: `noslop worktree clean` exits 0, stdout contains `"No worktrees"`                                                                       |
-| `test_cli_worktree_create_with_base`          | `noslop worktree create feat-c HEAD~1`: worktree is created at the specified base commit                                                                           |
-| `test_cli_worktree_json_output`               | `noslop worktree list --json`: stdout is valid JSON array                                                                                                          |
-
-### Run CLI Tests (`tests/integration/run_test.rs`)
-
-These tests are `#[ignore]`-tagged because they require agent CLIs to be installed. Run with `cargo test -- --ignored`.
-
-| Test Function                    | What It Asserts                                                                                                |
-| -------------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `test_cli_run_missing_plan_file` | `noslop run nonexistent.md`: exits non-zero, stderr contains error about file not found                        |
-| `test_cli_run_empty_plan_file`   | `noslop run empty.md` (file exists but has no tasks): exits non-zero, stderr contains `"No tasks found"`       |
-| `test_cli_run_shows_banner`      | `noslop run plan.md --max-iterations 1`: stdout contains `"noslop run"`, `"Plan:"`, `"Agent:"`, `"Max iters:"` |
-
----
-
-## Test File Organization Summary
+### Where Each Test File Lives
 
 ```
+src/
+├── core/
+│   ├── ports/
+│   │   └── agent.rs              # Inline: AgentType parsing, defaults
+│   └── services/
+│       ├── pipeline.rs           # Inline: ReviewPipeline orchestrator tests
+│       └── finding_merge.rs      # Inline: deduplication tests
+├── adapters/
+│   ├── git/
+│   │   ├── checkpoint.rs         # Inline: git2 checkpoint tests
+│   │   └── mod.rs                # Inline: review VCS method tests
+│   ├── toml/
+│   │   └── parser.rs             # Inline: TOML parser tests (new sections)
+│   └── agent/
+│       ├── parsing.rs            # Inline: finding extraction tests
+│       ├── claude.rs             # Inline: config + runtime tests
+│       └── codex.rs              # Inline: config + runtime tests
+│   └── analyzer/
+│       ├── convention.rs         # Inline: ConventionAnalyzer tests
+│       ├── co_change.rs          # Inline: CoChangeAnalyzer tests
+│       ├── formatting.rs         # Inline: FormattingAnalyzer tests
+│       ├── script.rs             # Inline: ScriptAnalyzer tests
+│       └── agent.rs              # Inline: AgentAnalyzer tests
+
 tests/
 ├── common/
-│   ├── mod.rs              # (extend: add PlanBuilder, etc.)
-│   ├── fixtures.rs         # (extend: PlanBuilder, IterationRecordBuilder,
-│   │                       #  ProgressFileBuilder, FailureLogBuilder,
-│   │                       #  RunConfigBuilder, InvocationResultBuilder)
-│   ├── git_repo.rs         # (extend: init_with_commit, write_and_stage,
-│   │                       #  head_sha, is_clean, commit_count,
-│   │                       #  create_branch, worktree_base_dir)
-│   └── mocks.rs            # (extend: MockPlanStoreManual,
-│                           #  MockTestRunnerManual)
+│   ├── mod.rs                    # Extended: re-exports new builders
+│   ├── fixtures.rs               # Extended: FindingBuilder, ReviewContextBuilder,
+│   │                             #   InvocationResultBuilder
+│   ├── git_repo.rs               # Extended: init_with_commit, is_clean,
+│   │                             #   head_sha, commit_count, create_branch
+│   └── mocks.rs                  # Extended: MockVersionControl gains review
+│                                 #   pipeline methods
 ├── unit/
-│   ├── agent_type_test.rs          # NEW: AgentType parsing parameterized tests
-│   ├── plan_parser_test.rs         # NEW: plan parsing parameterized tests
-│   ├── stuck_detector_test.rs      # NEW: escalation level parameterized tests
-│   └── proptest_plan_parser.rs     # NEW: property-based plan parsing tests
+│   ├── proptest_findings.rs      # NEW: finding deduplication properties
+│   ├── proptest_toml.rs          # NEW: TOML round-trip properties
+│   └── proptest_agent_type.rs    # NEW: agent type parsing properties
 ├── adapter/
-│   ├── checkpoint_test.rs          # NEW: GitVersionControl checkpoint tests
-│   ├── worktree_test.rs            # NEW: GitVersionControl worktree tests
-│   ├── claude_config_test.rs       # NEW: ClaudeConfig adapter tests
-│   ├── claude_runtime_test.rs      # NEW: ClaudeRuntime adapter tests
-│   ├── codex_config_test.rs        # NEW: CodexConfig adapter tests
-│   ├── codex_runtime_test.rs       # NEW: CodexRuntime adapter tests
-│   └── toml_agent_config_test.rs   # NEW: .noslop.toml [agent]/[run] parsing tests
+│   ├── toml_test.rs              # Existing + extended for new sections
+│   ├── claude_adapter_test.rs    # NEW: ClaudeConfig/ClaudeRuntime tests
+│   ├── codex_adapter_test.rs     # NEW: CodexConfig/CodexRuntime tests
+│   ├── config_writer_test.rs     # NEW: write_config_bundle tests
+│   ├── review_session_test.rs    # NEW: review session file I/O tests
+│   └── checkpoint_test.rs        # NEW: GitVersionControl checkpoint tests
 └── integration/
-    ├── checkpoint_test.rs          # NEW: CLI checkpoint integration tests
-    ├── worktree_test.rs            # NEW: CLI worktree integration tests
-    └── run_test.rs                 # NEW: CLI run integration tests (mostly #[ignore])
+    ├── review_test.rs            # NEW: noslop review CLI tests
+    ├── findings_test.rs          # NEW: noslop findings CLI tests
+    ├── checkpoint_test.rs        # NEW: noslop checkpoint CLI tests
+    ├── init_test.rs              # NEW: noslop init <agent> CLI tests
+    ├── hook_test.rs              # NEW: pre-push hook tests
+    └── agent_integration_test.rs # NEW: real agent CLI tests (#[ignore])
 ```
 
-Inline `#[cfg(test)]` modules within source files:
+### Module Coverage Map
 
-```
-src/core/ports/agent.rs           # AgentType unit tests
-src/core/models/failure.rs        # FailureLog unit tests
-src/core/models/progress.rs       # ProgressFile unit tests
-src/core/models/run_config.rs     # RunConfig/StuckPolicy/TestGate defaults
-src/core/services/plan_parser.rs  # Plan parsing unit tests
-src/core/services/stuck_detector.rs # Stuck assessment unit tests
-src/core/services/prompt_builder.rs # Prompt construction unit tests
-src/core/services/run_loop.rs     # Run loop orchestration unit tests (with mocks)
-src/adapters/git/checkpoint.rs    # git2 checkpoint unit tests
-src/adapters/git/worktree.rs      # git2 worktree unit tests
-```
+Every new module maps to its test coverage:
+
+| Module                           | Inline Tests               | External Tests                          | Property Tests          |
+| -------------------------------- | -------------------------- | --------------------------------------- | ----------------------- |
+| `core::ports::agent` (types)     | AgentType, defaults        | `proptest_agent_type.rs`                | Random string rejection |
+| `core::services::pipeline`       | Pipeline orchestration     | --                                      | --                      |
+| `core::services::finding_merge`  | Dedup logic                | --                                      | `proptest_findings.rs`  |
+| `adapters::git::checkpoint`      | git2 operations            | `adapter/checkpoint_test.rs`            | --                      |
+| `adapters::git` (review VCS)     | diff, commits, file_at_rev | --                                      | --                      |
+| `adapters::toml::parser` (new)   | All new sections           | `adapter/toml_test.rs`                  | `proptest_toml.rs`      |
+| `adapters::agent::parsing`       | JSON extraction            | --                                      | --                      |
+| `adapters::agent::claude`        | Config + runtime           | `adapter/claude_adapter_test.rs`        | --                      |
+| `adapters::agent::codex`         | Config + runtime           | `adapter/codex_adapter_test.rs`         | --                      |
+| `adapters::analyzer::convention` | Check matching             | --                                      | --                      |
+| `adapters::analyzer::co_change`  | Correlation logic          | --                                      | --                      |
+| `adapters::analyzer::formatting` | Tool delegation            | --                                      | --                      |
+| `adapters::analyzer::script`     | Command + parsing          | --                                      | --                      |
+| `adapters::analyzer::agent`      | Prompt building            | --                                      | --                      |
+| CLI: `noslop review`             | --                         | `integration/review_test.rs`            | --                      |
+| CLI: `noslop findings`           | --                         | `integration/findings_test.rs`          | --                      |
+| CLI: `noslop checkpoint`         | --                         | `integration/checkpoint_test.rs`        | --                      |
+| CLI: `noslop init <agent>`       | --                         | `integration/init_test.rs`              | --                      |
+| Real agents                      | --                         | `agent_integration_test.rs` (#[ignore]) | --                      |
 
 ## Dev Dependencies
 
 No new dev dependencies required. All test functionality is covered by the existing `Cargo.toml`:
 
-| Crate                     | Used For                                                                                            |
-| ------------------------- | --------------------------------------------------------------------------------------------------- |
-| `mockall` (0.13)          | Auto-generated mocks for `AgentConfig`, `AgentRuntime`, `PlanStore`, `TestRunner`, `VersionControl` |
-| `tempfile` (3.23)         | `TempDir` for git repo tests, TOML file tests, plan file tests                                      |
-| `assert_cmd` (2.1)        | CLI integration tests for `noslop checkpoint`, `noslop worktree`, `noslop run`                      |
-| `predicates` (3.1)        | Stdout/stderr assertions in integration tests                                                       |
-| `pretty_assertions` (1.4) | Readable diff output for plan parsing and prompt builder tests                                      |
-| `test-case` (3.3)         | Parameterized tests for agent type parsing, plan formats, escalation levels, pattern matching       |
-| `proptest` (1.5)          | Property-based tests for plan parser (task count invariants, description preservation)              |
+| Crate                     | Used For                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------------------ |
+| `mockall` (0.13)          | Auto-generated mocks for `AgentConfig`, `AgentRuntime`, `ReviewAnalyzer`, `VersionControl` |
+| `tempfile` (3.23)         | `TempDir` for git repo tests, TOML file tests                                              |
+| `assert_cmd` (2.1)        | CLI integration tests for `noslop review`, `noslop checkpoint`, `noslop init`              |
+| `predicates` (3.1)        | Stdout/stderr assertions in integration tests                                              |
+| `pretty_assertions` (1.4) | Readable diff output for finding comparison                                                |
+| `test-case` (3.3)         | Parameterized tests for agent type parsing, analyzer resolution                            |
+| `proptest` (1.5)          | Property-based tests for dedup invariants, TOML round-trips                                |
 
 ## Test Execution
 
 ```bash
-# All unit tests (fast, no I/O)
+# All unit tests (fast, no I/O beyond tempfile)
 cargo test --lib
 
-# All unit + adapter tests (uses tempfile, no external deps)
+# All unit + adapter tests (uses tempfile and git2, no external deps)
 cargo test
 
 # Integration tests that require agent CLIs
 cargo test -- --ignored
 
 # Specific module tests
-cargo test plan_parser
-cargo test stuck_detector
+cargo test pipeline
+cargo test convention_analyzer
 cargo test checkpoint
-cargo test worktree
-cargo test run_loop
+cargo test finding_merge
+cargo test extract_findings
 
 # Property-based tests with more cases
 PROPTEST_CASES=1000 cargo test proptest
