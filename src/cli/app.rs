@@ -33,6 +33,9 @@ pub struct Cli {
 pub enum Command {
     /// Initialize noslop in the current repository
     Init {
+        /// Agent to configure (e.g., claude, codex)
+        agent: Option<String>,
+
         /// Force re-initialization
         #[arg(short, long)]
         force: bool,
@@ -52,6 +55,12 @@ pub enum Command {
     Review {
         #[command(subcommand)]
         action: ReviewAction,
+    },
+
+    /// Manage findings within reviews
+    Findings {
+        #[command(subcommand)]
+        action: FindingsAction,
     },
 
     /// Safety commit: stage all changes and commit bypassing hooks
@@ -98,6 +107,21 @@ pub enum CheckAction {
 /// Review management subcommands
 #[derive(Subcommand, Debug)]
 pub enum ReviewAction {
+    /// Run the review pipeline on a commit range
+    Run {
+        /// Base ref (default: main)
+        #[arg(long, default_value = "main")]
+        base: String,
+
+        /// Head ref (default: HEAD)
+        #[arg(long, default_value = "HEAD")]
+        head: String,
+
+        /// Exit with code 1 if unresolved blocking findings exist
+        #[arg(long)]
+        check: bool,
+    },
+
     /// Start a new review for a commit range
     Start {
         /// Base commit SHA (start of diff)
@@ -127,6 +151,38 @@ pub enum ReviewAction {
     },
 }
 
+/// Findings management subcommands
+#[derive(Subcommand, Debug)]
+pub enum FindingsAction {
+    /// List findings for a review
+    List {
+        /// Review ID
+        id: String,
+    },
+
+    /// Resolve a finding
+    Resolve {
+        /// Review ID
+        review_id: String,
+
+        /// Finding ID
+        finding_id: String,
+    },
+
+    /// Dismiss a finding
+    Dismiss {
+        /// Review ID
+        review_id: String,
+
+        /// Finding ID
+        finding_id: String,
+
+        /// Reason for dismissal
+        #[arg(long)]
+        reason: Option<String>,
+    },
+}
+
 /// Run the CLI
 pub fn run() -> anyhow::Result<()> {
     let cli = Cli::parse();
@@ -144,13 +200,16 @@ pub fn run() -> anyhow::Result<()> {
     };
 
     match cli.command {
-        Some(Command::Init { force }) => commands::init(force, output_mode),
+        Some(Command::Init { agent, force }) => {
+            commands::init(agent.as_deref(), force, output_mode)
+        },
         Some(Command::Check { action: None, ci }) => commands::check_validate(ci, output_mode),
         Some(Command::Check {
             action: Some(action),
             ..
         }) => commands::check_manage(action, output_mode),
         Some(Command::Review { action }) => commands::review(action, output_mode),
+        Some(Command::Findings { action }) => commands::findings(action, output_mode),
         Some(Command::Checkpoint { message }) => {
             commands::checkpoint(message.as_deref(), output_mode)
         },

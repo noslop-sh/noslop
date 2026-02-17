@@ -10,6 +10,9 @@ pub mod parser;
 pub mod repository;
 pub mod writer;
 
-pub use parser::{CheckEntry, NoslopFile, ProjectConfig, find_noslop_files, load_file};
+pub use parser::{
+    AgentSection, CheckEntry, CoChangeConfig, FormattingConfig, NoslopFile, ProjectConfig,
+    ReviewSection, find_noslop_files, load_file,
+};
 pub use repository::TomlCheckRepository;
 pub use writer::{add_check, format_noslop_file, generate_prefix_from_repo};

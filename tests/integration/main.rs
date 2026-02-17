@@ -582,3 +582,372 @@ fn test_review_close() {
         .success()
         .stdout(predicate::str::contains("Closed review"));
 }
+
+// =============================================================================
+// CHECKPOINT INTEGRATION TESTS
+// =============================================================================
+
+/// Test checkpoint with uncommitted changes creates a commit
+#[test]
+fn test_checkpoint_with_changes() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Initial commit so HEAD exists
+    fs::write(repo_path.join("initial.txt"), "initial").unwrap();
+    git_add(repo_path, "initial.txt");
+    git_commit(repo_path, "Initial commit");
+
+    // Create a file to checkpoint
+    fs::write(repo_path.join("new_file.txt"), "some content").unwrap();
+
+    // Run checkpoint
+    noslop()
+        .args(["checkpoint", "test checkpoint"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Checkpoint:"))
+        .stdout(predicate::str::contains("test checkpoint"));
+}
+
+/// Test checkpoint on a clean tree reports nothing to do
+#[test]
+fn test_checkpoint_clean_tree() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Initial commit
+    fs::write(repo_path.join("initial.txt"), "initial").unwrap();
+    git_add(repo_path, "initial.txt");
+    git_commit(repo_path, "Initial commit");
+
+    // No changes -- checkpoint should report clean
+    noslop()
+        .args(["checkpoint"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Nothing to checkpoint"));
+}
+
+// =============================================================================
+// REVIEW RUN INTEGRATION TESTS
+// =============================================================================
+
+/// Test review run on a commit range with matching checks produces findings
+#[test]
+fn test_review_run_with_checks() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Create .noslop.toml with a check and .noslop directory
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[project]
+prefix = "NOS"
+
+[[check]]
+id = "NOS-1"
+target = "*.rs"
+message = "Rust files need security review"
+severity = "block"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    // Initial commit
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    // Get base SHA
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Create a Rust file and commit
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Add main.rs");
+
+    // Run review
+    noslop()
+        .args(["review", "run", "--base", &base_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Review: REV-"))
+        .stdout(predicate::str::contains("Findings: 1"))
+        .stdout(predicate::str::contains("Blocking: 1"));
+}
+
+/// Test review run with no matching checks produces no findings
+#[test]
+fn test_review_run_no_findings() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    // Create .noslop.toml with a check for *.py only
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[project]
+prefix = "NOS"
+
+[[check]]
+id = "NOS-1"
+target = "*.py"
+message = "Python needs review"
+severity = "block"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    // Initial commit
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Create a Rust file (not Python) and commit
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Add main.rs");
+
+    // Run review -- no check matches .rs files
+    noslop()
+        .args(["review", "run", "--base", &base_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Findings: 0"))
+        .stdout(predicate::str::contains("No blocking findings"));
+}
+
+/// Test review run --check exits 1 when blocking findings exist
+#[test]
+fn test_review_run_check_flag_blocks() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[project]
+prefix = "NOS"
+
+[[check]]
+id = "NOS-1"
+target = "*.rs"
+message = "Rust files need review"
+severity = "block"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Add main.rs");
+
+    // With --check, should exit 1 because blocking findings exist
+    noslop()
+        .args(["review", "run", "--base", &base_sha, "--check"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("BLOCKED"));
+}
+
+// =============================================================================
+// FINDINGS INTEGRATION TESTS
+// =============================================================================
+
+/// Test findings list, resolve, and dismiss workflow
+#[test]
+fn test_findings_workflow() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[project]
+prefix = "NOS"
+
+[[check]]
+id = "NOS-1"
+target = "*.rs"
+message = "Rust files need review"
+severity = "block"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Add main.rs");
+
+    // Run review to create findings
+    let review_output = noslop()
+        .args(["review", "run", "--base", &base_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Extract review ID
+    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let review_id = stdout
+        .lines()
+        .find(|l| l.contains("REV-"))
+        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
+        .expect("Should find review ID in output");
+
+    // List findings
+    let findings_output = noslop()
+        .args(["findings", "list", review_id])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let findings_stdout = String::from_utf8_lossy(&findings_output.get_output().stdout);
+    assert!(findings_stdout.contains("Rust files need review"));
+
+    // Extract finding ID
+    let finding_id = findings_stdout
+        .lines()
+        .find(|l| l.contains("F-"))
+        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("F-")))
+        .expect("Should find finding ID in output");
+
+    // Resolve the finding
+    noslop()
+        .args(["findings", "resolve", review_id, finding_id])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Resolved finding"));
+
+    // Now the review should be closable
+    noslop()
+        .args(["review", "close", review_id])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Closed review"));
+}
+
+/// Test findings dismiss with reason
+#[test]
+fn test_findings_dismiss() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Setup
+    init_git_repo(repo_path);
+
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[project]
+prefix = "NOS"
+
+[[check]]
+id = "NOS-1"
+target = "*.rs"
+message = "Rust review"
+severity = "warn"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    fs::write(repo_path.join("lib.rs"), "pub fn hello() {}").unwrap();
+    git_add(repo_path, "lib.rs");
+    git_commit(repo_path, "Add lib.rs");
+
+    // Run review
+    let review_output = noslop()
+        .args(["review", "run", "--base", &base_sha, "--json"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let json_stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
+    let review_id = json["review_id"].as_str().unwrap();
+
+    // List findings in JSON mode
+    let findings_output = noslop()
+        .args(["findings", "list", review_id, "--json"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let findings_json_str = String::from_utf8_lossy(&findings_output.get_output().stdout);
+    let findings_json: serde_json::Value = serde_json::from_str(&findings_json_str).unwrap();
+    let finding_id = findings_json[0]["id"].as_str().unwrap();
+
+    // Dismiss the finding
+    noslop()
+        .args(["findings", "dismiss", review_id, finding_id, "--reason", "false positive"])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Dismissed finding"));
+}

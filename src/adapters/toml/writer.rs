@@ -21,6 +21,8 @@ pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<
     } else {
         NoslopFile {
             project: ProjectConfig::default(),
+            agent: None,
+            review: None,
             checks: Vec::new(),
         }
     };

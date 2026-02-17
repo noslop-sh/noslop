@@ -1,8 +1,15 @@
 //! Review management commands
 
-use noslop::adapters::FileReviewStore;
+use std::path::PathBuf;
+
+use noslop::adapters::{
+    ConventionAnalyzer, FileReviewStore, GitVersionControl, TomlCheckRepository,
+};
 use noslop::core::models::Review;
-use noslop::core::ports::ReviewStore;
+use noslop::core::ports::{
+    CheckRepository, ReviewAnalyzer, ReviewContext, ReviewStore, VersionControl,
+};
+use noslop::core::services::ReviewPipeline;
 use noslop::output::OutputMode;
 use serde::Serialize;
 
@@ -13,11 +20,117 @@ pub fn review(action: ReviewAction, mode: OutputMode) -> anyhow::Result<()> {
     let store = FileReviewStore::new();
 
     match action {
+        ReviewAction::Run { base, head, check } => run_review(&base, &head, check, mode),
         ReviewAction::Start { base, head } => start_review(&store, &base, &head, mode),
         ReviewAction::List { open } => list_reviews(&store, open, mode),
         ReviewAction::Show { id } => show_review(&store, &id, mode),
         ReviewAction::Close { id } => close_review(&store, &id, mode),
     }
+}
+
+/// Build a `ReviewContext` from VCS data
+fn build_review_context(
+    vcs: &GitVersionControl,
+    base: &str,
+    head: &str,
+) -> anyhow::Result<ReviewContext> {
+    let file_diffs = vcs.diff_between(base, head)?;
+    let changed_files: Vec<String> =
+        file_diffs.iter().map(|fd| fd.path.to_string_lossy().to_string()).collect();
+
+    // Build a unified diff string from the file diffs
+    let mut diff_text = String::new();
+    for fd in &file_diffs {
+        diff_text.push_str(&format!("--- a/{}\n+++ b/{}\n", fd.path.display(), fd.path.display()));
+        for hunk in &fd.hunks {
+            diff_text.push_str(&format!(
+                "@@ -{},{} +{},{} @@\n",
+                hunk.old_start, hunk.old_lines, hunk.new_start, hunk.new_lines,
+            ));
+            for line in &hunk.lines {
+                let prefix = match line.kind {
+                    noslop::DiffLineKind::Context => ' ',
+                    noslop::DiffLineKind::Addition => '+',
+                    noslop::DiffLineKind::Deletion => '-',
+                };
+                diff_text.push(prefix);
+                diff_text.push_str(&line.content);
+                if !line.content.ends_with('\n') {
+                    diff_text.push('\n');
+                }
+            }
+        }
+    }
+
+    let repo_root = vcs.repo_root().unwrap_or_else(|_| PathBuf::from("."));
+
+    Ok(ReviewContext {
+        diff: diff_text,
+        changed_files,
+        repo_root,
+        commit_range: Some(format!("{base}..{head}")),
+        base: base.to_string(),
+        head: head.to_string(),
+    })
+}
+
+fn run_review(base: &str, head: &str, check: bool, mode: OutputMode) -> anyhow::Result<()> {
+    let vcs = GitVersionControl::current_dir()?;
+    let store = FileReviewStore::new();
+    let check_repo = TomlCheckRepository::current_dir()?;
+
+    // Load checks and build convention analyzer
+    let checks = check_repo.list()?;
+    let convention_analyzer = ConventionAnalyzer::new(checks);
+
+    // Build the analyzer list
+    let analyzers: Vec<Box<dyn ReviewAnalyzer>> = vec![Box::new(convention_analyzer)];
+
+    // Build context from VCS
+    let context = build_review_context(&vcs, base, head)?;
+
+    // Run pipeline
+    let pipeline = ReviewPipeline::new(analyzers);
+    let review = pipeline.run(&context)?;
+
+    // Save
+    let id = review.id.clone();
+    let total_findings = review.findings.len();
+    let blocking_count = review.blocking_findings().len();
+    let is_blocked = review.is_blocked();
+    store.save(&review)?;
+
+    // Output
+    if mode == OutputMode::Json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "success": true,
+                "review_id": id,
+                "base": base,
+                "head": head,
+                "findings": total_findings,
+                "blocking": blocking_count,
+                "blocked": is_blocked,
+            })
+        );
+    } else {
+        println!("Review: {id}");
+        println!("  Range: {base}..{head}");
+        println!("  Findings: {total_findings}");
+        println!("  Blocking: {blocking_count}");
+        if is_blocked {
+            println!("\n  BLOCKED: {blocking_count} unresolved blocking finding(s)");
+        } else {
+            println!("\n  No blocking findings.");
+        }
+    }
+
+    if check && is_blocked {
+        std::process::exit(1);
+    }
+
+    Ok(())
 }
 
 fn start_review(
