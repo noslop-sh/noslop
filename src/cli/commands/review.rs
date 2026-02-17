@@ -1,10 +1,9 @@
 //! Review management commands
 
 use noslop::adapters::FileReviewStore;
-use noslop::core::models::{Acknowledgment, DiffPosition, Review};
+use noslop::core::models::Review;
 use noslop::core::ports::ReviewStore;
 use noslop::output::OutputMode;
-use noslop::storage;
 use serde::Serialize;
 
 use crate::cli::app::ReviewAction;
@@ -15,18 +14,8 @@ pub fn review(action: ReviewAction, mode: OutputMode) -> anyhow::Result<()> {
 
     match action {
         ReviewAction::Start { base, head } => start_review(&store, &base, &head, mode),
-        ReviewAction::Comment {
-            review_id,
-            target,
-            message,
-            line,
-        } => add_comment(&store, &review_id, &target, &message, line, mode),
         ReviewAction::List { open } => list_reviews(&store, open, mode),
         ReviewAction::Show { id } => show_review(&store, &id, mode),
-        ReviewAction::Resolve {
-            comment_id,
-            message,
-        } => resolve_comment(&store, &comment_id, message, mode),
         ReviewAction::Close { id } => close_review(&store, &id, mode),
     }
 }
@@ -37,7 +26,7 @@ fn start_review(
     head: &str,
     mode: OutputMode,
 ) -> anyhow::Result<()> {
-    let review = Review::new(base.to_string(), head.to_string());
+    let review = Review::new(base, head);
     let id = review.id.clone();
     store.save(&review)?;
 
@@ -47,52 +36,14 @@ fn start_review(
             serde_json::json!({
                 "success": true,
                 "review_id": id,
-                "base_sha": base,
-                "head_sha": head
+                "base": base,
+                "head": head
             })
         );
     } else {
-        println!("Started review: {}", id);
-        println!("  Base: {}", base);
-        println!("  Head: {}", head);
-    }
-    Ok(())
-}
-
-fn add_comment(
-    store: &FileReviewStore,
-    review_id: &str,
-    target: &str,
-    message: &str,
-    line: Option<u32>,
-    mode: OutputMode,
-) -> anyhow::Result<()> {
-    let mut review = store
-        .load(review_id)?
-        .ok_or_else(|| anyhow::anyhow!("Review not found: {}", review_id))?;
-
-    let position = line.map_or(DiffPosition::default(), DiffPosition::new_line);
-    review.add_comment(target.to_string(), message.to_string(), position);
-
-    let comment_id = review.comments.last().map(|c| c.check.id.clone()).unwrap();
-    store.save(&review)?;
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": true,
-                "comment_id": comment_id,
-                "review_id": review_id,
-                "target": target
-            })
-        );
-    } else {
-        println!("Added comment: {}", comment_id);
-        println!("  Target: {}", target);
-        if let Some(l) = line {
-            println!("  Line: {}", l);
-        }
+        println!("Started review: {id}");
+        println!("  Base: {base}");
+        println!("  Head: {head}");
     }
     Ok(())
 }
@@ -100,11 +51,11 @@ fn add_comment(
 #[derive(Serialize)]
 struct ReviewListItem {
     id: String,
-    base_sha: String,
-    head_sha: String,
+    base: String,
+    head: String,
     status: String,
-    comments: usize,
-    open_comments: usize,
+    findings: usize,
+    open_findings: usize,
 }
 
 fn list_reviews(store: &FileReviewStore, open_only: bool, mode: OutputMode) -> anyhow::Result<()> {
@@ -119,11 +70,11 @@ fn list_reviews(store: &FileReviewStore, open_only: bool, mode: OutputMode) -> a
             .iter()
             .map(|r| ReviewListItem {
                 id: r.id.clone(),
-                base_sha: r.base_sha.clone(),
-                head_sha: r.head_sha.clone(),
+                base: r.base.clone(),
+                head: r.head.clone(),
                 status: format!("{:?}", r.status).to_lowercase(),
-                comments: r.comments.len(),
-                open_comments: r.open_comments().len(),
+                findings: r.findings.len(),
+                open_findings: r.open_findings().len(),
             })
             .collect();
         println!("{}", serde_json::to_string_pretty(&items)?);
@@ -132,19 +83,17 @@ fn list_reviews(store: &FileReviewStore, open_only: bool, mode: OutputMode) -> a
     } else {
         println!("Reviews:\n");
         for r in &reviews {
-            let open = r.open_comments().len();
-            let total = r.comments.len();
+            let open = r.open_findings().len();
+            let total = r.findings.len();
             println!(
-                "  [{}] {} ({} open / {} total)",
+                "  [{}] {} ({open} open / {total} total)",
                 format!("{:?}", r.status).to_uppercase(),
                 r.id,
-                open,
-                total
             );
             println!(
                 "       {}..{}",
-                &r.base_sha[..7.min(r.base_sha.len())],
-                &r.head_sha[..7.min(r.head_sha.len())]
+                &r.base[..7.min(r.base.len())],
+                &r.head[..7.min(r.head.len())]
             );
         }
     }
@@ -152,7 +101,7 @@ fn list_reviews(store: &FileReviewStore, open_only: bool, mode: OutputMode) -> a
 }
 
 fn show_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::Result<()> {
-    let review = store.load(id)?.ok_or_else(|| anyhow::anyhow!("Review not found: {}", id))?;
+    let review = store.load(id)?.ok_or_else(|| anyhow::anyhow!("Review not found: {id}"))?;
 
     if mode == OutputMode::Json {
         println!("{}", serde_json::to_string_pretty(&review)?);
@@ -161,98 +110,34 @@ fn show_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::R
         println!("Status: {:?}", review.status);
         println!(
             "Range:  {}..{}",
-            &review.base_sha[..7.min(review.base_sha.len())],
-            &review.head_sha[..7.min(review.head_sha.len())]
+            &review.base[..7.min(review.base.len())],
+            &review.head[..7.min(review.head.len())]
         );
         println!();
 
-        if review.comments.is_empty() {
-            println!("No comments.");
+        if review.findings.is_empty() {
+            println!("No findings.");
         } else {
-            println!("Comments:");
-            for c in &review.comments {
-                let status = if c.is_open() { "OPEN" } else { "RESOLVED" };
-                println!("  [{}] {} - {}", status, c.check.id, c.check.target);
-                println!("        {}", c.check.message);
-                if !c.is_open()
-                    && let Some(msg) = &c.resolution_message
-                {
-                    println!("        → {msg}");
-                }
+            println!("Findings:");
+            for f in &review.findings {
+                let status = if f.is_open() { "OPEN" } else { "RESOLVED" };
+                println!("  [{status}] {} - {}", f.id, f.target);
+                println!("        {}", f.message);
             }
         }
     }
     Ok(())
 }
 
-fn resolve_comment(
-    store: &FileReviewStore,
-    comment_id: &str,
-    message: Option<String>,
-    mode: OutputMode,
-) -> anyhow::Result<()> {
-    // Parse comment ID: "REV-xxxx:N"
-    let parts: Vec<&str> = comment_id.rsplitn(2, ':').collect();
-    if parts.len() != 2 {
-        anyhow::bail!("Invalid comment ID format. Expected: REV-xxxx:N");
-    }
-    let review_id = parts[1];
-
-    let mut review = store
-        .load(review_id)?
-        .ok_or_else(|| anyhow::anyhow!("Review not found: {}", review_id))?;
-
-    let comment = review
-        .comments
-        .iter_mut()
-        .find(|c| c.check.id == comment_id)
-        .ok_or_else(|| anyhow::anyhow!("Comment not found: {}", comment_id))?;
-
-    comment.resolve(message.clone());
-    store.save(&review)?;
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "success": true,
-                "comment_id": comment_id,
-                "message": message
-            })
-        );
-    } else {
-        println!("Resolved: {}", comment_id);
-        if let Some(msg) = message {
-            println!("  Message: {}", msg);
-        }
-    }
-    Ok(())
-}
-
 fn close_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::Result<()> {
-    let mut review = store.load(id)?.ok_or_else(|| anyhow::anyhow!("Review not found: {}", id))?;
+    let mut review = store.load(id)?.ok_or_else(|| anyhow::anyhow!("Review not found: {id}"))?;
 
-    // Check for unresolved comments
-    let open_count = review.open_comments().len();
-    if open_count > 0 {
+    // Check for unresolved blocking findings
+    let blocking_count = review.blocking_findings().len();
+    if blocking_count > 0 {
         anyhow::bail!(
-            "Cannot close review with {} unresolved comment(s). Resolve all comments first.",
-            open_count
+            "Cannot close review with {blocking_count} blocking finding(s). Resolve all blocking findings first.",
         );
-    }
-
-    // Stage acknowledgments for all resolved comments
-    let ack_store = storage::ack_store();
-    let mut staged_count = 0;
-
-    for comment in &review.comments {
-        let resolution_msg =
-            comment.resolution_message.clone().unwrap_or_else(|| "Resolved".to_string());
-
-        let ack =
-            Acknowledgment::new(comment.check.id.clone(), resolution_msg, "review".to_string());
-        ack_store.stage(&ack)?;
-        staged_count += 1;
     }
 
     review.close();
@@ -263,18 +148,11 @@ fn close_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::
             "{}",
             serde_json::json!({
                 "success": true,
-                "review_id": id,
-                "staged_acks": staged_count
+                "review_id": id
             })
         );
     } else {
-        println!("Closed review: {}", id);
-        if staged_count > 0 {
-            println!(
-                "  Staged {} acknowledgment(s) - will be added as trailers on next commit",
-                staged_count
-            );
-        }
+        println!("Closed review: {id}");
     }
     Ok(())
 }

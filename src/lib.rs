@@ -1,8 +1,8 @@
-//! noslop - Pre-commit checks with acknowledgment tracking
+//! noslop - Local code review for agent-generated code
 //!
 //! This library provides the core functionality for:
 //! - Defining checks that must be reviewed when code changes
-//! - Tracking acknowledgments that prove review happened
+//! - Tracking findings from checks, scripts, agents, and humans
 //! - Integrating with git hooks for enforcement
 //!
 //! # Architecture
@@ -10,33 +10,14 @@
 //! The library follows a hexagonal (ports & adapters) architecture:
 //!
 //! - [`core`] - Pure domain logic with no I/O dependencies
-//!   - [`core::models`] - Domain types (Check, Acknowledgment, Severity)
+//!   - [`core::models`] - Domain types (Check, Finding, Review, Severity, Target)
 //!   - [`core::ports`] - Trait interfaces for I/O operations
-//!   - [`core::services`] - Pure business logic (matching, checking)
+//!   - [`core::services`] - Pure business logic
 //!
 //! - [`adapters`] - I/O implementations of port traits
-//!   - [`adapters::toml`] - TOML file handling for checks
+//!   - [`adapters::toml`] - `.noslop.toml` file handling for checks
 //!   - [`adapters::git`] - Git integration (hooks, staging)
-//!   - [`adapters::trailer`] - Commit trailer storage for acknowledgments
-//!   - [`adapters::file`] - JSON file storage for staging
-//!
-//! - [`shared`] - Cross-cutting utilities
-//!   - [`shared::parser`] - Code parsing utilities
-//!   - [`shared::resolver`] - File resolution utilities
-//!
-//! # Example
-//!
-//! ```rust,ignore
-//! use noslop::core::models::{Check, Acknowledgment, Severity};
-//! use noslop::adapters::TomlCheckRepository;
-//! use noslop::core::ports::CheckRepository;
-//!
-//! // Create a repository for checks
-//! let repo = TomlCheckRepository::current_dir()?;
-//!
-//! // Find checks for changed files
-//! let checks = repo.find_for_files(&["src/main.rs".to_string()])?;
-//! ```
+//!   - [`adapters::review`] - JSON file review storage
 
 // Deny all clippy warnings in this crate
 #![deny(
@@ -65,19 +46,13 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // Core hexagonal architecture modules
 pub mod adapters;
 pub mod core;
-pub mod shared;
 
 // Output formatting (used by CLI and tests)
 pub mod output;
 
-// Storage abstraction (facade over adapters)
-pub mod storage;
-
 // Re-exports for convenience
-pub use core::models::{Acknowledgment, Check, Severity};
-pub use core::ports::{AcknowledgmentStore, CheckRepository, VersionControl};
-pub use core::services::{CheckResult, check_items, matches_target};
-
-// Re-exports for backwards compatibility
-pub use shared::parser;
-pub use shared::resolver;
+pub use core::models::{
+    AgentKind, Check, Finding, FindingSource, FindingStatus, Review, ReviewStatus, Severity, Span,
+    Target,
+};
+pub use core::ports::{CheckRepository, ReviewStore, VersionControl};

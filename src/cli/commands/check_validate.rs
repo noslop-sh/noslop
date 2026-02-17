@@ -1,16 +1,15 @@
 //! Validate checks for staged changes
 
-use crate::{git, noslop_file};
-use noslop::adapters::FileReviewStore;
+use noslop::adapters::{FileReviewStore, GitVersionControl, TomlCheckRepository};
 use noslop::core::models::Severity;
-use noslop::core::ports::ReviewStore;
+use noslop::core::ports::{CheckRepository, ReviewStore, VersionControl};
 use noslop::output::{CheckMatch, CheckResult, OutputMode};
-use noslop::storage;
 
 /// Validate checks for staged changes (pre-commit hook)
 pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
     // Get staged files
-    let staged = git::staged::get_staged_files()?;
+    let vcs = GitVersionControl::current_dir()?;
+    let staged = vcs.staged_files()?;
 
     if staged.is_empty() {
         let result = CheckResult {
@@ -18,74 +17,63 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
             files_checked: 0,
             blocking: vec![],
             warnings: vec![],
-            acknowledged: vec![],
         };
         result.render(mode);
         return Ok(());
     }
 
-    // Load checks from .noslop.toml files
-    let mut applicable = noslop_file::load_checks_for_files(&staged)?;
+    // Load checks from .noslop.toml files via TomlCheckRepository
+    let repo = TomlCheckRepository::current_dir()?;
+    let applicable = repo.find_for_files(&staged)?;
 
-    // Also load open review comments that apply to staged files
+    // Also check for open review findings that apply to staged files
     let review_store = FileReviewStore::new();
+    let mut all_matches: Vec<(noslop::Check, String)> = applicable;
+
     for file in &staged {
         for review in review_store.find_blocking_for_file(file)? {
-            for comment in review.open_comments_for_file(file) {
-                applicable.push((comment.check.clone(), file.clone()));
+            for finding in review.findings_for_file(file) {
+                if finding.is_blocking() {
+                    // Create a synthetic check to represent the blocking finding
+                    let check = noslop::Check::new(
+                        &finding.id,
+                        noslop::Target::file(file),
+                        &finding.message,
+                        finding.severity,
+                    );
+                    all_matches.push((check, file.clone()));
+                }
             }
         }
     }
 
-    if applicable.is_empty() {
+    if all_matches.is_empty() {
         let result = CheckResult {
             passed: true,
             files_checked: staged.len(),
             blocking: vec![],
             warnings: vec![],
-            acknowledged: vec![],
         };
         result.render(mode);
         return Ok(());
     }
 
-    // Load staged acknowledgments via storage abstraction
-    let store = storage::ack_store();
-    let acks = store.staged()?;
-
-    // Check for unacknowledged checks
     let mut blocking = Vec::new();
     let mut warnings = Vec::new();
-    let mut acknowledged_list = Vec::new();
 
-    for (check, file) in &applicable {
-        let is_acknowledged = acks.iter().any(|a| {
-            // Priority matching: ID first, then message, then target
-            a.check_id == check.id
-                || a.check_id.contains(&check.message)
-                || a.check_id == check.target
-        });
-
+    for (check, file) in &all_matches {
         let check_match = CheckMatch {
             id: check.id.clone(),
             file: file.clone(),
-            target: check.target.clone(),
+            target: check.target.path.clone(),
             message: check.message.clone(),
             severity: check.severity.to_string(),
-            acknowledged: is_acknowledged,
         };
 
         match check.severity {
-            Severity::Block if !is_acknowledged => {
-                blocking.push(check_match);
-            },
-            Severity::Warn if !is_acknowledged => {
-                warnings.push(check_match);
-            },
-            _ if is_acknowledged => {
-                acknowledged_list.push(check_match);
-            },
-            _ => {},
+            Severity::Block => blocking.push(check_match),
+            Severity::Warn => warnings.push(check_match),
+            Severity::Info => {}, // Info never shown in check output
         }
     }
 
@@ -96,7 +84,6 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
         files_checked: staged.len(),
         blocking,
         warnings,
-        acknowledged: acknowledged_list,
     };
 
     result.render(mode);
@@ -105,7 +92,7 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
         if !ci {
             std::process::exit(1);
         }
-        anyhow::bail!("Unacknowledged checks");
+        anyhow::bail!("Blocking checks found");
     }
 
     Ok(())

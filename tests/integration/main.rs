@@ -1,10 +1,7 @@
 //! Integration tests for noslop CLI
 //!
 //! These tests simulate real-world workflows with a complete codebase,
-//! testing the full cycle of: init → check add → ack → check
-
-// Include lifecycle tests from the same directory
-mod lifecycle_test;
+//! testing the full cycle of: init, check add, check, review.
 
 use assert_cmd::cargo;
 use predicates::prelude::*;
@@ -61,84 +58,9 @@ fn git_commit(path: &std::path::Path, message: &str) {
 // END-TO-END WORKFLOW TESTS
 // =============================================================================
 
-/// Test complete workflow: init → create files → add check → ack → check
+/// Test that blocking checks report BLOCKED status for staged files
 #[test]
-fn test_e2e_complete_workflow() {
-    let temp = TempDir::new().unwrap();
-    let repo_path = temp.path();
-
-    // Step 1: Initialize git repo
-    init_git_repo(repo_path);
-
-    // Step 2: Initialize noslop
-    noslop()
-        .arg("init")
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Created .noslop.toml"));
-
-    // Step 3: Create initial commit so we have a HEAD
-    git_add(repo_path, ".noslop.toml");
-    git_commit(repo_path, "Initial commit");
-
-    // Step 4: Add a check for Rust files
-    noslop()
-        .args(["check", "add", "*.rs", "-m", "Ensure all Rust code follows style guidelines"])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Added check"));
-
-    // Step 5: Create a Rust source file
-    let src_dir = repo_path.join("src");
-    fs::create_dir_all(&src_dir).unwrap();
-    fs::write(
-        src_dir.join("main.rs"),
-        r#"fn main() {
-    println!("Hello, noslop!");
-}
-"#,
-    )
-    .unwrap();
-
-    // Step 6: Stage the new file
-    git_add(repo_path, "src/main.rs");
-
-    // Step 7: Check should FAIL because check is not acknowledged
-    noslop()
-        .args(["check", "--ci"])
-        .current_dir(repo_path)
-        .assert()
-        .failure()
-        .stdout(predicate::str::contains("BLOCKED"))
-        .stdout(predicate::str::contains("Ensure all Rust code follows style guidelines"));
-
-    // Step 8: Acknowledge the check
-    noslop()
-        .args([
-            "ack",
-            "Ensure all Rust code follows style guidelines",
-            "-m",
-            "Reviewed code and it follows rustfmt conventions",
-        ])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Staged acknowledgment"));
-
-    // Step 9: Check should now PASS
-    noslop()
-        .args(["check", "--ci"])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("All checks acknowledged"));
-}
-
-/// Test that check fails when blocking checks are unacknowledged
-#[test]
-fn test_check_blocks_without_ack() {
+fn test_check_blocks_staged_files() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -172,7 +94,7 @@ severity = "block"
     // Stage the file
     git_add(repo_path, "app.py");
 
-    // Check should fail
+    // Check should fail - blocking check applies
     noslop()
         .args(["check", "--ci"])
         .current_dir(repo_path)
@@ -227,10 +149,7 @@ severity = "warn"
         .success()
         .stdout(predicate::str::contains("Warnings"))
         .stdout(predicate::str::contains("Consider adding JSDoc comments"))
-        .stdout(
-            predicate::str::contains("All checks acknowledged")
-                .or(predicate::str::contains("Commit may proceed")),
-        );
+        .stdout(predicate::str::contains("Commit may proceed"));
 }
 
 // =============================================================================
@@ -267,9 +186,6 @@ severity = "warn"
     )
     .unwrap();
 
-    // Create .noslop directory for staging
-    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
-
     // Initial commit
     git_add(repo_path, ".noslop.toml");
     git_commit(repo_path, "Initial commit");
@@ -284,7 +200,7 @@ severity = "warn"
     git_add(repo_path, "app.ts");
     git_add(repo_path, "README.md");
 
-    // Check should fail - missing Rust and TypeScript acknowledgments
+    // Check should fail - blocking checks for Rust and TypeScript
     noslop()
         .args(["check", "--ci"])
         .current_dir(repo_path)
@@ -293,41 +209,6 @@ severity = "warn"
         .stdout(predicate::str::contains("BLOCKED"))
         .stdout(predicate::str::contains("Rust code must be formatted with rustfmt"))
         .stdout(predicate::str::contains("TypeScript must use strict mode"));
-
-    // Acknowledge Rust check only
-    noslop()
-        .args([
-            "ack",
-            "Rust code must be formatted with rustfmt",
-            "-m",
-            "Ran rustfmt on all files",
-        ])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Still should fail - missing TypeScript acknowledgment
-    noslop()
-        .args(["check", "--ci"])
-        .current_dir(repo_path)
-        .assert()
-        .failure()
-        .stdout(predicate::str::contains("TypeScript must use strict mode"));
-
-    // Acknowledge TypeScript check
-    noslop()
-        .args(["ack", "TypeScript must use strict mode", "-m", "Added strict: true to tsconfig"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Now should pass
-    noslop()
-        .args(["check", "--ci"])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("All checks acknowledged"));
 }
 
 /// Test that same check applies to multiple matching files
@@ -339,7 +220,7 @@ fn test_single_check_multiple_files() {
     // Setup
     init_git_repo(repo_path);
 
-    // Create .noslop.toml with glob pattern (using *.rs which is more reliable)
+    // Create .noslop.toml with glob pattern
     fs::write(
         repo_path.join(".noslop.toml"),
         r#"[[check]]
@@ -364,203 +245,13 @@ severity = "block"
     git_add(repo_path, "lib.rs");
     git_add(repo_path, "utils.rs");
 
-    // Check should fail
+    // Check should fail - blocking check matches all files
     noslop()
         .args(["check", "--ci"])
         .current_dir(repo_path)
         .assert()
         .failure()
         .stdout(predicate::str::contains("BLOCKED"));
-
-    // Single acknowledgment should cover all files
-    noslop()
-        .args([
-            "ack",
-            "All source files need security review",
-            "-m",
-            "Reviewed all files for security issues",
-        ])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Now should pass
-    noslop()
-        .args(["check", "--ci"])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("All checks acknowledged"));
-}
-
-// =============================================================================
-// ACK MATCHING TESTS
-// =============================================================================
-
-/// Test ack matching by check target
-#[test]
-fn test_ack_by_target() {
-    let temp = TempDir::new().unwrap();
-    let repo_path = temp.path();
-
-    // Setup
-    init_git_repo(repo_path);
-
-    // Create .noslop.toml
-    fs::write(
-        repo_path.join(".noslop.toml"),
-        r#"[[check]]
-target = "config/*.yaml"
-message = "Config changes require DevOps review"
-severity = "block"
-"#,
-    )
-    .unwrap();
-
-    // Create config directory
-    let config_dir = repo_path.join("config");
-    fs::create_dir_all(&config_dir).unwrap();
-    fs::write(config_dir.join("app.yaml"), "key: value").unwrap();
-
-    // Initial commit
-    git_add(repo_path, ".noslop.toml");
-    git_commit(repo_path, "Initial commit");
-
-    // Stage config file
-    git_add(repo_path, "config/app.yaml");
-
-    // Ack by target pattern
-    noslop()
-        .args(["ack", "config/*.yaml", "-m", "DevOps team approved changes"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Should pass
-    noslop()
-        .args(["check", "--ci"])
-        .current_dir(repo_path)
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("All checks acknowledged"));
-}
-
-/// Test ack matching by partial message
-#[test]
-fn test_ack_by_partial_message() {
-    let temp = TempDir::new().unwrap();
-    let repo_path = temp.path();
-
-    // Setup
-    init_git_repo(repo_path);
-
-    // Create .noslop.toml with a long message
-    fs::write(
-        repo_path.join(".noslop.toml"),
-        r#"[[check]]
-target = "*.sql"
-message = "Database migrations must be reviewed by DBA team for performance impact"
-severity = "block"
-"#,
-    )
-    .unwrap();
-
-    // Create SQL file
-    fs::write(repo_path.join("migration.sql"), "CREATE TABLE users (id INT);").unwrap();
-
-    // Initial commit
-    git_add(repo_path, ".noslop.toml");
-    git_commit(repo_path, "Initial commit");
-
-    // Stage SQL file
-    git_add(repo_path, "migration.sql");
-
-    // Ack using the full message
-    noslop()
-        .args([
-            "ack",
-            "Database migrations must be reviewed by DBA team for performance impact",
-            "-m",
-            "DBA approved - no index changes needed",
-        ])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Should pass
-    noslop().args(["check", "--ci"]).current_dir(repo_path).assert().success();
-}
-
-// =============================================================================
-// STAGED ACKS TESTS
-// =============================================================================
-
-/// Test that acks are stored in staged-acks.json
-#[test]
-fn test_ack_stored_in_json_file() {
-    let temp = TempDir::new().unwrap();
-    let repo_path = temp.path();
-
-    // Setup
-    init_git_repo(repo_path);
-
-    // Create .noslop directory
-    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
-
-    // Ack
-    noslop()
-        .args(["ack", "test-check", "-m", "Test acknowledgment message"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Verify staged-acks.json exists and contains correct data
-    let json_path = repo_path.join(".noslop/staged-acks.json");
-    assert!(json_path.exists(), "staged-acks.json should exist");
-
-    let content = fs::read_to_string(&json_path).unwrap();
-    assert!(content.contains("test-check"), "JSON should contain check ID");
-    assert!(
-        content.contains("Test acknowledgment message"),
-        "JSON should contain acknowledgment message"
-    );
-    assert!(content.contains("human"), "JSON should indicate human acknowledgment");
-}
-
-/// Test multiple acks accumulate in JSON file
-#[test]
-fn test_multiple_acks_accumulate() {
-    let temp = TempDir::new().unwrap();
-    let repo_path = temp.path();
-
-    // Setup
-    init_git_repo(repo_path);
-
-    // Create .noslop directory
-    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
-
-    // Add first ack
-    noslop()
-        .args(["ack", "first-check", "-m", "First acknowledgment"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Add second ack
-    noslop()
-        .args(["ack", "second-check", "-m", "Second acknowledgment"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Verify both are in the JSON file
-    let json_path = repo_path.join(".noslop/staged-acks.json");
-    let content = fs::read_to_string(&json_path).unwrap();
-
-    assert!(content.contains("first-check"), "Should contain first check");
-    assert!(content.contains("second-check"), "Should contain second check");
-    assert!(content.contains("First acknowledgment"), "Should contain first message");
-    assert!(content.contains("Second acknowledgment"), "Should contain second message");
 }
 
 // =============================================================================
@@ -687,7 +378,7 @@ fn test_nested_noslop_toml_files() {
     fs::write(
         repo_path.join(".noslop.toml"),
         r#"[[check]]
-target = "*.rs"
+target = "**/*.rs"
 message = "Global Rust check"
 severity = "block"
 "#,
@@ -700,7 +391,7 @@ severity = "block"
     fs::write(
         api_dir.join(".noslop.toml"),
         r#"[[check]]
-target = "*.rs"
+target = "api/*.rs"
 message = "API-specific security check"
 severity = "block"
 "#,
@@ -718,10 +409,10 @@ severity = "block"
     // Stage the file
     git_add(repo_path, "api/handler.rs");
 
-    // Check should require both checks to be acknowledged
+    // Check should report blocking checks
     let output = noslop().args(["check", "--ci"]).current_dir(repo_path).assert().failure();
 
-    // The check should mention both checks
+    // The check should mention at least one of the checks
     output.stdout(
         predicate::str::contains("Global Rust check").or(predicate::str::contains("API-specific")),
     );
@@ -758,7 +449,6 @@ severity = "block"
     fs::write(repo_path.join("main.go"), "package main").unwrap();
     git_add(repo_path, "main.go");
 
-    // Without --ci, check might exit differently
     // With --ci, should return error result (for CI systems)
     noslop()
         .args(["check", "--ci"])
@@ -808,9 +498,9 @@ severity = "block"
 // REVIEW INTEGRATION TESTS
 // =============================================================================
 
-/// Test that open review comments block commits
+/// Test starting and listing reviews
 #[test]
-fn test_review_comment_blocks_commit() {
+fn test_review_start_and_list() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -830,105 +520,26 @@ fn test_review_comment_blocks_commit() {
         .expect("Failed to get HEAD");
     let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-    // Start a review (using HEAD as both base and head for simplicity)
-    let review_output = noslop()
-        .args(["review", "start", &head_sha, &head_sha])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Extract review ID from output
-    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
-    let review_id = stdout
-        .lines()
-        .find(|l| l.contains("REV-"))
-        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
-        .expect("Should find review ID in output");
-
-    // Add a comment to the review targeting main.rs
-    noslop()
-        .args(["review", "comment", review_id, "main.rs", "-m", "Add error handling to main"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Modify the file and stage it
-    fs::write(repo_path.join("main.rs"), "fn main() { println!(\"updated\"); }").unwrap();
-    git_add(repo_path, "main.rs");
-
-    // Check should fail - blocked by open review comment
-    noslop()
-        .args(["check", "--ci"])
-        .current_dir(repo_path)
-        .assert()
-        .failure()
-        .stdout(predicate::str::contains("BLOCKED"))
-        .stdout(predicate::str::contains("Add error handling to main"));
-}
-
-/// Test that resolved review comments don't block commits
-#[test]
-fn test_resolved_review_comment_allows_commit() {
-    let temp = TempDir::new().unwrap();
-    let repo_path = temp.path();
-
-    // Setup
-    init_git_repo(repo_path);
-
-    // Create initial file and commit
-    fs::write(repo_path.join("lib.rs"), "pub fn hello() {}").unwrap();
-    git_add(repo_path, "lib.rs");
-    git_commit(repo_path, "Initial commit");
-
-    // Get commit SHA
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to get HEAD");
-    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
     // Start a review
-    let review_output = noslop()
+    noslop()
         .args(["review", "start", &head_sha, &head_sha])
         .current_dir(repo_path)
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("Started review"));
 
-    // Extract review ID from output
-    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
-    let review_id = stdout
-        .lines()
-        .find(|l| l.contains("REV-"))
-        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
-        .expect("Should find review ID in output");
-
-    // Add a comment to the review
+    // List reviews should show the review
     noslop()
-        .args(["review", "comment", review_id, "lib.rs", "-m", "Add documentation"])
+        .args(["review", "list"])
         .current_dir(repo_path)
         .assert()
-        .success();
-
-    // Resolve the comment
-    let comment_id = format!("{review_id}:1");
-    noslop()
-        .args(["review", "resolve", &comment_id, "-m", "Added doc comments"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Modify the file and stage it
-    fs::write(repo_path.join("lib.rs"), "/// Says hello\npub fn hello() {}").unwrap();
-    git_add(repo_path, "lib.rs");
-
-    // Check should pass - comment is resolved
-    noslop().args(["check", "--ci"]).current_dir(repo_path).assert().success();
+        .success()
+        .stdout(predicate::str::contains("OPEN"));
 }
 
-/// Test that closing a review with open comments fails
+/// Test closing a review without blocking findings
 #[test]
-fn test_close_review_with_open_comments_fails() {
+fn test_review_close() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -963,86 +574,11 @@ fn test_close_review_with_open_comments_fails() {
         .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
         .expect("Should find review ID in output");
 
-    // Add a comment but don't resolve it
-    noslop()
-        .args(["review", "comment", review_id, "app.rs", "-m", "Needs refactoring"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Try to close the review - should fail
-    noslop()
-        .args(["review", "close", review_id])
-        .current_dir(repo_path)
-        .assert()
-        .failure()
-        .stderr(predicate::str::contains("unresolved comment"));
-}
-
-/// Test that closing a review stages acknowledgments
-#[test]
-fn test_close_review_stages_acknowledgments() {
-    let temp = TempDir::new().unwrap();
-    let repo_path = temp.path();
-
-    // Setup
-    init_git_repo(repo_path);
-
-    // Create initial file and commit
-    fs::write(repo_path.join("utils.rs"), "pub fn util() {}").unwrap();
-    git_add(repo_path, "utils.rs");
-    git_commit(repo_path, "Initial commit");
-
-    // Get commit SHA
-    let output = Command::new("git")
-        .args(["rev-parse", "HEAD"])
-        .current_dir(repo_path)
-        .output()
-        .expect("Failed to get HEAD");
-    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
-
-    // Start a review
-    let review_output = noslop()
-        .args(["review", "start", &head_sha, &head_sha])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Extract review ID from output
-    let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
-    let review_id = stdout
-        .lines()
-        .find(|l| l.contains("REV-"))
-        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
-        .expect("Should find review ID in output");
-
-    // Add and resolve a comment
-    noslop()
-        .args(["review", "comment", review_id, "utils.rs", "-m", "Add error handling"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    let comment_id = format!("{review_id}:1");
-    noslop()
-        .args(["review", "resolve", &comment_id, "-m", "Added Result type"])
-        .current_dir(repo_path)
-        .assert()
-        .success();
-
-    // Close the review
+    // Close the review (no findings, so it should succeed)
     noslop()
         .args(["review", "close", review_id])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Staged 1 acknowledgment"));
-
-    // Verify acknowledgment was staged
-    let staged_acks_path = repo_path.join(".noslop/staged-acks.json");
-    assert!(staged_acks_path.exists(), "staged-acks.json should exist");
-
-    let content = fs::read_to_string(&staged_acks_path).unwrap();
-    assert!(content.contains(&comment_id), "Should contain comment ID");
-    assert!(content.contains("Added Result type"), "Should contain resolution message");
+        .stdout(predicate::str::contains("Closed review"));
 }

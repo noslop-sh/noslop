@@ -5,15 +5,15 @@ use clap::{Parser, Subcommand};
 use super::commands;
 use noslop::output::OutputMode;
 
-/// noslop - Pre-commit checks with acknowledgment tracking
+/// noslop - Local code review for agent-generated code
 #[derive(Parser, Debug)]
 #[command(
     name = "noslop",
     version,
-    about = "Pre-commit checks with acknowledgment tracking",
+    about = "Local code review for agent-generated code",
     long_about = "Enforce code review considerations via pre-commit hooks.\n\n\
                   Checks declare what must be reviewed when files change.\n\
-                  Acknowledgments prove the review happened before committing."
+                  Findings track review status before pushing."
 )]
 pub struct Cli {
     /// Enable verbose output
@@ -28,6 +28,7 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+/// Top-level CLI commands
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Initialize noslop in the current repository
@@ -37,7 +38,7 @@ pub enum Command {
         force: bool,
     },
 
-    /// Check for unacknowledged checks in staged changes, or manage checks
+    /// Check for unresolved findings in staged changes, or manage checks
     Check {
         /// Run in CI mode (stricter, non-interactive)
         #[arg(long)]
@@ -46,27 +47,6 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<CheckAction>,
     },
-
-    /// Acknowledge a check (prove something was considered)
-    Ack {
-        /// Check ID to acknowledge
-        id: String,
-
-        /// Acknowledgment message
-        #[arg(short, long)]
-        message: String,
-    },
-
-    /// Add acknowledgment trailers to commit message (used by commit-msg hook)
-    #[command(hide = true)]
-    AddTrailers {
-        /// Path to commit message file
-        commit_msg_file: String,
-    },
-
-    /// Clear staged acknowledgments (used by post-commit hook)
-    #[command(hide = true)]
-    ClearStaged,
 
     /// Manage code reviews
     Review {
@@ -78,6 +58,7 @@ pub enum Command {
     Version,
 }
 
+/// Check management subcommands
 #[derive(Subcommand, Debug)]
 pub enum CheckAction {
     /// Add a check
@@ -108,6 +89,7 @@ pub enum CheckAction {
     },
 }
 
+/// Review management subcommands
 #[derive(Subcommand, Debug)]
 pub enum ReviewAction {
     /// Start a new review for a commit range
@@ -117,23 +99,6 @@ pub enum ReviewAction {
 
         /// Head commit SHA (end of diff)
         head: String,
-    },
-
-    /// Add a comment to a review
-    Comment {
-        /// Review ID (e.g., REV-xxxx)
-        review_id: String,
-
-        /// Target file path
-        target: String,
-
-        /// Comment message
-        #[arg(short, long)]
-        message: String,
-
-        /// Line number (optional)
-        #[arg(short, long)]
-        line: Option<u32>,
     },
 
     /// List reviews
@@ -147,16 +112,6 @@ pub enum ReviewAction {
     Show {
         /// Review ID
         id: String,
-    },
-
-    /// Resolve a comment
-    Resolve {
-        /// Comment ID (e.g., REV-xxxx:1)
-        comment_id: String,
-
-        /// Resolution message
-        #[arg(short, long)]
-        message: Option<String>,
     },
 
     /// Close a review
@@ -189,9 +144,6 @@ pub fn run() -> anyhow::Result<()> {
             action: Some(action),
             ..
         }) => commands::check_manage(action, output_mode),
-        Some(Command::Ack { id, message }) => commands::ack(&id, &message, output_mode),
-        Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
-        Some(Command::ClearStaged) => commands::clear_staged(),
         Some(Command::Review { action }) => commands::review(action, output_mode),
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {

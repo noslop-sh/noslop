@@ -106,7 +106,7 @@ impl ReviewStore for FileReviewStore {
         let open = self.list_open()?;
         let blocking: Vec<Review> = open
             .into_iter()
-            .filter(|r| !r.open_comments_for_file(file).is_empty())
+            .filter(|r| r.findings.iter().any(|f| f.target.path == file && f.is_blocking()))
             .collect();
         Ok(blocking)
     }
@@ -115,7 +115,7 @@ impl ReviewStore for FileReviewStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::DiffPosition;
+    use crate::core::models::{Finding, FindingSource, Review, Severity, Target};
     use tempfile::TempDir;
 
     fn test_store() -> (FileReviewStore, TempDir) {
@@ -128,7 +128,7 @@ mod tests {
     fn test_save_and_load() {
         let (store, _dir) = test_store();
 
-        let review = Review::new("abc123".to_string(), "def456".to_string());
+        let review = Review::new("abc123", "def456");
         let id = review.id.clone();
 
         store.save(&review).unwrap();
@@ -137,7 +137,7 @@ mod tests {
         assert!(loaded.is_some());
         let loaded = loaded.unwrap();
         assert_eq!(loaded.id, id);
-        assert_eq!(loaded.base_sha, "abc123");
+        assert_eq!(loaded.base, "abc123");
     }
 
     #[test]
@@ -151,8 +151,8 @@ mod tests {
     fn test_list_all() {
         let (store, _dir) = test_store();
 
-        let r1 = Review::new("a".to_string(), "b".to_string());
-        let r2 = Review::new("c".to_string(), "d".to_string());
+        let r1 = Review::new("a", "b");
+        let r2 = Review::new("c", "d");
 
         store.save(&r1).unwrap();
         store.save(&r2).unwrap();
@@ -165,8 +165,8 @@ mod tests {
     fn test_list_open() {
         let (store, _dir) = test_store();
 
-        let r1 = Review::new("a".to_string(), "b".to_string());
-        let mut r2 = Review::new("c".to_string(), "d".to_string());
+        let r1 = Review::new("a", "b");
+        let mut r2 = Review::new("c", "d");
         r2.close();
 
         store.save(&r1).unwrap();
@@ -181,7 +181,7 @@ mod tests {
     fn test_delete() {
         let (store, _dir) = test_store();
 
-        let review = Review::new("a".to_string(), "b".to_string());
+        let review = Review::new("a", "b");
         let id = review.id.clone();
 
         store.save(&review).unwrap();
@@ -196,25 +196,27 @@ mod tests {
     fn test_find_blocking_for_file() {
         let (store, _dir) = test_store();
 
-        let mut r1 = Review::new("a".to_string(), "b".to_string());
-        r1.add_comment(
-            "src/main.rs".to_string(),
-            "Fix this".to_string(),
-            DiffPosition::new_line(10),
-        );
+        let mut r1 = Review::new("a", "b");
+        r1.add_finding(Finding::new(
+            Target::file("src/main.rs"),
+            Severity::Block,
+            "Fix this",
+            FindingSource::Human,
+        ));
 
-        let mut r2 = Review::new("c".to_string(), "d".to_string());
-        r2.add_comment(
-            "src/lib.rs".to_string(),
-            "Other file".to_string(),
-            DiffPosition::new_line(20),
-        );
+        let mut r2 = Review::new("c", "d");
+        r2.add_finding(Finding::new(
+            Target::file("src/lib.rs"),
+            Severity::Block,
+            "Other file",
+            FindingSource::Human,
+        ));
 
         store.save(&r1).unwrap();
         store.save(&r2).unwrap();
 
         let blocking = store.find_blocking_for_file("src/main.rs").unwrap();
         assert_eq!(blocking.len(), 1);
-        assert_eq!(blocking[0].comments[0].check.target, "src/main.rs");
+        assert_eq!(blocking[0].findings[0].target.path, "src/main.rs");
     }
 }

@@ -4,7 +4,7 @@
 //! human-readable text or machine-parseable JSON.
 
 use noslop::output::{
-    AckResult, CheckInfo, CheckListResult, CheckMatch, CheckResult, OperationResult, OutputMode,
+    CheckInfo, CheckListResult, CheckMatch, CheckResult, OperationResult, OutputMode,
 };
 
 // =============================================================================
@@ -27,20 +27,11 @@ fn check_result_serialization() {
         files_checked: 2,
         blocking: vec![],
         warnings: vec![],
-        acknowledged: vec![CheckMatch {
-            id: "TEST-1".to_string(),
-            file: "src/auth.rs".to_string(),
-            target: "*.rs".to_string(),
-            message: "Check auth".to_string(),
-            severity: "block".to_string(),
-            acknowledged: true,
-        }],
     };
 
     let json = serde_json::to_string(&result).unwrap();
     assert!(json.contains("\"passed\":true"));
     assert!(json.contains("\"files_checked\":2"));
-    assert!(json.contains("src/auth.rs"));
 }
 
 #[test]
@@ -54,15 +45,13 @@ fn check_result_blocking() {
             target: "src/api/".to_string(),
             message: "Review API changes".to_string(),
             severity: "block".to_string(),
-            acknowledged: false,
         }],
         warnings: vec![],
-        acknowledged: vec![],
     };
 
     let json = serde_json::to_string(&result).unwrap();
     assert!(json.contains("\"passed\":false"));
-    assert!(json.contains("\"acknowledged\":false"));
+    assert!(json.contains("Review API changes"));
 }
 
 #[test]
@@ -77,9 +66,7 @@ fn check_result_with_warnings() {
             target: "src/utils/".to_string(),
             message: "Consider reviewing utility changes".to_string(),
             severity: "warn".to_string(),
-            acknowledged: false,
         }],
-        acknowledged: vec![],
     };
 
     let json = serde_json::to_string(&result).unwrap();
@@ -99,13 +86,11 @@ fn check_match_serialization() {
         target: "*.rs".to_string(),
         message: "Test message".to_string(),
         severity: "warn".to_string(),
-        acknowledged: true,
     };
 
     let json = serde_json::to_string(&m).unwrap();
     assert!(json.contains("\"file\":\"test.rs\""));
     assert!(json.contains("\"severity\":\"warn\""));
-    assert!(json.contains("\"acknowledged\":true"));
 }
 
 // =============================================================================
@@ -135,35 +120,6 @@ fn check_list_empty() {
 
     let json = serde_json::to_string(&result).unwrap();
     assert!(json.contains("\"checks\":[]"));
-}
-
-// =============================================================================
-// AckResult Serialization Tests
-// =============================================================================
-
-#[test]
-fn ack_result_serialization() {
-    let result = AckResult {
-        success: true,
-        check_id: "session-check".to_string(),
-        message: "Verified session handling".to_string(),
-    };
-
-    let json = serde_json::to_string(&result).unwrap();
-    assert!(json.contains("\"success\":true"));
-    assert!(json.contains("session-check"));
-}
-
-#[test]
-fn ack_result_failure() {
-    let result = AckResult {
-        success: false,
-        check_id: "unknown".to_string(),
-        message: "Check not found".to_string(),
-    };
-
-    let json = serde_json::to_string(&result).unwrap();
-    assert!(json.contains("\"success\":false"));
 }
 
 // =============================================================================

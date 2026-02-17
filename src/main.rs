@@ -1,8 +1,6 @@
-//! noslop - Pre-commit checks with acknowledgment tracking
+//! noslop - Local code review for agent-generated code
 
 mod cli;
-mod git;
-mod noslop_file;
 
 fn main() {
     if let Err(e) = cli::run() {

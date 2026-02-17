@@ -4,9 +4,8 @@
 
 use std::fs;
 
-use crate::core::models::{Check, Severity};
+use crate::core::models::{Check, Severity, Target};
 use crate::core::ports::CheckRepository;
-use crate::core::services::matches_target;
 
 use super::parser::{find_noslop_files, load_file};
 use super::writer::add_check;
@@ -45,13 +44,13 @@ impl CheckRepository for TomlCheckRepository {
 
             for noslop_path in noslop_files {
                 let noslop_file = load_file(&noslop_path)?;
-                let noslop_dir = noslop_path.parent().unwrap_or(&self.base_dir);
 
                 for entry in &noslop_file.checks {
-                    if matches_target(&entry.target, file, noslop_dir, &self.base_dir) {
+                    let target = Target::pattern(&entry.target);
+                    if target.matches(file) {
                         let check = Check::new(
-                            entry.id.clone(),
-                            entry.target.clone(),
+                            entry.id.clone().unwrap_or_else(|| entry.target.clone()),
+                            Target::pattern(&entry.target),
                             entry.message.clone(),
                             entry.severity.parse().unwrap_or(Severity::Block),
                         );
@@ -113,8 +112,8 @@ impl CheckRepository for TomlCheckRepository {
                 }
 
                 let check = Check::new(
-                    entry.id,
-                    entry.target,
+                    entry.id.unwrap_or_else(|| entry.target.clone()),
+                    Target::pattern(&entry.target),
                     entry.message,
                     entry.severity.parse().unwrap_or(Severity::Block),
                 );

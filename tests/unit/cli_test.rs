@@ -133,31 +133,6 @@ fn test_check_with_no_staged_files() {
 }
 
 #[test]
-fn test_ack_stages_acknowledgment() {
-    let temp = TempDir::new().unwrap();
-
-    // Initialize git repo
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
-
-    // Create .noslop directory
-    std::fs::create_dir_all(temp.path().join(".noslop")).unwrap();
-
-    noslop()
-        .args(["ack", "test-check", "-m", "I checked it"])
-        .current_dir(temp.path())
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Staged acknowledgment"));
-
-    // Verify staged acks file exists
-    assert!(temp.path().join(".noslop/staged-acks.json").exists());
-}
-
-#[test]
 fn test_check_list_with_no_checks() {
     let temp = TempDir::new().unwrap();
 
@@ -226,10 +201,7 @@ fn test_check_remove() {
         .success()
         .stdout(predicate::str::contains("2 check(s) found"));
 
-    // Remove the first check - need to use the correct ID format
-    let content = std::fs::read_to_string(temp.path().join(".noslop.toml")).unwrap();
-    assert!(content.contains("First check"));
-
+    // Remove the first check
     noslop()
         .args(["check", "remove", ".noslop.toml:0"])
         .current_dir(temp.path())

@@ -3,13 +3,13 @@
 use std::fs;
 use std::path::Path;
 
-use crate::{git, noslop_file};
+use noslop::adapters::git;
+use noslop::adapters::toml::generate_prefix_from_repo;
 use noslop::output::OutputMode;
 
 /// Initialize noslop in the current repository
 pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
     let noslop_path = Path::new(".noslop.toml");
-    let _noslop_dir = Path::new(".noslop");
 
     if noslop_path.exists() && !force {
         println!("Already initialized (.noslop.toml exists).");
@@ -20,7 +20,8 @@ pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
     println!("Initializing noslop...\n");
 
     // Generate project prefix from repo name
-    let prefix = noslop_file::generate_prefix_from_repo();
+    let repo_name = git::get_repo_name();
+    let prefix = generate_prefix_from_repo(&repo_name);
     println!("  Generated project prefix: {prefix}");
 
     // Create .noslop.toml with project config and example check
@@ -44,7 +45,7 @@ prefix = "{prefix}"
     fs::write(noslop_path, noslop_toml)?;
     println!("  Created .noslop.toml");
 
-    // Create .noslop/ for acknowledgments (pending until committed)
+    // Create .noslop/ for reviews
     fs::create_dir_all(".noslop")?;
     fs::write(".noslop/.gitkeep", "")?;
     println!("  Created .noslop/");

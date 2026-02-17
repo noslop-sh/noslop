@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use crate::cli::app::CheckAction;
-use crate::noslop_file;
+use noslop::adapters::toml::{find_noslop_files, load_file};
 use noslop::output::OutputMode;
 
 /// Handle check management subcommands
@@ -20,13 +20,13 @@ pub fn check_manage(action: CheckAction, _mode: OutputMode) -> anyhow::Result<()
 }
 
 fn add(target: &str, message: &str, severity: &str) -> anyhow::Result<()> {
-    let id = noslop_file::add_check(target, message, severity)?;
+    let id = noslop::adapters::toml::add_check(target, message, severity)?;
 
     println!("Added check to .noslop.toml");
-    println!("  target: {}", target);
-    println!("  message: {}", message);
-    println!("  severity: {}", severity);
-    println!("  id: {}", id);
+    println!("  target: {target}");
+    println!("  message: {message}");
+    println!("  severity: {severity}");
+    println!("  id: {id}");
 
     Ok(())
 }
@@ -35,7 +35,7 @@ fn list(target: Option<&str>) -> anyhow::Result<()> {
     let cwd = std::env::current_dir()?;
     let search_path = target.map(|t| cwd.join(t)).unwrap_or_else(|| cwd.clone());
 
-    let noslop_files = noslop_file::find_noslop_files(&search_path);
+    let noslop_files = find_noslop_files(&search_path);
 
     if noslop_files.is_empty() {
         println!("No .noslop.toml files found.");
@@ -45,7 +45,7 @@ fn list(target: Option<&str>) -> anyhow::Result<()> {
 
     let mut total = 0;
     for path in &noslop_files {
-        let file = noslop_file::load_file(path)?;
+        let file = load_file(path)?;
         if file.checks.is_empty() {
             continue;
         }
@@ -61,7 +61,7 @@ fn list(target: Option<&str>) -> anyhow::Result<()> {
     if total == 0 {
         println!("No checks defined.");
     } else {
-        println!("{} check(s) found.", total);
+        println!("{total} check(s) found.");
     }
 
     Ok(())
@@ -81,7 +81,7 @@ fn remove(id: &str) -> anyhow::Result<()> {
         anyhow::bail!("File not found: {}", file_path.display());
     }
 
-    let mut file = noslop_file::load_file(file_path)?;
+    let mut file = load_file(file_path)?;
     if index >= file.checks.len() {
         anyhow::bail!("Index {} out of range (file has {} checks)", index, file.checks.len());
     }
@@ -96,7 +96,7 @@ fn remove(id: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
-fn format_noslop_file(file: &noslop_file::NoslopFile) -> String {
+fn format_noslop_file(file: &noslop::adapters::toml::NoslopFile) -> String {
     let mut out = String::new();
     out.push_str("# noslop checks\n\n");
 

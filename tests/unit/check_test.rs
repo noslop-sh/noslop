@@ -1,14 +1,9 @@
 //! Tests for Check model
 
-use noslop::core::models::{Check, Severity};
+use noslop::core::models::{Check, Severity, Target};
 
-fn make_check(target: &str) -> Check {
-    Check::new(
-        Some("TEST-1".to_string()),
-        target.to_string(),
-        "Test message".to_string(),
-        Severity::Block,
-    )
+fn make_check(target_str: &str) -> Check {
+    Check::new("TEST-1", Target::pattern(target_str), "Test message", Severity::Block)
 }
 
 mod applies_to {
@@ -23,19 +18,6 @@ mod applies_to {
     #[test]
     fn exact_path_rejects_different() {
         let check = make_check("src/auth.rs");
-        assert!(!check.applies_to("src/main.rs"));
-    }
-
-    #[test]
-    fn directory_prefix_matches_files_inside() {
-        let check = make_check("src/auth/");
-        assert!(check.applies_to("src/auth/login.rs"));
-        assert!(check.applies_to("src/auth/logout.rs"));
-    }
-
-    #[test]
-    fn directory_prefix_rejects_sibling() {
-        let check = make_check("src/auth/");
         assert!(!check.applies_to("src/main.rs"));
     }
 
@@ -78,12 +60,5 @@ mod applies_to {
         let check = make_check("src/?.rs");
         assert!(check.applies_to("src/a.rs"));
         assert!(!check.applies_to("src/ab.rs"));
-    }
-
-    #[test]
-    fn target_with_fragment_matches_file() {
-        // Fragment is for line/symbol targeting, but file matching should still work
-        let check = make_check("src/auth.rs#L42");
-        assert!(check.applies_to("src/auth.rs"));
     }
 }

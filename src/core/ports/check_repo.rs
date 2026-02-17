@@ -29,7 +29,9 @@ pub trait CheckRepository: Send + Sync {
     fn list_filtered(&self, target_filter: Option<&str>) -> anyhow::Result<Vec<Check>> {
         let all = self.list()?;
         match target_filter {
-            Some(filter) => Ok(all.into_iter().filter(|c| c.target.contains(filter)).collect()),
+            Some(filter) => {
+                Ok(all.into_iter().filter(|c| c.target.path.contains(filter)).collect())
+            },
             None => Ok(all),
         }
     }

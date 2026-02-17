@@ -1,372 +1,241 @@
-//! Review models
+//! Review model
 //!
-//! A Review is a code review session containing comments on a diff.
-//! `ReviewComment` extends Check with diff position and resolution status.
+//! A review session on a branch diff. Contains all findings from all
+//! analyzers across all pipeline runs.
 
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use super::{Check, Severity};
+use super::finding::Finding;
 
-/// A code review session on a commit range
+/// A code review session on a branch diff.
+///
+/// Created by `noslop review`. Contains findings from every analyzer
+/// that ran. The pre-push hook checks `is_blocked()` to gate push.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Review {
-    /// Unique identifier (e.g., "REV-abc123")
+    /// Unique identifier (e.g., "REV-a1b2c3d4").
     pub id: String,
-
-    /// Base commit SHA (start of diff range)
-    pub base_sha: String,
-
-    /// Head commit SHA (end of diff range)
-    pub head_sha: String,
-
-    /// Review status
+    /// Base commit SHA (typically merge-base with main).
+    pub base: String,
+    /// Head commit SHA (tip of the feature branch).
+    pub head: String,
+    /// Lifecycle state.
     pub status: ReviewStatus,
-
-    /// Comments in this review
-    pub comments: Vec<ReviewComment>,
-
-    /// When this review was created
+    /// All findings from all sources.
+    pub findings: Vec<Finding>,
+    /// ISO 8601 timestamp of creation.
     pub created_at: String,
-
-    /// When this review was closed (if closed)
+    /// ISO 8601 timestamp when closed (if closed).
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub closed_at: Option<String>,
-
-    /// Optional description
-    pub description: Option<String>,
 }
 
-/// Review lifecycle status
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
+/// Lifecycle state of a review.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ReviewStatus {
-    /// Review is active, comments block commits
+    /// Review is active
     #[default]
     Open,
     /// Review is closed (merged or abandoned)
     Closed,
 }
 
-/// A review comment - extends Check with diff position and resolution
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ReviewComment {
-    /// The underlying check (id, target, message, severity)
-    pub check: Check,
-
-    /// Position in the diff
-    pub position: DiffPosition,
-
-    /// Resolution status
-    pub status: CommentStatus,
-
-    /// When resolved (if resolved)
-    pub resolved_at: Option<String>,
-
-    /// Resolution message (if explicitly resolved)
-    pub resolution_message: Option<String>,
-}
-
-/// Position within a diff
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default)]
-pub struct DiffPosition {
-    /// Line number in the old file (base) - for deletions/context
-    pub old_line: Option<u32>,
-
-    /// Line number in the new file (head) - for additions/context
-    pub new_line: Option<u32>,
-
-    /// Which side of the diff this comment is on
-    pub side: DiffSide,
-
-    /// End line for multi-line comments
-    pub end_line: Option<u32>,
-}
-
-/// Which side of a diff
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum DiffSide {
-    /// Left side (old/deleted code)
-    Left,
-    /// Right side (new/added code) - default
-    #[default]
-    Right,
-}
-
-/// Status of a review comment
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, Default, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum CommentStatus {
-    /// Comment is open and blocks commits
-    #[default]
-    Open,
-    /// Explicitly resolved
-    Resolved,
-}
-
-// --- Review impl ---
-
 impl Review {
-    /// Create a new review for a commit range
+    /// Create a new open review for a commit range.
     #[must_use]
-    pub fn new(base_sha: String, head_sha: String) -> Self {
+    pub fn new(base: impl Into<String>, head: impl Into<String>) -> Self {
         Self {
             id: generate_review_id(),
-            base_sha,
-            head_sha,
+            base: base.into(),
+            head: head.into(),
             status: ReviewStatus::Open,
-            comments: Vec::new(),
-            created_at: chrono::Utc::now().to_rfc3339(),
+            findings: Vec::new(),
+            created_at: Utc::now().to_rfc3339(),
             closed_at: None,
-            description: None,
         }
     }
 
-    /// Add a comment to this review
-    pub fn add_comment(&mut self, target: String, message: String, position: DiffPosition) {
-        let index = self.comments.len() + 1;
-        let check =
-            Check::new(Some(format!("{}:{index}", self.id)), target, message, Severity::Block);
-        self.comments.push(ReviewComment {
-            check,
-            position,
-            status: CommentStatus::Open,
-            resolved_at: None,
-            resolution_message: None,
-        });
+    /// Add a finding to this review.
+    pub fn add_finding(&mut self, finding: Finding) {
+        self.findings.push(finding);
     }
 
-    /// Get all open comments
+    /// Add multiple findings from an analyzer pass.
+    pub fn add_findings(&mut self, findings: impl IntoIterator<Item = Finding>) {
+        self.findings.extend(findings);
+    }
+
+    /// All findings that currently prevent pushing
+    /// (severity == Block and status == Open).
     #[must_use]
-    pub fn open_comments(&self) -> Vec<&ReviewComment> {
-        self.comments.iter().filter(|c| c.status == CommentStatus::Open).collect()
+    pub fn blocking_findings(&self) -> Vec<&Finding> {
+        self.findings.iter().filter(|f| f.is_blocking()).collect()
     }
 
-    /// Get open comments for a specific file
+    /// Whether this review has any blocking findings.
+    /// Used by pre-push hook: `noslop review --check` exits 1 when true.
     #[must_use]
-    pub fn open_comments_for_file(&self, file: &str) -> Vec<&ReviewComment> {
-        self.comments
-            .iter()
-            .filter(|c| c.status == CommentStatus::Open && c.check.applies_to(file))
-            .collect()
+    pub fn is_blocked(&self) -> bool {
+        self.findings.iter().any(Finding::is_blocking)
     }
 
-    /// Extract all open checks (for commit validation)
+    /// All findings that target a specific file path.
     #[must_use]
-    pub fn open_checks(&self) -> Vec<&Check> {
-        self.comments
-            .iter()
-            .filter(|c| c.status == CommentStatus::Open)
-            .map(|c| &c.check)
-            .collect()
+    pub fn findings_for_file(&self, path: &str) -> Vec<&Finding> {
+        self.findings.iter().filter(|f| f.target.path == path).collect()
     }
 
-    /// Close this review
+    /// All findings that are still open (any severity).
+    #[must_use]
+    pub fn open_findings(&self) -> Vec<&Finding> {
+        self.findings.iter().filter(|f| f.is_open()).collect()
+    }
+
+    /// Close this review.
     pub fn close(&mut self) {
         self.status = ReviewStatus::Closed;
-        self.closed_at = Some(chrono::Utc::now().to_rfc3339());
+        self.closed_at = Some(Utc::now().to_rfc3339());
     }
 
-    /// Reopen this review
-    pub fn reopen(&mut self) {
-        self.status = ReviewStatus::Open;
-        self.closed_at = None;
-    }
-
-    /// Check if this review is open
+    /// Whether this review is open.
     #[must_use]
     pub fn is_open(&self) -> bool {
         self.status == ReviewStatus::Open
     }
 }
 
-// --- ReviewComment impl ---
-
-impl ReviewComment {
-    /// Resolve this comment
-    pub fn resolve(&mut self, message: Option<String>) {
-        self.status = CommentStatus::Resolved;
-        self.resolved_at = Some(chrono::Utc::now().to_rfc3339());
-        self.resolution_message = message;
-    }
-
-    /// Check if this comment is open
-    #[must_use]
-    pub fn is_open(&self) -> bool {
-        self.status == CommentStatus::Open
-    }
-
-    /// Get display string for line position
-    #[must_use]
-    pub fn line_display(&self) -> String {
-        match (self.position.new_line, self.position.end_line) {
-            (Some(start), Some(end)) if start != end => format!("L{start}-L{end}"),
-            (Some(line), _) => format!("L{line}"),
-            (None, _) => self
-                .position
-                .old_line
-                .map_or_else(|| "file".to_string(), |line| format!("L{line} (old)")),
-        }
-    }
-}
-
-// --- DiffPosition impl ---
-
-impl DiffPosition {
-    /// Position for a new/added line
-    #[must_use]
-    pub const fn new_line(line: u32) -> Self {
-        Self {
-            old_line: None,
-            new_line: Some(line),
-            side: DiffSide::Right,
-            end_line: None,
-        }
-    }
-
-    /// Position for an old/deleted line
-    #[must_use]
-    pub const fn old_line(line: u32) -> Self {
-        Self {
-            old_line: Some(line),
-            new_line: None,
-            side: DiffSide::Left,
-            end_line: None,
-        }
-    }
-
-    /// Position for a range of new lines
-    #[must_use]
-    pub const fn line_range(start: u32, end: u32) -> Self {
-        Self {
-            old_line: None,
-            new_line: Some(start),
-            side: DiffSide::Right,
-            end_line: Some(end),
-        }
-    }
-}
-
-// --- ID generation ---
-
-#[allow(clippy::cast_possible_truncation)]
 fn generate_review_id() -> String {
-    use std::sync::atomic::{AtomicU32, Ordering};
-    use std::time::{SystemTime, UNIX_EPOCH};
-
-    static COUNTER: AtomicU32 = AtomicU32::new(0);
-
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_secs();
-    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-
-    format!("REV-{:04x}{:04x}", (ts & 0xFFFF) as u16, counter as u16)
+    use uuid::Uuid;
+    format!("REV-{}", &Uuid::new_v4().to_string()[..8])
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::models::primitives::{FindingSource, Severity, Span, Target};
 
     #[test]
-    fn test_new_review() {
-        let review = Review::new("abc123".to_string(), "def456".to_string());
-
+    fn new_review() {
+        let review = Review::new("abc123", "def456");
         assert!(review.id.starts_with("REV-"));
-        assert_eq!(review.base_sha, "abc123");
-        assert_eq!(review.head_sha, "def456");
+        assert_eq!(review.base, "abc123");
+        assert_eq!(review.head, "def456");
         assert!(review.is_open());
-        assert!(review.comments.is_empty());
+        assert!(review.findings.is_empty());
     }
 
     #[test]
-    fn test_add_comment() {
-        let mut review = Review::new("base".to_string(), "head".to_string());
-        let review_id = review.id.clone();
-
-        review.add_comment(
-            "src/main.rs".to_string(),
-            "Add error handling".to_string(),
-            DiffPosition::new_line(42),
+    fn add_finding() {
+        let mut review = Review::new("base", "head");
+        let finding = Finding::new(
+            Target::file("src/auth.rs").with_span(Span::line(42)),
+            Severity::Block,
+            "Session handling changed",
+            FindingSource::Check("NOS-1".into()),
         );
-
-        assert_eq!(review.comments.len(), 1);
-        assert_eq!(review.comments[0].check.id, format!("{review_id}:1"));
-        assert_eq!(review.comments[0].check.target, "src/main.rs");
-        assert!(review.comments[0].is_open());
+        review.add_finding(finding);
+        assert_eq!(review.findings.len(), 1);
+        assert!(review.is_blocked());
     }
 
     #[test]
-    fn test_open_checks() {
-        let mut review = Review::new("base".to_string(), "head".to_string());
-
-        review.add_comment(
-            "src/a.rs".to_string(),
-            "Comment 1".to_string(),
-            DiffPosition::new_line(10),
-        );
-        review.add_comment(
-            "src/b.rs".to_string(),
-            "Comment 2".to_string(),
-            DiffPosition::new_line(20),
-        );
-
-        // Resolve first comment
-        review.comments[0].resolve(Some("Fixed".to_string()));
-
-        let open = review.open_checks();
-        assert_eq!(open.len(), 1);
-        assert_eq!(open[0].target, "src/b.rs");
+    fn blocking_findings() {
+        let mut review = Review::new("base", "head");
+        review.add_finding(Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Block,
+            "Blocker",
+            FindingSource::Check("NOS-1".into()),
+        ));
+        review.add_finding(Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Warn,
+            "Warning",
+            FindingSource::Agent("security".into()),
+        ));
+        assert_eq!(review.blocking_findings().len(), 1);
+        assert!(review.is_blocked());
     }
 
     #[test]
-    fn test_resolve_comment() {
-        let mut review = Review::new("base".to_string(), "head".to_string());
-        review.add_comment(
-            "src/main.rs".to_string(),
-            "Fix this".to_string(),
-            DiffPosition::new_line(10),
-        );
+    fn resolve_removes_block() {
+        let mut review = Review::new("base", "head");
+        review.add_finding(Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Block,
+            "Blocker",
+            FindingSource::Check("NOS-1".into()),
+        ));
+        assert!(review.is_blocked());
 
-        assert!(review.comments[0].is_open());
-
-        review.comments[0].resolve(Some("Done".to_string()));
-
-        assert!(!review.comments[0].is_open());
-        assert_eq!(review.comments[0].status, CommentStatus::Resolved);
-        assert!(review.comments[0].resolved_at.is_some());
+        review.findings[0].resolve();
+        assert!(!review.is_blocked());
     }
 
     #[test]
-    fn test_close_reopen() {
-        let mut review = Review::new("base".to_string(), "head".to_string());
+    fn findings_for_file() {
+        let mut review = Review::new("base", "head");
+        review.add_finding(Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Block,
+            "Auth finding",
+            FindingSource::Human,
+        ));
+        review.add_finding(Finding::new(
+            Target::file("src/main.rs"),
+            Severity::Warn,
+            "Main finding",
+            FindingSource::Human,
+        ));
+        assert_eq!(review.findings_for_file("src/auth.rs").len(), 1);
+        assert_eq!(review.findings_for_file("src/main.rs").len(), 1);
+        assert_eq!(review.findings_for_file("src/other.rs").len(), 0);
+    }
 
+    #[test]
+    fn close_review() {
+        let mut review = Review::new("base", "head");
         assert!(review.is_open());
 
         review.close();
         assert!(!review.is_open());
+        assert_eq!(review.status, ReviewStatus::Closed);
         assert!(review.closed_at.is_some());
-
-        review.reopen();
-        assert!(review.is_open());
-        assert!(review.closed_at.is_none());
     }
 
     #[test]
-    fn test_line_display() {
-        let comment = ReviewComment {
-            check: Check::new(None, "f".to_string(), "m".to_string(), Severity::Block),
-            position: DiffPosition::new_line(42),
-            status: CommentStatus::Open,
-            resolved_at: None,
-            resolution_message: None,
-        };
-        assert_eq!(comment.line_display(), "L42");
+    fn open_findings() {
+        let mut review = Review::new("base", "head");
+        review.add_finding(Finding::new(
+            Target::file("a.rs"),
+            Severity::Block,
+            "Open",
+            FindingSource::Human,
+        ));
+        review.add_finding(Finding::new(
+            Target::file("b.rs"),
+            Severity::Block,
+            "Also open",
+            FindingSource::Human,
+        ));
+        review.findings[0].resolve();
+        assert_eq!(review.open_findings().len(), 1);
+    }
 
-        let range_comment = ReviewComment {
-            check: Check::new(None, "f".to_string(), "m".to_string(), Severity::Block),
-            position: DiffPosition::line_range(10, 20),
-            status: CommentStatus::Open,
-            resolved_at: None,
-            resolution_message: None,
-        };
-        assert_eq!(range_comment.line_display(), "L10-L20");
+    #[test]
+    fn review_serde_roundtrip() {
+        let mut review = Review::new("abc", "def");
+        review.add_finding(Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Block,
+            "Test",
+            FindingSource::Human,
+        ));
+        let json = serde_json::to_string(&review).unwrap();
+        let parsed: Review = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.id, review.id);
+        assert_eq!(parsed.findings.len(), 1);
     }
 }
