@@ -54,6 +54,12 @@ pub enum Command {
         action: ReviewAction,
     },
 
+    /// Safety commit: stage all changes and commit bypassing hooks
+    Checkpoint {
+        /// Commit message (default: timestamp-based)
+        message: Option<String>,
+    },
+
     /// Show version
     Version,
 }
@@ -145,6 +151,9 @@ pub fn run() -> anyhow::Result<()> {
             ..
         }) => commands::check_manage(action, output_mode),
         Some(Command::Review { action }) => commands::review(action, output_mode),
+        Some(Command::Checkpoint { message }) => {
+            commands::checkpoint(message.as_deref(), output_mode)
+        },
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {
                 println!(

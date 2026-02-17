@@ -55,4 +55,7 @@ pub use core::models::{
     AgentKind, Check, Finding, FindingSource, FindingStatus, Review, ReviewStatus, Severity, Span,
     Target,
 };
-pub use core::ports::{CheckRepository, ReviewStore, VersionControl};
+pub use core::ports::{
+    AnalyzerTier, CheckRepository, CommitInfo, ContextKind, DiffHunk, DiffLine, DiffLineKind,
+    DiffStat, DiffStatus, FileDiff, ReviewAnalyzer, ReviewContext, ReviewStore, VersionControl,
+};
