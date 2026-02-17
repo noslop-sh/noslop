@@ -26,7 +26,7 @@ describe('api', () => {
   });
 
   it('getReview calls invoke with id', async () => {
-    const mockReview = { id: 'REV-1234', status: 'open', comments: [] };
+    const mockReview = { id: 'REV-1234', status: 'open', findings: [] };
     vi.mocked(invoke).mockResolvedValue(mockReview);
     const result = await api.getReview('REV-1234');
     expect(invoke).toHaveBeenCalledWith('get_review', { id: 'REV-1234' });
@@ -41,50 +41,41 @@ describe('api', () => {
   });
 
   it('startReview calls invoke with base and head', async () => {
-    const mockReview = { id: 'REV-1234', base_sha: 'abc', head_sha: 'def' };
+    const mockReview = { id: 'REV-1234', base: 'abc', head: 'def' };
     vi.mocked(invoke).mockResolvedValue(mockReview);
     const result = await api.startReview('abc', 'def');
     expect(invoke).toHaveBeenCalledWith('start_review', { base: 'abc', head: 'def' });
     expect(result).toEqual(mockReview);
   });
 
-  it('addComment calls invoke with all params', async () => {
-    vi.mocked(invoke).mockResolvedValue({ id: 'REV-1234:1' });
-    await api.addComment('REV-1234', 'src/main.rs', 'Fix this', 42);
-    expect(invoke).toHaveBeenCalledWith('add_comment', {
+  it('addFinding calls invoke with all params', async () => {
+    vi.mocked(invoke).mockResolvedValue({ id: 'F-12345678' });
+    await api.addFinding('REV-1234', 'src/main.rs', 'Fix this', 'block');
+    expect(invoke).toHaveBeenCalledWith('add_finding', {
       reviewId: 'REV-1234',
       target: 'src/main.rs',
       message: 'Fix this',
-      line: 42,
+      severity: 'block',
     });
   });
 
-  it('addComment works without line number', async () => {
-    vi.mocked(invoke).mockResolvedValue({ id: 'REV-1234:1' });
-    await api.addComment('REV-1234', 'src/main.rs', 'Fix this');
-    expect(invoke).toHaveBeenCalledWith('add_comment', {
+  it('addFinding works without severity', async () => {
+    vi.mocked(invoke).mockResolvedValue({ id: 'F-12345678' });
+    await api.addFinding('REV-1234', 'src/main.rs', 'Fix this');
+    expect(invoke).toHaveBeenCalledWith('add_finding', {
       reviewId: 'REV-1234',
       target: 'src/main.rs',
       message: 'Fix this',
-      line: undefined,
+      severity: undefined,
     });
   });
 
-  it('resolveComment calls invoke correctly', async () => {
+  it('resolveFinding calls invoke correctly', async () => {
     vi.mocked(invoke).mockResolvedValue(undefined);
-    await api.resolveComment('REV-1234:1', 'Fixed');
-    expect(invoke).toHaveBeenCalledWith('resolve_comment', {
-      commentId: 'REV-1234:1',
-      message: 'Fixed',
-    });
-  });
-
-  it('resolveComment works without message', async () => {
-    vi.mocked(invoke).mockResolvedValue(undefined);
-    await api.resolveComment('REV-1234:1');
-    expect(invoke).toHaveBeenCalledWith('resolve_comment', {
-      commentId: 'REV-1234:1',
-      message: undefined,
+    await api.resolveFinding('REV-1234', 'F-12345678');
+    expect(invoke).toHaveBeenCalledWith('resolve_finding', {
+      reviewId: 'REV-1234',
+      findingId: 'F-12345678',
     });
   });
 

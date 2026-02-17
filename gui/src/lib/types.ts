@@ -1,19 +1,20 @@
 export interface Review {
   id: string;
-  base_sha: string;
-  head_sha: string;
+  base: string;
+  head: string;
   status: 'open' | 'closed';
-  comments: Comment[];
+  findings: Finding[];
   created_at: string;
 }
 
-export interface Comment {
+export interface Finding {
   id: string;
   target: string;
+  severity: string;
   message: string;
-  line: number | null;
-  status: 'open' | 'resolved';
-  resolution_message: string | null;
+  source: string;
+  status: 'open' | 'resolved' | 'dismissed';
+  suggestion: string | null;
 }
 
 export interface DiffFile {

@@ -22,8 +22,8 @@ pub fn run() {
             commands::get_review,
             commands::get_diff,
             commands::start_review,
-            commands::add_comment,
-            commands::resolve_comment,
+            commands::add_finding,
+            commands::resolve_finding,
             commands::close_review,
         ])
         .run(tauri::generate_context!())

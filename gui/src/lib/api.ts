@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Review, Comment } from './types';
+import type { Review, Finding } from './types';
 
 export const api = {
   listReviews: (openOnly: boolean) => invoke<Review[]>('list_reviews', { openOnly }),
@@ -10,11 +10,11 @@ export const api = {
 
   startReview: (base: string, head: string) => invoke<Review>('start_review', { base, head }),
 
-  addComment: (reviewId: string, target: string, message: string, line?: number) =>
-    invoke<Comment>('add_comment', { reviewId, target, message, line }),
+  addFinding: (reviewId: string, target: string, message: string, severity?: string) =>
+    invoke<Finding>('add_finding', { reviewId, target, message, severity }),
 
-  resolveComment: (commentId: string, message?: string) =>
-    invoke<void>('resolve_comment', { commentId, message }),
+  resolveFinding: (reviewId: string, findingId: string) =>
+    invoke<void>('resolve_finding', { reviewId, findingId }),
 
   closeReview: (id: string) => invoke<void>('close_review', { id }),
 };

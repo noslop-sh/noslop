@@ -35,25 +35,25 @@ export function useStartReview() {
   });
 }
 
-export function useAddComment() {
+export function useAddFinding() {
   const client = useQueryClient();
   return createMutation({
-    mutationFn: (params: { reviewId: string; target: string; message: string; line?: number }) =>
-      api.addComment(params.reviewId, params.target, params.message, params.line),
+    mutationFn: (params: { reviewId: string; target: string; message: string; severity?: string }) =>
+      api.addFinding(params.reviewId, params.target, params.message, params.severity),
     onSuccess: (_, { reviewId }) => {
       client.invalidateQueries({ queryKey: ['review', reviewId] });
     },
   });
 }
 
-export function useResolveComment() {
+export function useResolveFinding() {
   const client = useQueryClient();
   return createMutation({
-    mutationFn: (params: { commentId: string; message?: string }) =>
-      api.resolveComment(params.commentId, params.message),
-    onSuccess: () => {
+    mutationFn: (params: { reviewId: string; findingId: string }) =>
+      api.resolveFinding(params.reviewId, params.findingId),
+    onSuccess: (_, { reviewId }) => {
       client.invalidateQueries({ queryKey: ['reviews'] });
-      client.invalidateQueries({ queryKey: ['review'] });
+      client.invalidateQueries({ queryKey: ['review', reviewId] });
     },
   });
 }

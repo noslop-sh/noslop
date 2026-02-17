@@ -2,13 +2,13 @@
 //!
 //! These commands expose noslop functionality to the frontend via Tauri's invoke API.
 
+use noslop::Review;
 use noslop::adapters::FileReviewStore;
-use noslop::core::models::{Acknowledgment, DiffPosition, Review};
+use noslop::core::models::{Finding, FindingSource, Severity, Target};
 use noslop::core::ports::ReviewStore;
-use noslop::storage;
 use std::process::Command;
 
-use crate::dto::{CommentDto, ReviewDto};
+use crate::dto::{FindingDto, ReviewDto};
 
 /// List all reviews, optionally filtering to open only
 #[tauri::command]
@@ -59,58 +59,55 @@ pub fn start_review(base: String, head: String) -> Result<ReviewDto, String> {
     Ok(ReviewDto::from(review))
 }
 
-/// Add a comment to a review
+/// Add a finding to a review
 #[tauri::command]
-pub fn add_comment(
+pub fn add_finding(
     review_id: String,
     target: String,
     message: String,
-    line: Option<u32>,
-) -> Result<CommentDto, String> {
+    severity: Option<String>,
+) -> Result<FindingDto, String> {
     let store = FileReviewStore::new();
     let mut review = store
         .load(&review_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Review not found: {review_id}"))?;
 
-    let position = line.map_or(DiffPosition::default(), DiffPosition::new_line);
-    review.add_comment(target, message, position);
+    let sev = severity
+        .as_deref()
+        .unwrap_or("block")
+        .parse::<Severity>()
+        .map_err(|e| e.to_string())?;
 
-    let comment = review.comments.last().unwrap();
-    let dto = CommentDto::from(comment.clone());
+    let finding = Finding::new(Target::file(target), sev, message, FindingSource::Human);
+    let dto = FindingDto::from(finding.clone());
+    review.add_finding(finding);
 
     store.save(&review).map_err(|e| e.to_string())?;
     Ok(dto)
 }
 
-/// Resolve a comment
+/// Resolve a finding
 #[tauri::command]
-pub fn resolve_comment(comment_id: String, message: Option<String>) -> Result<(), String> {
-    // Parse comment ID: "REV-xxxx:N"
-    let parts: Vec<&str> = comment_id.rsplitn(2, ':').collect();
-    if parts.len() != 2 {
-        return Err("Invalid comment ID format. Expected: REV-xxxx:N".to_string());
-    }
-    let review_id = parts[1];
-
+pub fn resolve_finding(review_id: String, finding_id: String) -> Result<(), String> {
     let store = FileReviewStore::new();
     let mut review = store
-        .load(review_id)
+        .load(&review_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Review not found: {review_id}"))?;
 
-    let comment = review
-        .comments
+    let finding = review
+        .findings
         .iter_mut()
-        .find(|c| c.check.id == comment_id)
-        .ok_or_else(|| format!("Comment not found: {comment_id}"))?;
+        .find(|f| f.id == finding_id)
+        .ok_or_else(|| format!("Finding not found: {finding_id}"))?;
 
-    comment.resolve(message);
+    finding.resolve();
     store.save(&review).map_err(|e| e.to_string())?;
     Ok(())
 }
 
-/// Close a review (stages acknowledgments for commit trailers)
+/// Close a review
 #[tauri::command]
 pub fn close_review(id: String) -> Result<(), String> {
     let store = FileReviewStore::new();
@@ -119,17 +116,9 @@ pub fn close_review(id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Review not found: {id}"))?;
 
-    let open_count = review.open_comments().len();
-    if open_count > 0 {
-        return Err(format!("Cannot close with {open_count} unresolved comment(s)"));
-    }
-
-    // Stage acknowledgments for all resolved comments
-    let ack_store = storage::ack_store();
-    for comment in &review.comments {
-        let msg = comment.resolution_message.clone().unwrap_or_else(|| "Resolved".to_string());
-        let ack = Acknowledgment::new(comment.check.id.clone(), msg, "review".to_string());
-        ack_store.stage(&ack).map_err(|e| e.to_string())?;
+    let blocking_count = review.blocking_findings().len();
+    if blocking_count > 0 {
+        return Err(format!("Cannot close with {blocking_count} blocking finding(s)"));
     }
 
     review.close();
@@ -171,52 +160,51 @@ mod tests {
         assert!(result.is_ok());
         let review = result.unwrap();
         assert!(review.id.starts_with("REV-"));
-        assert_eq!(review.base_sha, "abc123");
-        assert_eq!(review.head_sha, "def456");
+        assert_eq!(review.base, "abc123");
+        assert_eq!(review.head, "def456");
     }
 
     #[test]
-    fn test_add_comment_to_review() {
+    fn test_add_finding_to_review() {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into()).unwrap();
 
-        let comment = add_comment(
+        let finding = add_finding(
             review.id.clone(),
             "src/main.rs".into(),
             "Add error handling".into(),
-            Some(42),
+            Some("block".into()),
         )
         .unwrap();
 
-        assert_eq!(comment.target, "src/main.rs");
-        assert_eq!(comment.message, "Add error handling");
-        assert_eq!(comment.line, Some(42));
-        assert_eq!(comment.status, "open");
+        assert_eq!(finding.target, "src/main.rs");
+        assert_eq!(finding.message, "Add error handling");
+        assert_eq!(finding.status, "open");
     }
 
     #[test]
-    fn test_resolve_comment() {
+    fn test_resolve_finding() {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into()).unwrap();
-        add_comment(review.id.clone(), "file.rs".into(), "Fix".into(), None).unwrap();
+        let finding = add_finding(review.id.clone(), "file.rs".into(), "Fix".into(), None).unwrap();
 
-        let comment_id = format!("{}:1", review.id);
-        let result = resolve_comment(comment_id, Some("Done".into()));
+        let result = resolve_finding(review.id.clone(), finding.id);
         assert!(result.is_ok());
 
-        // Verify comment is resolved
+        // Verify finding is resolved
         let updated = get_review(review.id).unwrap();
-        assert_eq!(updated.comments[0].status, "resolved");
+        assert_eq!(updated.findings[0].status, "resolved");
     }
 
     #[test]
-    fn test_close_review_with_open_comments_fails() {
+    fn test_close_review_with_blocking_findings_fails() {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into()).unwrap();
-        add_comment(review.id.clone(), "file.rs".into(), "Fix".into(), None).unwrap();
+        add_finding(review.id.clone(), "file.rs".into(), "Fix".into(), Some("block".into()))
+            .unwrap();
 
         let result = close_review(review.id);
         assert!(result.is_err());
-        assert!(result.unwrap_err().contains("unresolved"));
+        assert!(result.unwrap_err().contains("blocking"));
     }
 }

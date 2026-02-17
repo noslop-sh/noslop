@@ -2,53 +2,55 @@
 //!
 //! These types serialize noslop domain models for the frontend.
 
-use noslop::core::models::{Review, ReviewComment};
+use noslop::core::models::{Finding, Review};
 use serde::Serialize;
 
 /// Review data for frontend
 #[derive(Debug, Serialize)]
 pub struct ReviewDto {
     pub id: String,
-    pub base_sha: String,
-    pub head_sha: String,
+    pub base: String,
+    pub head: String,
     pub status: String,
-    pub comments: Vec<CommentDto>,
+    pub findings: Vec<FindingDto>,
     pub created_at: String,
 }
 
-/// Comment data for frontend
+/// Finding data for frontend
 #[derive(Debug, Serialize)]
-pub struct CommentDto {
+pub struct FindingDto {
     pub id: String,
     pub target: String,
+    pub severity: String,
     pub message: String,
-    pub line: Option<u32>,
+    pub source: String,
     pub status: String,
-    pub resolution_message: Option<String>,
+    pub suggestion: Option<String>,
 }
 
 impl From<Review> for ReviewDto {
     fn from(r: Review) -> Self {
         Self {
             id: r.id,
-            base_sha: r.base_sha,
-            head_sha: r.head_sha,
+            base: r.base,
+            head: r.head,
             status: format!("{:?}", r.status).to_lowercase(),
-            comments: r.comments.into_iter().map(CommentDto::from).collect(),
+            findings: r.findings.into_iter().map(FindingDto::from).collect(),
             created_at: r.created_at,
         }
     }
 }
 
-impl From<ReviewComment> for CommentDto {
-    fn from(c: ReviewComment) -> Self {
+impl From<Finding> for FindingDto {
+    fn from(f: Finding) -> Self {
         Self {
-            id: c.check.id,
-            target: c.check.target,
-            message: c.check.message,
-            line: c.position.new_line,
-            status: format!("{:?}", c.status).to_lowercase(),
-            resolution_message: c.resolution_message,
+            id: f.id,
+            target: f.target.to_string(),
+            severity: f.severity.to_string(),
+            message: f.message,
+            source: f.source.to_string(),
+            status: format!("{:?}", f.status).to_lowercase(),
+            suggestion: f.suggestion,
         }
     }
 }

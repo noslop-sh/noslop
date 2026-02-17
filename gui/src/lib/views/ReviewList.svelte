@@ -13,8 +13,8 @@
 
   const reviews = useReviews(true);
 
-  function getOpenCommentCount(review: Review): number {
-    return review.comments.filter((c) => c.status === 'open').length;
+  function getOpenFindingCount(review: Review): number {
+    return review.findings.filter((f) => f.status === 'open').length;
   }
 
   function formatDate(iso: string): string {
@@ -43,12 +43,12 @@
         >
           <div class="flex items-center justify-between">
             <span class="font-mono text-sm">{review.id}</span>
-            {#if getOpenCommentCount(review) > 0}
-              <Badge variant="destructive">{getOpenCommentCount(review)}</Badge>
+            {#if getOpenFindingCount(review) > 0}
+              <Badge variant="destructive">{getOpenFindingCount(review)}</Badge>
             {/if}
           </div>
           <div class="mt-1 text-xs text-muted-foreground">
-            {review.base_sha.slice(0, 7)}..{review.head_sha.slice(0, 7)}
+            {review.base.slice(0, 7)}..{review.head.slice(0, 7)}
           </div>
           <div class="mt-1 text-xs text-muted-foreground">
             {formatDate(review.created_at)}
