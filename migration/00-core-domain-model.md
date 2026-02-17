@@ -649,7 +649,7 @@ assert!(!review.is_blocked());                   // resolved, no longer blocking
 
 ## AgentKind (`agent.rs`)
 
-Which AI reviewer to use. Kept minimal -- agent-specific configuration lives in the adapter layer.
+Which AI reviewer to use. Agent-specific configuration lives in the adapter layer.
 
 ```rust
 use std::fmt;
@@ -703,8 +703,6 @@ impl FromStr for AgentKind {
 
 ## Migration from Current Types
 
-Every existing type in `src/core/models/` mapped to its new form.
-
 | Current type     | Current file        | New type        | New file        | Notes                                                                                                               |
 | ---------------- | ------------------- | --------------- | --------------- | ------------------------------------------------------------------------------------------------------------------- |
 | `Severity`       | `severity.rs`       | `Severity`      | `primitives.rs` | Add `PartialOrd, Ord, Hash`; add `is_blocking()`                                                                    |
@@ -739,7 +737,7 @@ Every existing type in `src/core/models/` mapped to its new form.
 
 ## Port Trait Signatures
 
-Port traits reference the domain types above. Full designs are in their respective documents; summarized here for cross-reference.
+Port traits reference the domain types above. Full designs in their respective documents.
 
 **`ReviewAnalyzer`** (new -- `src/core/ports/analyzer.rs`). Each pipeline stage implements this. Full design in [06-run-loop-design.md](./06-run-loop-design.md).
 
