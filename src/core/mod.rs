@@ -6,37 +6,38 @@
 //! # Hexagonal Architecture
 //!
 //! ```text
-//!                  +-------------------------------------+
-//!                  |           Adapters (I/O)            |
-//!                  |  +-----+  +-----+                  |
-//!                  |  |TOML |  | Git |                  |
-//!                  |  +--+--+  +--+--+                  |
-//!                  +-----+--------+--------------------+
-//!                        |        |
-//!                  +-----v--------v--------------------+
-//!                  |              Ports (Traits)        |
-//!                  |  CheckRepository                   |
-//!                  |  ReviewStore                       |
-//!                  |  VersionControl                    |
-//!                  +-----------------+-----------------+
+//!          +-----------------------------------------------+
+//!          |               Adapters (I/O)                  |
+//!          |  +------+ +-----+ +--------+ +-------+       |
+//!          |  | TOML | | Git | | Agents | | Review|       |
+//!          |  +--+---+ +--+--+ +---+----+ +---+---+       |
+//!          +-----+--------+--------+----------+----------+
+//!                |        |        |          |
+//!          +-----v--------v--------v----------v----------+
+//!          |                Ports (Traits)                |
+//!          |  CheckRepository   ReviewStore               |
+//!          |  VersionControl    ReviewAnalyzer             |
+//!          |  AgentConfig       AgentRuntime               |
+//!          +------------------------+--------------------+
 //!                                   |
-//!                  +-----------------v-----------------+
-//!                  |           Core (Pure Logic)       |
-//!                  |  +----------+                     |
-//!                  |  |  Models  |                     |
-//!                  |  |  Check   |                     |
-//!                  |  |  Finding |                     |
-//!                  |  |  Review  |                     |
-//!                  |  | Severity |                     |
-//!                  |  |  Target  |                     |
-//!                  |  +----------+                     |
-//!                  +-----------------------------------+
+//!          +------------------------v--------------------+
+//!          |             Core (Pure Logic)                |
+//!          |  +----------+  +-----------+                |
+//!          |  |  Models  |  | Services  |                |
+//!          |  |  Check   |  | Pipeline  |                |
+//!          |  |  Finding |  +-----------+                |
+//!          |  |  Review  |                               |
+//!          |  | Severity |                               |
+//!          |  |  Target  |                               |
+//!          |  |AgentKind |                               |
+//!          |  +----------+                               |
+//!          +---------------------------------------------+
 //! ```
 //!
 //! # Modules
 //!
-//! - [`models`] - Domain types (Check, Finding, Review, Target, Severity)
-//! - [`services`] - Business logic (pipeline, analyzers) -- added in later phases
+//! - [`models`] - Domain types (`Check`, `Finding`, `Review`, `Target`, `Severity`, `AgentKind`)
+//! - [`services`] - Business logic (`ReviewPipeline` with tier-sorted fold semantics)
 //! - [`ports`] - Trait definitions for external dependencies
 
 pub mod models;

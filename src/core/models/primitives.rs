@@ -396,4 +396,108 @@ mod tests {
         assert!(json.contains("\"kind\":\"Check\""));
         assert!(json.contains("\"name\":\"NOS-1\""));
     }
+
+    // --- Additional edge case tests ---
+
+    #[test]
+    fn severity_serde_all_variants() {
+        for sev in [Severity::Info, Severity::Warn, Severity::Block] {
+            let json = serde_json::to_string(&sev).unwrap();
+            let parsed: Severity = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, sev);
+        }
+    }
+
+    #[test]
+    fn severity_parse_error_contains_input() {
+        let err = "invalid".parse::<Severity>().unwrap_err();
+        assert!(err.contains("invalid"));
+    }
+
+    #[test]
+    fn span_is_empty_valid_span() {
+        assert!(!Span::line(1).is_empty());
+        assert!(!Span::range(5, 10).is_empty());
+    }
+
+    #[test]
+    fn span_is_empty_inverted_range() {
+        let s = Span { start: 10, end: 5 };
+        assert!(s.is_empty());
+    }
+
+    #[test]
+    fn span_overlaps_same_span() {
+        let s = Span::range(10, 20);
+        assert!(s.overlaps(&s));
+    }
+
+    #[test]
+    fn span_overlaps_adjacent_not_overlapping() {
+        let a = Span::range(10, 20);
+        let b = Span::range(21, 30);
+        assert!(!a.overlaps(&b));
+    }
+
+    #[test]
+    fn span_overlaps_touching() {
+        let a = Span::range(10, 20);
+        let b = Span::range(20, 30);
+        assert!(a.overlaps(&b));
+    }
+
+    #[test]
+    fn target_is_glob_with_bracket() {
+        let t = Target::pattern("src/[ab]*.rs");
+        assert!(t.is_glob());
+    }
+
+    #[test]
+    fn target_is_glob_with_question() {
+        let t = Target::pattern("src/?.rs");
+        assert!(t.is_glob());
+    }
+
+    #[test]
+    fn target_display_short_commit() {
+        // Commit shorter than 7 chars should display fully
+        let t = Target::file("f.rs").with_commit("abc");
+        assert_eq!(t.to_string(), "f.rs@abc");
+    }
+
+    #[test]
+    fn target_display_no_extras() {
+        let t = Target::file("src/main.rs");
+        assert_eq!(t.to_string(), "src/main.rs");
+    }
+
+    #[test]
+    fn target_matches_bracket_glob() {
+        let t = Target::pattern("[abc].rs");
+        assert!(t.matches("a.rs"));
+        assert!(t.matches("b.rs"));
+        assert!(!t.matches("d.rs"));
+    }
+
+    #[test]
+    fn finding_source_serde_roundtrip_all_variants() {
+        let variants = vec![
+            FindingSource::Check("NOS-1".into()),
+            FindingSource::Script("lint".into()),
+            FindingSource::Agent("security".into()),
+            FindingSource::Human,
+        ];
+        for src in variants {
+            let json = serde_json::to_string(&src).unwrap();
+            let parsed: FindingSource = serde_json::from_str(&json).unwrap();
+            assert_eq!(parsed, src);
+        }
+    }
+
+    #[test]
+    fn finding_source_equality() {
+        assert_eq!(FindingSource::Check("A".into()), FindingSource::Check("A".into()));
+        assert_ne!(FindingSource::Check("A".into()), FindingSource::Check("B".into()));
+        assert_ne!(FindingSource::Human, FindingSource::Agent("x".into()));
+    }
 }

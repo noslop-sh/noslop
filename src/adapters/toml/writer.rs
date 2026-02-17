@@ -127,3 +127,168 @@ fn generate_3_letter_prefix(name: &str) -> String {
 
     prefix.to_uppercase()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::adapters::toml::parser::{CheckEntry, NoslopFile, ProjectConfig};
+
+    // --- generate_3_letter_prefix tests ---
+
+    #[test]
+    fn prefix_single_word() {
+        assert_eq!(generate_3_letter_prefix("noslop"), "NOS");
+    }
+
+    #[test]
+    fn prefix_two_words() {
+        let prefix = generate_3_letter_prefix("my-project");
+        assert_eq!(prefix.len(), 3);
+        // Two words: first letter of each + second letter of first word
+        // m,y -> m, o -> wait: "my" "project" -> [m,p] then insert y at pos 1 -> [m,y,p] -> "MYP"
+        assert_eq!(prefix, "MYP");
+    }
+
+    #[test]
+    fn prefix_three_words() {
+        assert_eq!(generate_3_letter_prefix("my-awesome-project"), "MAP");
+    }
+
+    #[test]
+    fn prefix_more_than_three_words() {
+        // Only takes first 3 words
+        assert_eq!(generate_3_letter_prefix("the-very-awesome-project"), "TVA");
+    }
+
+    #[test]
+    fn prefix_short_single_word() {
+        // "ab" -> only 2 chars -> "AB"
+        assert_eq!(generate_3_letter_prefix("ab"), "AB");
+    }
+
+    #[test]
+    fn prefix_single_char_word() {
+        assert_eq!(generate_3_letter_prefix("x"), "X");
+    }
+
+    #[test]
+    fn prefix_empty_string() {
+        assert_eq!(generate_3_letter_prefix(""), "CHK");
+    }
+
+    #[test]
+    fn prefix_only_separators() {
+        assert_eq!(generate_3_letter_prefix("---"), "CHK");
+    }
+
+    #[test]
+    fn prefix_uppercase_input() {
+        assert_eq!(generate_3_letter_prefix("MyProject"), "MYP");
+    }
+
+    #[test]
+    fn prefix_underscore_separator() {
+        assert_eq!(generate_3_letter_prefix("my_awesome_project"), "MAP");
+    }
+
+    #[test]
+    fn generate_prefix_from_repo_delegates() {
+        assert_eq!(generate_prefix_from_repo("noslop"), "NOS");
+    }
+
+    // --- format_noslop_file tests ---
+
+    #[test]
+    fn format_empty_file_default_prefix() {
+        let file = NoslopFile {
+            project: ProjectConfig::default(), // "CHK"
+            agent: None,
+            review: None,
+            checks: Vec::new(),
+        };
+        let out = format_noslop_file(&file);
+        assert!(out.starts_with("# noslop checks"));
+        // Default prefix "CHK" should not emit [project] section
+        assert!(!out.contains("[project]"));
+    }
+
+    #[test]
+    fn format_file_custom_prefix() {
+        let file = NoslopFile {
+            project: ProjectConfig {
+                prefix: "NOS".to_string(),
+                next_id: 1,
+            },
+            agent: None,
+            review: None,
+            checks: Vec::new(),
+        };
+        let out = format_noslop_file(&file);
+        assert!(out.contains("[project]"));
+        assert!(out.contains("prefix = \"NOS\""));
+    }
+
+    #[test]
+    fn format_file_with_checks() {
+        let file = NoslopFile {
+            project: ProjectConfig {
+                prefix: "TST".to_string(),
+                next_id: 2,
+            },
+            agent: None,
+            review: None,
+            checks: vec![
+                CheckEntry {
+                    id: Some("TST-1".to_string()),
+                    target: "*.rs".to_string(),
+                    message: "Review Rust".to_string(),
+                    severity: "block".to_string(),
+                    tags: vec![],
+                },
+                CheckEntry {
+                    id: None,
+                    target: "*.py".to_string(),
+                    message: "Review Python".to_string(),
+                    severity: "warn".to_string(),
+                    tags: vec!["security".to_string()],
+                },
+            ],
+        };
+        let out = format_noslop_file(&file);
+        assert!(out.contains("[[check]]"));
+        assert!(out.contains("id = \"TST-1\""));
+        assert!(out.contains("target = \"*.rs\""));
+        assert!(out.contains("message = \"Review Rust\""));
+        assert!(out.contains("severity = \"block\""));
+        // Second check has no id
+        assert!(out.contains("target = \"*.py\""));
+        // Second check has tags
+        assert!(out.contains("tags = "));
+        assert!(out.contains("security"));
+    }
+
+    #[test]
+    fn format_roundtrip_parses() {
+        let file = NoslopFile {
+            project: ProjectConfig {
+                prefix: "RND".to_string(),
+                next_id: 1,
+            },
+            agent: None,
+            review: None,
+            checks: vec![CheckEntry {
+                id: Some("RND-1".to_string()),
+                target: "src/**/*.rs".to_string(),
+                message: "Review code".to_string(),
+                severity: "block".to_string(),
+                tags: vec![],
+            }],
+        };
+        let out = format_noslop_file(&file);
+        // Should parse back without error
+        let parsed: NoslopFile = toml::from_str(&out).unwrap();
+        assert_eq!(parsed.project.prefix, "RND");
+        assert_eq!(parsed.checks.len(), 1);
+        assert_eq!(parsed.checks[0].target, "src/**/*.rs");
+    }
+}

@@ -130,3 +130,106 @@ impl std::fmt::Display for DiffStatus {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // --- DiffStat tests ---
+
+    #[test]
+    fn diff_stat_empty() {
+        let stat = DiffStat::empty();
+        assert_eq!(stat.files_changed, 0);
+        assert_eq!(stat.insertions, 0);
+        assert_eq!(stat.deletions, 0);
+    }
+
+    #[test]
+    fn diff_stat_display() {
+        let stat = DiffStat {
+            files_changed: 3,
+            insertions: 42,
+            deletions: 7,
+        };
+        assert_eq!(stat.to_string(), "3 file(s) changed, 42 insertion(s), 7 deletion(s)");
+    }
+
+    #[test]
+    fn diff_stat_display_singular() {
+        let stat = DiffStat {
+            files_changed: 1,
+            insertions: 1,
+            deletions: 1,
+        };
+        assert_eq!(stat.to_string(), "1 file(s) changed, 1 insertion(s), 1 deletion(s)");
+    }
+
+    #[test]
+    fn diff_stat_display_zero() {
+        let stat = DiffStat::empty();
+        assert_eq!(stat.to_string(), "0 file(s) changed, 0 insertion(s), 0 deletion(s)");
+    }
+
+    // --- DiffStatus tests ---
+
+    #[test]
+    fn diff_status_display() {
+        assert_eq!(DiffStatus::Added.to_string(), "added");
+        assert_eq!(DiffStatus::Modified.to_string(), "modified");
+        assert_eq!(DiffStatus::Deleted.to_string(), "deleted");
+        assert_eq!(DiffStatus::Renamed.to_string(), "renamed");
+    }
+
+    // --- Structural equality tests ---
+
+    #[test]
+    fn diff_line_equality() {
+        let a = DiffLine {
+            kind: DiffLineKind::Addition,
+            content: "hello".to_string(),
+        };
+        let b = DiffLine {
+            kind: DiffLineKind::Addition,
+            content: "hello".to_string(),
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn diff_line_kind_equality() {
+        assert_eq!(DiffLineKind::Context, DiffLineKind::Context);
+        assert_ne!(DiffLineKind::Addition, DiffLineKind::Deletion);
+    }
+
+    #[test]
+    fn file_diff_equality() {
+        let a = FileDiff {
+            path: PathBuf::from("src/main.rs"),
+            old_path: None,
+            status: DiffStatus::Added,
+            hunks: vec![],
+        };
+        let b = FileDiff {
+            path: PathBuf::from("src/main.rs"),
+            old_path: None,
+            status: DiffStatus::Added,
+            hunks: vec![],
+        };
+        assert_eq!(a, b);
+    }
+
+    #[test]
+    fn commit_info_equality() {
+        let a = CommitInfo {
+            short_sha: "abc1234".to_string(),
+            sha: "abc1234def5678901234567890123456789abcde".to_string(),
+            summary: "test commit".to_string(),
+            message: "test commit".to_string(),
+            author: "test".to_string(),
+            timestamp: 1000,
+        };
+        let b = a.clone();
+        assert_eq!(a, b);
+    }
+}

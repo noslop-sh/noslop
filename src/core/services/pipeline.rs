@@ -72,6 +72,7 @@ mod tests {
     use crate::core::models::{Finding, FindingSource, Severity, Target};
     use crate::core::ports::{AnalyzerTier, ContextKind};
     use std::path::PathBuf;
+    use std::sync::Arc;
 
     /// A simple mock analyzer for testing.
     struct MockAnalyzer {
@@ -109,6 +110,95 @@ mod tests {
 
         fn tier(&self) -> AnalyzerTier {
             self.tier
+        }
+    }
+
+    /// An analyzer that captures the count of prior findings it received.
+    struct CapturingAnalyzer {
+        analyzer_name: String,
+        tier: AnalyzerTier,
+        findings: Vec<Finding>,
+        prior_counts: Arc<std::sync::Mutex<Vec<(String, usize)>>>,
+    }
+
+    impl ReviewAnalyzer for CapturingAnalyzer {
+        fn required_context(&self) -> Vec<ContextKind> {
+            vec![ContextKind::ChangedFiles]
+        }
+
+        fn analyze(
+            &self,
+            _context: &ReviewContext,
+            prior_findings: &[Finding],
+        ) -> anyhow::Result<Vec<Finding>> {
+            self.prior_counts
+                .lock()
+                .unwrap()
+                .push((self.analyzer_name.clone(), prior_findings.len()));
+            Ok(self.findings.clone())
+        }
+
+        fn name(&self) -> &str {
+            &self.analyzer_name
+        }
+
+        fn tier(&self) -> AnalyzerTier {
+            self.tier
+        }
+    }
+
+    /// An analyzer that records its execution order via shared state.
+    struct OrderTracker {
+        analyzer_name: String,
+        tier: AnalyzerTier,
+        order: Arc<std::sync::Mutex<Vec<String>>>,
+    }
+
+    impl ReviewAnalyzer for OrderTracker {
+        fn required_context(&self) -> Vec<ContextKind> {
+            vec![]
+        }
+
+        fn analyze(
+            &self,
+            _context: &ReviewContext,
+            _prior: &[Finding],
+        ) -> anyhow::Result<Vec<Finding>> {
+            self.order.lock().unwrap().push(self.analyzer_name.clone());
+            Ok(vec![])
+        }
+
+        fn name(&self) -> &str {
+            &self.analyzer_name
+        }
+
+        fn tier(&self) -> AnalyzerTier {
+            self.tier
+        }
+    }
+
+    /// An analyzer that always fails.
+    struct FailingAnalyzer;
+
+    impl ReviewAnalyzer for FailingAnalyzer {
+        fn required_context(&self) -> Vec<ContextKind> {
+            vec![]
+        }
+
+        fn analyze(
+            &self,
+            _context: &ReviewContext,
+            _prior: &[Finding],
+        ) -> anyhow::Result<Vec<Finding>> {
+            anyhow::bail!("analyzer failed")
+        }
+
+        fn name(&self) -> &'static str {
+            "failing"
+        }
+
+        fn tier(&self) -> AnalyzerTier {
+            AnalyzerTier::Static
         }
     }
 
@@ -181,44 +271,8 @@ mod tests {
 
     #[test]
     fn fold_semantics_verified_with_shared_state() {
-        use std::sync::Arc;
-
-        // Use Arc<Mutex> to capture prior counts from inside the pipeline
         let prior_counts: Arc<std::sync::Mutex<Vec<(String, usize)>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
-
-        struct CapturingAnalyzer {
-            analyzer_name: String,
-            tier: AnalyzerTier,
-            findings: Vec<Finding>,
-            prior_counts: Arc<std::sync::Mutex<Vec<(String, usize)>>>,
-        }
-
-        impl ReviewAnalyzer for CapturingAnalyzer {
-            fn required_context(&self) -> Vec<ContextKind> {
-                vec![ContextKind::ChangedFiles]
-            }
-
-            fn analyze(
-                &self,
-                _context: &ReviewContext,
-                prior_findings: &[Finding],
-            ) -> anyhow::Result<Vec<Finding>> {
-                self.prior_counts
-                    .lock()
-                    .unwrap()
-                    .push((self.analyzer_name.clone(), prior_findings.len()));
-                Ok(self.findings.clone())
-            }
-
-            fn name(&self) -> &str {
-                &self.analyzer_name
-            }
-
-            fn tier(&self) -> AnalyzerTier {
-                self.tier
-            }
-        }
 
         let f1 = make_finding("s1");
         let f2 = make_finding("s2");
@@ -258,43 +312,13 @@ mod tests {
         assert_eq!(counts[1], ("computed".to_string(), 2));
         // agent runs third: sees 3 prior findings (2 from static + 1 from computed)
         assert_eq!(counts[2], ("agent".to_string(), 3));
+        drop(counts);
     }
 
     #[test]
     fn tier_ordering_respected() {
-        use std::sync::Arc;
-
         let execution_order: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
-
-        struct OrderTracker {
-            analyzer_name: String,
-            tier: AnalyzerTier,
-            order: Arc<std::sync::Mutex<Vec<String>>>,
-        }
-
-        impl ReviewAnalyzer for OrderTracker {
-            fn required_context(&self) -> Vec<ContextKind> {
-                vec![]
-            }
-
-            fn analyze(
-                &self,
-                _context: &ReviewContext,
-                _prior: &[Finding],
-            ) -> anyhow::Result<Vec<Finding>> {
-                self.order.lock().unwrap().push(self.analyzer_name.clone());
-                Ok(vec![])
-            }
-
-            fn name(&self) -> &str {
-                &self.analyzer_name
-            }
-
-            fn tier(&self) -> AnalyzerTier {
-                self.tier
-            }
-        }
 
         // Insert in reverse tier order to verify sorting
         let analyzers: Vec<Box<dyn ReviewAnalyzer>> = vec![
@@ -321,43 +345,13 @@ mod tests {
 
         let order = execution_order.lock().unwrap();
         assert_eq!(*order, vec!["static", "computed", "agent"]);
+        drop(order);
     }
 
     #[test]
     fn insertion_order_preserved_within_tier() {
-        use std::sync::Arc;
-
         let execution_order: Arc<std::sync::Mutex<Vec<String>>> =
             Arc::new(std::sync::Mutex::new(Vec::new()));
-
-        struct OrderTracker {
-            analyzer_name: String,
-            tier: AnalyzerTier,
-            order: Arc<std::sync::Mutex<Vec<String>>>,
-        }
-
-        impl ReviewAnalyzer for OrderTracker {
-            fn required_context(&self) -> Vec<ContextKind> {
-                vec![]
-            }
-
-            fn analyze(
-                &self,
-                _context: &ReviewContext,
-                _prior: &[Finding],
-            ) -> anyhow::Result<Vec<Finding>> {
-                self.order.lock().unwrap().push(self.analyzer_name.clone());
-                Ok(vec![])
-            }
-
-            fn name(&self) -> &str {
-                &self.analyzer_name
-            }
-
-            fn tier(&self) -> AnalyzerTier {
-                self.tier
-            }
-        }
 
         // Two static analyzers, should keep insertion order
         let analyzers: Vec<Box<dyn ReviewAnalyzer>> = vec![
@@ -384,34 +378,11 @@ mod tests {
 
         let order = execution_order.lock().unwrap();
         assert_eq!(*order, vec!["conventions", "extra-checks", "agent:security"]);
+        drop(order);
     }
 
     #[test]
     fn analyzer_error_propagates() {
-        struct FailingAnalyzer;
-
-        impl ReviewAnalyzer for FailingAnalyzer {
-            fn required_context(&self) -> Vec<ContextKind> {
-                vec![]
-            }
-
-            fn analyze(
-                &self,
-                _context: &ReviewContext,
-                _prior: &[Finding],
-            ) -> anyhow::Result<Vec<Finding>> {
-                anyhow::bail!("analyzer failed")
-            }
-
-            fn name(&self) -> &str {
-                "failing"
-            }
-
-            fn tier(&self) -> AnalyzerTier {
-                AnalyzerTier::Static
-            }
-        }
-
         let pipeline = ReviewPipeline::new(vec![Box::new(FailingAnalyzer)]);
         let ctx = test_context();
         let result = pipeline.run(&ctx);

@@ -15,9 +15,11 @@
 //!   - [`core::services`] - Pure business logic
 //!
 //! - [`adapters`] - I/O implementations of port traits
-//!   - [`adapters::toml`] - `.noslop.toml` file handling for checks
-//!   - [`adapters::git`] - Git integration (hooks, staging)
-//!   - [`adapters::review`] - JSON file review storage
+//!   - [`adapters::toml`] - `.noslop.toml` file handling (parser, writer, repository)
+//!   - [`adapters::git`] - Git integration (hooks, staging, diff, checkpoint)
+//!   - [`adapters::review`] - JSON file review storage (`FileReviewStore`)
+//!   - [`adapters::agents`] - AI agent adapters (Claude, Codex) with output parsing
+//!   - [`adapters::analyzers`] - Review analyzers (`ConventionAnalyzer`)
 
 // Deny all clippy warnings in this crate
 #![deny(

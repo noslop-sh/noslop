@@ -951,3 +951,684 @@ severity = "warn"
         .success()
         .stdout(predicate::str::contains("Dismissed finding"));
 }
+
+// =============================================================================
+// FULL LIFECYCLE INTEGRATION TESTS
+// =============================================================================
+
+/// Full workflow: init -> add check -> commit -> review run -> findings resolve -> review close
+#[test]
+fn test_full_lifecycle_init_to_close() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    // Phase 1: Init repo and noslop
+    init_git_repo(repo_path);
+    noslop().arg("init").current_dir(repo_path).assert().success();
+
+    // Phase 2: Add a blocking check
+    noslop()
+        .args(["check", "add", "*.rs", "-m", "Rust files need security review", "-s", "block"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Phase 3: Create initial commit with noslop config
+    // Use --no-verify to bypass the hooks that noslop init installed
+    git_add(repo_path, ".noslop.toml");
+    git_add(repo_path, ".noslop");
+    Command::new("git")
+        .args(["commit", "--no-verify", "-m", "Initial commit with noslop config"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to create commit");
+
+    // Get base SHA
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to get HEAD");
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Phase 4: Create some code and commit (bypass hooks since they'd block)
+    fs::write(repo_path.join("main.rs"), "fn main() { println!(\"hello\"); }").unwrap();
+    git_add(repo_path, "main.rs");
+    Command::new("git")
+        .args(["commit", "--no-verify", "-m", "Add main.rs"])
+        .current_dir(repo_path)
+        .output()
+        .expect("Failed to create commit");
+
+    // Phase 5: Run review (JSON) to produce findings
+    let review_output = noslop()
+        .args(["review", "run", "--base", &base_sha, "--json"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let json_stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
+    let review_id = json["review_id"].as_str().unwrap();
+    assert!(json["blocked"].as_bool().unwrap());
+    assert_eq!(json["findings"].as_u64().unwrap(), 1);
+
+    // Phase 6: review --check should fail because there are blocking findings
+    noslop()
+        .args(["review", "run", "--base", &base_sha, "--check"])
+        .current_dir(repo_path)
+        .assert()
+        .failure();
+
+    // Phase 7: Resolve the finding
+    let findings_output = noslop()
+        .args(["findings", "list", review_id, "--json"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let findings_json_str = String::from_utf8_lossy(&findings_output.get_output().stdout);
+    let findings_json: serde_json::Value = serde_json::from_str(&findings_json_str).unwrap();
+    let finding_id = findings_json[0]["id"].as_str().unwrap();
+
+    noslop()
+        .args(["findings", "resolve", review_id, finding_id])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Phase 8: Close review (now succeeds since blocking findings are resolved)
+    noslop()
+        .args(["review", "close", review_id])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Closed review"));
+}
+
+// =============================================================================
+// ERROR HANDLING TESTS (REVIEW / FINDINGS)
+// =============================================================================
+
+/// Closing a review with blocking findings should fail
+#[test]
+fn test_review_close_blocked_by_findings() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[project]
+prefix = "NOS"
+
+[[check]]
+id = "NOS-1"
+target = "*.rs"
+message = "Rust review"
+severity = "block"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Add code");
+
+    // Run review to create findings
+    let review_output = noslop()
+        .args(["review", "run", "--base", &base_sha, "--json"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let json_stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
+    let review_id = json["review_id"].as_str().unwrap();
+
+    // Try to close -- should fail because there are blocking findings
+    noslop()
+        .args(["review", "close", review_id])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("blocking finding"));
+}
+
+/// Findings list on a nonexistent review should fail
+#[test]
+fn test_findings_list_nonexistent_review() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    noslop()
+        .args(["findings", "list", "REV-nonexistent"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Review not found"));
+}
+
+/// Resolve finding on a nonexistent review should fail
+#[test]
+fn test_findings_resolve_nonexistent_review() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    noslop()
+        .args(["findings", "resolve", "REV-nonexistent", "F-nonexistent"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Review not found"));
+}
+
+/// Dismiss finding on a nonexistent review should fail
+#[test]
+fn test_findings_dismiss_nonexistent_review() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    noslop()
+        .args(["findings", "dismiss", "REV-nonexistent", "F-nonexistent"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Review not found"));
+}
+
+/// Review show on a nonexistent review should fail
+#[test]
+fn test_review_show_nonexistent() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    noslop()
+        .args(["review", "show", "REV-nonexistent"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Review not found"));
+}
+
+/// Review close on a nonexistent review should fail
+#[test]
+fn test_review_close_nonexistent() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    noslop()
+        .args(["review", "close", "REV-nonexistent"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("Review not found"));
+}
+
+// =============================================================================
+// JSON OUTPUT MODE TESTS
+// =============================================================================
+
+/// Review run in JSON mode produces valid parseable JSON
+#[test]
+fn test_review_run_json_output() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[project]
+prefix = "NOS"
+
+[[check]]
+id = "NOS-1"
+target = "*.rs"
+message = "Review Rust"
+severity = "block"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    fs::write(repo_path.join("lib.rs"), "pub fn lib() {}").unwrap();
+    git_add(repo_path, "lib.rs");
+    git_commit(repo_path, "Add lib.rs");
+
+    let review_output = noslop()
+        .args(["review", "run", "--base", &base_sha, "--json"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let json_stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
+
+    // Verify JSON structure
+    assert!(json["success"].as_bool().unwrap());
+    assert!(json["review_id"].as_str().unwrap().starts_with("REV-"));
+    assert!(json["findings"].is_number());
+    assert!(json["blocking"].is_number());
+    assert!(json["blocked"].is_boolean());
+    assert!(json["base"].is_string());
+    assert!(json["head"].is_string());
+}
+
+/// Review list in JSON mode produces valid parseable JSON
+#[test]
+fn test_review_list_json_output() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start a review
+    noslop()
+        .args(["review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // List in JSON mode
+    let list_output = noslop()
+        .args(["--json", "review", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let json_stdout = String::from_utf8_lossy(&list_output.get_output().stdout);
+    let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
+
+    // Should be an array with at least one review
+    assert!(json.is_array());
+    assert!(!json.as_array().unwrap().is_empty());
+    assert!(json[0]["id"].as_str().unwrap().starts_with("REV-"));
+    assert_eq!(json[0]["status"].as_str().unwrap(), "open");
+}
+
+/// Review show in JSON mode produces valid parseable JSON
+#[test]
+fn test_review_show_json_output() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start a review (JSON mode to get the ID)
+    let start_output = noslop()
+        .args(["--json", "review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let start_json_str = String::from_utf8_lossy(&start_output.get_output().stdout);
+    let start_json: serde_json::Value = serde_json::from_str(&start_json_str).unwrap();
+    let review_id = start_json["review_id"].as_str().unwrap();
+
+    // Show in JSON mode
+    let show_output = noslop()
+        .args(["--json", "review", "show", review_id])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let show_json_str = String::from_utf8_lossy(&show_output.get_output().stdout);
+    let show_json: serde_json::Value = serde_json::from_str(&show_json_str).unwrap();
+
+    assert_eq!(show_json["id"].as_str().unwrap(), review_id);
+    assert_eq!(show_json["status"].as_str().unwrap(), "open");
+    assert!(show_json["findings"].is_array());
+}
+
+/// Findings list in JSON mode produces valid parseable JSON
+#[test]
+fn test_findings_list_json_output() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[project]
+prefix = "NOS"
+
+[[check]]
+id = "NOS-1"
+target = "*.rs"
+message = "Rust review"
+severity = "warn"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    let base_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    fs::write(repo_path.join("lib.rs"), "pub fn lib() {}").unwrap();
+    git_add(repo_path, "lib.rs");
+    git_commit(repo_path, "Add lib.rs");
+
+    // Run review
+    let review_output = noslop()
+        .args(["review", "run", "--base", &base_sha, "--json"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let json_stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
+    let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
+    let review_id = json["review_id"].as_str().unwrap();
+
+    // List findings in JSON
+    let findings_output = noslop()
+        .args(["findings", "list", review_id, "--json"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let findings_json_str = String::from_utf8_lossy(&findings_output.get_output().stdout);
+    let findings_json: serde_json::Value = serde_json::from_str(&findings_json_str).unwrap();
+
+    // Should be an array with findings
+    assert!(findings_json.is_array());
+    assert!(!findings_json.as_array().unwrap().is_empty());
+    // Each finding should have id, severity, message
+    let first = &findings_json[0];
+    assert!(first["id"].as_str().unwrap().starts_with("F-"));
+    assert!(first["severity"].is_string());
+    assert!(first["message"].is_string());
+}
+
+// =============================================================================
+// CHECKPOINT JSON MODE TESTS
+// =============================================================================
+
+/// Checkpoint with custom message in JSON mode
+#[test]
+fn test_checkpoint_custom_message_json() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(repo_path.join("initial.txt"), "initial").unwrap();
+    git_add(repo_path, "initial.txt");
+    git_commit(repo_path, "Initial commit");
+
+    // Create a change
+    fs::write(repo_path.join("changed.txt"), "content").unwrap();
+
+    // Run checkpoint with custom message in JSON mode
+    let cp_output = noslop()
+        .args(["--json", "checkpoint", "before refactoring"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let json_stdout = String::from_utf8_lossy(&cp_output.get_output().stdout);
+    let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
+
+    assert!(json["success"].as_bool().unwrap());
+    assert!(json["sha"].is_string());
+    assert_eq!(json["message"].as_str().unwrap(), "before refactoring");
+}
+
+/// Checkpoint on clean tree in JSON mode
+#[test]
+fn test_checkpoint_clean_tree_json() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(repo_path.join("initial.txt"), "initial").unwrap();
+    git_add(repo_path, "initial.txt");
+    git_commit(repo_path, "Initial commit");
+
+    // No changes -- checkpoint in JSON mode
+    let cp_output = noslop()
+        .args(["--json", "checkpoint"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let json_stdout = String::from_utf8_lossy(&cp_output.get_output().stdout);
+    let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
+
+    assert!(json["success"].as_bool().unwrap());
+    assert!(json["sha"].is_null());
+}
+
+// =============================================================================
+// MULTIPLE REVIEWS / SESSION PERSISTENCE TESTS
+// =============================================================================
+
+/// Multiple reviews create separate session files
+#[test]
+fn test_multiple_reviews_separate_sessions() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start two reviews with JSON to get IDs
+    let r1_output = noslop()
+        .args(["--json", "review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+    let r1_json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&r1_output.get_output().stdout)).unwrap();
+    let id1 = r1_json["review_id"].as_str().unwrap().to_string();
+
+    let r2_output = noslop()
+        .args(["--json", "review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+    let r2_json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&r2_output.get_output().stdout)).unwrap();
+    let id2 = r2_json["review_id"].as_str().unwrap().to_string();
+
+    // IDs should be different
+    assert_ne!(id1, id2);
+
+    // List should show both
+    let list_output = noslop()
+        .args(["--json", "review", "list"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+    let list_json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&list_output.get_output().stdout)).unwrap();
+
+    assert!(list_json.as_array().unwrap().len() >= 2);
+
+    // Both IDs should appear
+    let ids: Vec<&str> = list_json
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| r["id"].as_str().unwrap())
+        .collect();
+    assert!(ids.contains(&id1.as_str()));
+    assert!(ids.contains(&id2.as_str()));
+}
+
+/// Review list --open filters closed reviews
+#[test]
+fn test_review_list_open_filter() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Start two reviews
+    let r1_output = noslop()
+        .args(["--json", "review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+    let r1_json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&r1_output.get_output().stdout)).unwrap();
+    let id1 = r1_json["review_id"].as_str().unwrap().to_string();
+
+    noslop()
+        .args(["review", "start", &head_sha, &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // Close the first review
+    noslop()
+        .args(["review", "close", &id1])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    // List --open should show only 1
+    let list_output = noslop()
+        .args(["--json", "review", "list", "--open"])
+        .current_dir(repo_path)
+        .assert()
+        .success();
+    let list_json: serde_json::Value =
+        serde_json::from_str(&String::from_utf8_lossy(&list_output.get_output().stdout)).unwrap();
+
+    let open_reviews = list_json.as_array().unwrap();
+    assert_eq!(open_reviews.len(), 1);
+    assert_ne!(open_reviews[0]["id"].as_str().unwrap(), id1);
+}
+
+/// Review run with no changes between base and head
+#[test]
+fn test_review_run_no_changes() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[project]
+prefix = "NOS"
+
+[[check]]
+id = "NOS-1"
+target = "*.rs"
+message = "Review Rust"
+severity = "block"
+"#,
+    )
+    .unwrap();
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    let output = Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    let head_sha = String::from_utf8_lossy(&output.stdout).trim().to_string();
+
+    // Run review with base=head (no changes)
+    noslop()
+        .args(["review", "run", "--base", &head_sha, "--head", &head_sha])
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Findings: 0"));
+}

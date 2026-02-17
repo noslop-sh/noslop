@@ -238,4 +238,101 @@ mod tests {
         assert_eq!(parsed.id, review.id);
         assert_eq!(parsed.findings.len(), 1);
     }
+
+    // --- Additional edge case tests ---
+
+    #[test]
+    fn review_id_format() {
+        let review = Review::new("base", "head");
+        assert!(review.id.starts_with("REV-"));
+        assert_eq!(review.id.len(), 12); // "REV-" + 8 hex chars
+    }
+
+    #[test]
+    fn review_add_findings_batch() {
+        let mut review = Review::new("base", "head");
+        let findings = vec![
+            Finding::new(Target::file("a.rs"), Severity::Block, "A", FindingSource::Human),
+            Finding::new(Target::file("b.rs"), Severity::Warn, "B", FindingSource::Human),
+            Finding::new(Target::file("c.rs"), Severity::Info, "C", FindingSource::Human),
+        ];
+        review.add_findings(findings);
+        assert_eq!(review.findings.len(), 3);
+    }
+
+    #[test]
+    fn review_not_blocked_by_warnings_only() {
+        let mut review = Review::new("base", "head");
+        review.add_finding(Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Warn,
+            "Warning only",
+            FindingSource::Human,
+        ));
+        review.add_finding(Finding::new(
+            Target::file("src/main.rs"),
+            Severity::Info,
+            "Info only",
+            FindingSource::Human,
+        ));
+        assert!(!review.is_blocked());
+        assert!(review.blocking_findings().is_empty());
+        assert_eq!(review.open_findings().len(), 2);
+    }
+
+    #[test]
+    fn review_close_sets_timestamp() {
+        let mut review = Review::new("base", "head");
+        assert!(review.closed_at.is_none());
+        review.close();
+        let ts = review.closed_at.as_ref().unwrap();
+        chrono::DateTime::parse_from_rfc3339(ts).expect("closed_at should be valid RFC 3339");
+    }
+
+    #[test]
+    fn review_created_at_is_rfc3339() {
+        let review = Review::new("base", "head");
+        chrono::DateTime::parse_from_rfc3339(&review.created_at)
+            .expect("created_at should be valid RFC 3339");
+    }
+
+    #[test]
+    fn review_findings_for_file_empty_review() {
+        let review = Review::new("base", "head");
+        assert!(review.findings_for_file("any.rs").is_empty());
+    }
+
+    #[test]
+    fn review_open_findings_all_resolved() {
+        let mut review = Review::new("base", "head");
+        review.add_finding(Finding::new(
+            Target::file("a.rs"),
+            Severity::Block,
+            "Resolved",
+            FindingSource::Human,
+        ));
+        review.findings[0].resolve();
+        assert!(review.open_findings().is_empty());
+        assert!(!review.is_blocked());
+    }
+
+    #[test]
+    fn review_serde_closed_at_skipped_when_none() {
+        let review = Review::new("base", "head");
+        let json = serde_json::to_string(&review).unwrap();
+        assert!(!json.contains("closed_at"));
+    }
+
+    #[test]
+    fn review_serde_closed_at_present_when_closed() {
+        let mut review = Review::new("base", "head");
+        review.close();
+        let json = serde_json::to_string(&review).unwrap();
+        assert!(json.contains("closed_at"));
+    }
+
+    #[test]
+    fn review_status_default_is_open() {
+        assert_eq!(ReviewStatus::default(), ReviewStatus::Open);
+    }
 }

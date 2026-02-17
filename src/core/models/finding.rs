@@ -228,4 +228,77 @@ mod tests {
         assert_eq!(FindingStatus::Resolved.to_string(), "resolved");
         assert_eq!(FindingStatus::Dismissed.to_string(), "dismissed");
     }
+
+    #[test]
+    fn finding_status_default_is_open() {
+        assert_eq!(FindingStatus::default(), FindingStatus::Open);
+    }
+
+    #[test]
+    fn finding_warn_never_blocks() {
+        let f = Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Warn,
+            "Warning finding",
+            FindingSource::Human,
+        );
+        assert!(!f.is_blocking());
+        assert!(f.is_open());
+    }
+
+    #[test]
+    fn finding_resolved_block_not_blocking() {
+        let mut f = Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Block,
+            "Resolved blocker",
+            FindingSource::Human,
+        );
+        assert!(f.is_blocking());
+        f.resolve();
+        assert!(!f.is_blocking());
+    }
+
+    #[test]
+    fn finding_dismissed_block_not_blocking() {
+        let mut f = Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Block,
+            "Dismissed blocker",
+            FindingSource::Human,
+        );
+        f.dismiss();
+        assert!(!f.is_blocking());
+    }
+
+    #[test]
+    fn finding_id_format() {
+        let f = Finding::new(Target::file("test.rs"), Severity::Info, "Test", FindingSource::Human);
+        assert!(f.id.starts_with("F-"));
+        assert_eq!(f.id.len(), 10); // "F-" + 8 hex chars
+    }
+
+    #[test]
+    fn finding_created_at_is_rfc3339() {
+        let f = Finding::new(Target::file("test.rs"), Severity::Info, "Test", FindingSource::Human);
+        // Should parse as RFC 3339
+        chrono::DateTime::parse_from_rfc3339(&f.created_at)
+            .expect("created_at should be valid RFC 3339");
+    }
+
+    #[test]
+    fn finding_display_all_sources() {
+        let sources = vec![
+            FindingSource::Check("NOS-1".into()),
+            FindingSource::Script("lint".into()),
+            FindingSource::Agent("security".into()),
+            FindingSource::Human,
+        ];
+        for src in sources {
+            let f = Finding::new(Target::file("test.rs"), Severity::Warn, "msg", src);
+            let display = f.to_string();
+            assert!(display.contains("[warn]"));
+            assert!(display.contains("msg"));
+        }
+    }
 }
