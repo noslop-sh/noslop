@@ -1,5 +1,6 @@
 //! Findings management commands
 
+use noslop::DismissReason;
 use noslop::adapters::FileReviewStore;
 use noslop::core::ports::ReviewStore;
 use noslop::output::OutputMode;
@@ -58,7 +59,7 @@ fn resolve_finding(
         .find(|f| f.id == finding_id)
         .ok_or_else(|| anyhow::anyhow!("Finding not found: {finding_id}"))?;
 
-    finding.resolve();
+    finding.resolve(None);
     store.save(&review)?;
 
     if mode == OutputMode::Json {
@@ -94,7 +95,16 @@ fn dismiss_finding(
         .find(|f| f.id == finding_id)
         .ok_or_else(|| anyhow::anyhow!("Finding not found: {finding_id}"))?;
 
-    finding.dismiss();
+    let dismiss_reason = match reason.unwrap_or("wont_fix") {
+        "false_positive" => DismissReason::FalsePositive,
+        "wont_fix" => DismissReason::WontFix,
+        "not_applicable" => DismissReason::NotApplicable,
+        "investigate_later" => DismissReason::InvestigateLater,
+        other => anyhow::bail!(
+            "Invalid dismiss reason: {other}. Expected: false_positive, wont_fix, not_applicable, investigate_later"
+        ),
+    };
+    finding.dismiss(dismiss_reason);
     store.save(&review)?;
 
     if mode == OutputMode::Json {
@@ -105,7 +115,7 @@ fn dismiss_finding(
                 "review_id": review_id,
                 "finding_id": finding_id,
                 "status": "dismissed",
-                "reason": reason.unwrap_or("dismissed")
+                "reason": reason.unwrap_or("wont_fix")
             })
         );
     } else {

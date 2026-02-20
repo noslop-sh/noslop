@@ -37,6 +37,23 @@
   --sidebar-accent-foreground: oklch(0.208 0.042 265.755);
   --sidebar-border: oklch(0.929 0.013 255.508);
   --sidebar-ring: oklch(0.704 0.04 256.788);
+
+  /* Diff highlighting */
+  --diff-add-bg: oklch(0.95 0.05 145);
+  --diff-add-char: oklch(0.85 0.12 145);
+  --diff-del-bg: oklch(0.95 0.05 25);
+  --diff-del-char: oklch(0.85 0.12 25);
+  --diff-hunk-header: oklch(0.95 0.03 250);
+
+  /* Finding severity colors */
+  --finding-block: oklch(0.577 0.245 27);
+  --finding-warn: oklch(0.769 0.188 70);
+  --finding-info: oklch(0.488 0.243 264);
+  --finding-human: oklch(0.627 0.265 303);
+
+  /* Success color */
+  --success: oklch(0.6 0.2 145);
+  --success-foreground: oklch(1 0 0);
 }
 
 .dark {
@@ -71,6 +88,23 @@
   --sidebar-accent-foreground: oklch(0.984 0.003 247.858);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.551 0.027 264.364);
+
+  /* Diff highlighting (dark) */
+  --diff-add-bg: oklch(0.22 0.05 145);
+  --diff-add-char: oklch(0.35 0.12 145);
+  --diff-del-bg: oklch(0.22 0.05 25);
+  --diff-del-char: oklch(0.35 0.12 25);
+  --diff-hunk-header: oklch(0.22 0.03 250);
+
+  /* Finding severity colors (dark) */
+  --finding-block: oklch(0.704 0.191 22);
+  --finding-warn: oklch(0.828 0.189 84);
+  --finding-info: oklch(0.696 0.17 162);
+  --finding-human: oklch(0.627 0.265 303);
+
+  /* Success color (dark) */
+  --success: oklch(0.6 0.2 145);
+  --success-foreground: oklch(1 0 0);
 }
 
 @theme inline {
@@ -109,6 +143,18 @@
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-ring: var(--sidebar-ring);
+
+  --color-diff-add-bg: var(--diff-add-bg);
+  --color-diff-add-char: var(--diff-add-char);
+  --color-diff-del-bg: var(--diff-del-bg);
+  --color-diff-del-char: var(--diff-del-char);
+  --color-diff-hunk-header: var(--diff-hunk-header);
+  --color-finding-block: var(--finding-block);
+  --color-finding-warn: var(--finding-warn);
+  --color-finding-info: var(--finding-info);
+  --color-finding-human: var(--finding-human);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
 }
 
 @layer base {

@@ -1,0 +1,18 @@
+export declare function setExtend<T>(props: {
+    extendData?: {
+        oldFile?: Record<string, {
+            data: T;
+        }>;
+        newFile?: Record<string, {
+            data: T;
+        }>;
+    };
+}): void;
+export declare function getExtend(): () => {
+    oldFile?: Record<string, {
+        data: any;
+    }>;
+    newFile?: Record<string, {
+        data: any;
+    }>;
+};

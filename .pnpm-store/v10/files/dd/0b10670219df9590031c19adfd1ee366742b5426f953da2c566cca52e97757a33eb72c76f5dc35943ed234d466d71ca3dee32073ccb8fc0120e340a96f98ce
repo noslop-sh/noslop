@@ -1,0 +1,8 @@
+import { setContext, getContext } from 'svelte';
+const key = Symbol('fontSize');
+export function setFontSize(props) {
+    setContext(key, () => props.diffViewFontSize || 14);
+}
+export function getFontSize() {
+    return getContext(key);
+}

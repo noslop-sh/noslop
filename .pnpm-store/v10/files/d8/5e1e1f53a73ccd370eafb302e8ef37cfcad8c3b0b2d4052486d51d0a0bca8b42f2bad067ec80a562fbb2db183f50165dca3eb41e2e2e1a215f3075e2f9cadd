@@ -1,0 +1,7 @@
+import { _cacheMap, DiffFile, SplitSide } from '@git-diff-view/core';
+import { DiffModeEnum } from '../utils/symbol.js';
+// eslint-disable-next-line import/namespace
+import { default as DiffView } from './DiffView.svelte';
+_cacheMap.name = '@git-diff-view/svelte';
+export { SplitSide, DiffModeEnum };
+export { DiffView };

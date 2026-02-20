@@ -1,0 +1,10 @@
+declare class TextMeasure {
+    #private;
+    measure(text: string, font?: {
+        fontFamily?: string;
+        fontStyle?: string;
+        fontSize?: string;
+    }): number;
+}
+export declare const getTextMeasureInstance: () => TextMeasure;
+export {};

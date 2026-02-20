@@ -61,9 +61,14 @@ impl ReviewStore for FileReviewStore {
         if !path.exists() {
             return Ok(None);
         }
-        let content = fs::read_to_string(path)?;
-        let review: Review = serde_json::from_str(&content)?;
-        Ok(Some(review))
+        let content = fs::read_to_string(&path)?;
+        match serde_json::from_str::<Review>(&content) {
+            Ok(review) => Ok(Some(review)),
+            Err(e) => {
+                log::warn!("Failed to parse review file {}: {e}", path.display());
+                Err(e.into())
+            },
+        }
     }
 
     fn list_all(&self) -> anyhow::Result<Vec<Review>> {
@@ -76,9 +81,19 @@ impl ReviewStore for FileReviewStore {
             let entry = entry?;
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "json") {
-                let content = fs::read_to_string(&path)?;
-                let review: Review = serde_json::from_str(&content)?;
-                reviews.push(review);
+                let content = match fs::read_to_string(&path) {
+                    Ok(c) => c,
+                    Err(e) => {
+                        log::warn!("Skipping unreadable review file {}: {e}", path.display());
+                        continue;
+                    },
+                };
+                match serde_json::from_str::<Review>(&content) {
+                    Ok(review) => reviews.push(review),
+                    Err(e) => {
+                        log::warn!("Skipping invalid review file {}: {e}", path.display());
+                    },
+                }
             }
         }
 

@@ -1,0 +1,20 @@
+import { type Snippet } from 'svelte';
+import type { DiffFile, SplitSide } from '@git-diff-view/core';
+export declare function setRenderExtend<T>(props: {
+    renderExtendLine?: Snippet<[
+        {
+            lineNumber: number;
+            side: SplitSide;
+            data: T;
+            diffFile: DiffFile;
+            onUpdate: () => void;
+        }
+    ]>;
+}): void;
+export declare function getRenderExtend(): () => Snippet<[{
+    lineNumber: number;
+    side: SplitSide;
+    data: any;
+    diffFile: DiffFile;
+    onUpdate: () => void;
+}]>;

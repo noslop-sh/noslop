@@ -1,0 +1,261 @@
+<script lang="ts" generics="T extends any">
+	import { diffFontSizeName } from '../utils/size.js';
+	import { DiffModeEnum } from '../utils/symbol.js';
+	import {
+		DiffFile,
+		type DiffHighlighter,
+		SplitSide,
+		highlighter as buildInHighlighter
+	} from '@git-diff-view/core';
+	import { onDestroy, type Snippet } from 'svelte';
+	import { useIsMounted } from '../hooks/useIsMounted.svelte.js';
+	import type { HTMLAttributes } from 'svelte/elements';
+	import { setFontSize } from '../context/fontSize.js';
+	import { setEnableWrap } from '../context/enableWrap.js';
+	import { setRenderWidget } from '../context/renderWidget.js';
+	import { setId } from '../context/id.js';
+	import { setDom } from '../context/dom.js';
+	import { setExtend } from '../context/extend.js';
+	import { setWidget as setWidgetContext } from '../context/widget.js';
+	import { setRenderExtend } from '../context/renderExtend.js';
+	import { setOnAddWidgetClick } from '../context/onAddWidgetClick.js';
+	import { setEnableHighlight } from '../context/enableHighlight.js';
+	import { setEnableAddWidget } from '../context/enableAddWidget.js';
+	import { setMode } from '../context/mode.js';
+
+	import DiffSplitView from './DiffSplitView.svelte';
+	import DiffUnifiedView from './DiffUnifiedView.svelte';
+
+	interface Props {
+		data?: {
+			oldFile?: { fileName?: string | null; fileLang?: string | null; content?: string | null };
+			newFile?: { fileName?: string | null; fileLang?: string | null; content?: string | null };
+			hunks: string[];
+		};
+		extendData?: { oldFile?: Record<string, { data: T }>; newFile?: Record<string, { data: T }> };
+		initialWidgetState?: { side: SplitSide; lineNumber: number };
+		diffFile?: DiffFile;
+		class?: string;
+		style?: HTMLAttributes<HTMLDivElement>['style'];
+		registerHighlighter?: Omit<DiffHighlighter, 'getHighlighterEngine'>;
+		diffViewMode?: DiffModeEnum;
+		diffViewWrap?: boolean;
+		diffViewTheme?: 'light' | 'dark';
+		diffViewFontSize?: number;
+		diffViewHighlight?: boolean;
+		diffViewAddWidget?: boolean;
+		renderWidgetLine?: Snippet<
+			[
+				{
+					lineNumber: number;
+					side: SplitSide;
+					diffFile: DiffFile;
+					onClose: () => void;
+				}
+			]
+		>;
+		renderExtendLine?: Snippet<
+			[
+				{
+					lineNumber: number;
+					side: SplitSide;
+					data: T;
+					diffFile: DiffFile;
+					onUpdate: () => void;
+				}
+			]
+		>;
+		onAddWidgetClick?: (lineNumber: number, side: SplitSide) => void;
+	}
+
+	let props: Props = $props();
+
+	let lastDiffFile: { current: DiffFile | null } = { current: null };
+
+	const getInstance = () => {
+		lastDiffFile.current?.clear?.();
+		if (props.diffFile) {
+			const diffFile = DiffFile.createInstance({});
+
+			diffFile._mergeFullBundle(props.diffFile._getFullBundle());
+
+			lastDiffFile.current = diffFile;
+
+			return diffFile;
+		} else if (props.data) {
+			const data = props.data;
+
+			const diffFile = new DiffFile(
+				data.oldFile?.fileName || '',
+				data.oldFile?.content || '',
+				data.newFile?.fileName || '',
+				data.newFile?.content || '',
+				data.hunks || [],
+				data.oldFile?.fileLang || '',
+				data.newFile?.fileLang || ''
+			);
+
+			lastDiffFile.current = diffFile;
+
+			return diffFile;
+		}
+		return null;
+	};
+
+	const diffFile = $derived.by(getInstance);
+
+	const getId = () => diffFile?.getId?.();
+
+	const id = $derived.by(getId);
+
+	const widgetState = $state<{ side?: SplitSide; lineNumber?: number }>({
+		side: props.initialWidgetState?.side,
+		lineNumber: props.initialWidgetState?.lineNumber
+	});
+
+	let wrapperRef = $state<HTMLElement | null>(null);
+
+	const setWidget = (v: { side?: SplitSide; lineNumber?: number }) => {
+		if (props) widgetState.side = v.side;
+		widgetState.lineNumber = v.lineNumber;
+	};
+
+	const enableHighlight = $derived(props.diffViewHighlight ?? true);
+
+	const theme = $derived(props.diffViewTheme);
+
+	$effect(() => {
+		widgetState.side = props.initialWidgetState?.side;
+		widgetState.lineNumber = props.initialWidgetState?.lineNumber;
+	});
+
+	$effect(() => {
+		if (props.data || props.diffFile) {
+			widgetState.side = undefined;
+			widgetState.lineNumber = undefined;
+		}
+	});
+
+	const unSubscribe = { current: () => {} };
+
+	const isMounted = $derived.by(useIsMounted());
+
+	const initSubscribe = () => {
+		unSubscribe?.current?.();
+		if (!isMounted || !diffFile || !props.diffFile) return;
+		props.diffFile._addClonedInstance(diffFile);
+		unSubscribe.current = () => props.diffFile?._delClonedInstance(diffFile);
+	};
+
+	$effect(initSubscribe);
+
+	onDestroy(() => unSubscribe.current());
+
+	const initDiff = () => {
+		if (!diffFile || !isMounted) return;
+		diffFile.initTheme(theme);
+		diffFile.initRaw();
+		diffFile.buildSplitDiffLines();
+		diffFile.buildUnifiedDiffLines();
+	};
+
+	$effect(initDiff);
+
+	const initSyntax = () => {
+		if (!diffFile || !isMounted) return;
+
+		theme;
+
+		if (enableHighlight) {
+			const registerHighlighter = props.registerHighlighter;
+			if (registerHighlighter) {
+				if (
+					registerHighlighter.name !== diffFile._getHighlighterName() ||
+					registerHighlighter.type !== diffFile._getHighlighterType() ||
+					registerHighlighter.type !== 'class'
+				) {
+					diffFile.initSyntax({
+						registerHighlighter: registerHighlighter
+					});
+					diffFile.notifyAll();
+				}
+			} else if (diffFile._getHighlighterType() !== 'class') {
+				diffFile.initSyntax();
+				diffFile.notifyAll();
+			}
+		}
+	};
+
+	$effect(initSyntax);
+
+	const unSubscribeAttr = { current: () => {} };
+
+	const initAttribute = () => {
+		unSubscribeAttr?.current?.();
+
+		if (!isMounted || !diffFile || !wrapperRef) return;
+
+		theme;
+
+		const init = () => {
+			wrapperRef?.setAttribute('data-theme', diffFile._getTheme() || 'light');
+			wrapperRef?.setAttribute('data-highlighter', diffFile._getHighlighterName());
+		};
+
+		init();
+
+		unSubscribeAttr.current = diffFile.subscribe(init);
+	};
+
+	$effect(initAttribute);
+
+	onDestroy(() => unSubscribeAttr.current());
+
+	setFontSize(props);
+
+	setEnableWrap(props);
+
+	setRenderWidget(props);
+
+	setRenderExtend(props);
+
+	setOnAddWidgetClick(props);
+
+	setEnableHighlight(props);
+
+	setEnableAddWidget(props);
+
+	setMode(props);
+
+	setWidgetContext(widgetState);
+
+	setExtend<T>(props);
+
+	setId(() => diffFile?.getId() || '');
+
+	setDom(() => wrapperRef as HTMLElement);
+</script>
+
+{#if diffFile}
+	<div
+		class="diff-tailwindcss-wrapper"
+		data-component="git-diff-view"
+		data-theme={diffFile?._getTheme() || 'light'}
+		data-highlighter={diffFile?._getHighlighterName()}
+		{@attach (e) => (wrapperRef = e)}
+	>
+		<div class="diff-style-root" style={`${diffFontSizeName}:${props.diffViewFontSize || 14}px`}>
+			<div
+				id={isMounted ? `diff-root${id}` : undefined}
+				class={`diff-view-wrapper` + (props.class ? ` ${props.class}` : '')}
+				style={props.style}
+			>
+				{#if !props.diffViewMode || props.diffViewMode & DiffModeEnum.Split}
+					<DiffSplitView {diffFile} />
+				{:else}
+					<DiffUnifiedView {diffFile} />
+				{/if}
+			</div>
+		</div>
+	</div>
+{/if}

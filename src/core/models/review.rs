@@ -24,6 +24,12 @@ pub struct Review {
     pub status: ReviewStatus,
     /// All findings from all sources.
     pub findings: Vec<Finding>,
+    /// Branch name this review was created for.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+    /// File paths that have been viewed/reviewed.
+    #[serde(default)]
+    pub viewed_files: Vec<String>,
     /// ISO 8601 timestamp of creation.
     pub created_at: String,
     /// ISO 8601 timestamp when closed (if closed).
@@ -52,6 +58,8 @@ impl Review {
             head: head.into(),
             status: ReviewStatus::Open,
             findings: Vec::new(),
+            branch: None,
+            viewed_files: Vec::new(),
             created_at: Utc::now().to_rfc3339(),
             closed_at: None,
         }
@@ -97,6 +105,22 @@ impl Review {
     pub fn close(&mut self) {
         self.status = ReviewStatus::Closed;
         self.closed_at = Some(Utc::now().to_rfc3339());
+    }
+
+    /// Reopen a closed review.
+    pub fn reopen(&mut self) {
+        self.status = ReviewStatus::Open;
+        self.closed_at = None;
+    }
+
+    /// Toggle a file path in the viewed files list.
+    /// If already present, removes it; otherwise adds it.
+    pub fn mark_file_viewed(&mut self, path: String) {
+        if let Some(pos) = self.viewed_files.iter().position(|p| *p == path) {
+            self.viewed_files.remove(pos);
+        } else {
+            self.viewed_files.push(path);
+        }
     }
 
     /// Whether this review is open.
@@ -170,7 +194,7 @@ mod tests {
         ));
         assert!(review.is_blocked());
 
-        review.findings[0].resolve();
+        review.findings[0].resolve(None);
         assert!(!review.is_blocked());
     }
 
@@ -220,7 +244,7 @@ mod tests {
             "Also open",
             FindingSource::Human,
         ));
-        review.findings[0].resolve();
+        review.findings[0].resolve(None);
         assert_eq!(review.open_findings().len(), 1);
     }
 
@@ -311,7 +335,7 @@ mod tests {
             "Resolved",
             FindingSource::Human,
         ));
-        review.findings[0].resolve();
+        review.findings[0].resolve(None);
         assert!(review.open_findings().is_empty());
         assert!(!review.is_blocked());
     }

@@ -1,60 +1,189 @@
 <script lang="ts">
-  import { useResolveFinding } from '$lib/queries';
+  import type { Finding, DismissReason, Severity } from '$lib/types';
+  import { formatSource } from '$lib/helpers';
   import { Button } from '$lib/components/ui/button';
-  import { Card } from '$lib/components/ui/card';
-  import { Badge } from '$lib/components/ui/badge';
-  import type { Finding } from '$lib/types';
+  import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
+  import { Check, ChevronDown, X } from '@lucide/svelte';
+  import { slide } from 'svelte/transition';
+  import { cn } from '$lib/utils';
 
   interface Props {
     finding: Finding;
     reviewId: string;
+    expanded: boolean;
+    focused: boolean;
+    onToggleExpand: () => void;
+    onResolve: () => void;
+    onDismiss: (reason: DismissReason) => void;
   }
 
-  let { finding, reviewId }: Props = $props();
+  let { finding, reviewId, expanded, focused, onToggleExpand, onResolve, onDismiss }: Props =
+    $props();
 
-  const resolveFinding = useResolveFinding();
+  const dismissOptions: { label: string; reason: DismissReason }[] = [
+    { label: 'False positive', reason: 'false_positive' },
+    { label: "Won't fix", reason: 'wont_fix' },
+    { label: 'Not applicable', reason: 'not_applicable' },
+    { label: 'Investigate later', reason: 'investigate_later' },
+  ];
 
-  async function handleResolve() {
-    await $resolveFinding.mutateAsync({ reviewId, findingId: finding.id });
+  let dismissOpen = $state(false);
+
+  let severityIcon = $derived(getSeverityIcon(finding.severity, finding.source.kind));
+  let severityColor = $derived(getSeverityColor(finding.severity, finding.source.kind));
+  let sourceDisplay = $derived(formatSource(finding.source));
+
+  let isOpen = $derived(finding.status === 'open');
+  let isResolved = $derived(finding.status === 'resolved');
+  let isDismissed = $derived(finding.status === 'dismissed');
+
+  let cardClasses = $derived(
+    cn(
+      'group relative rounded-lg border px-3 py-2 transition-all',
+      isOpen && 'border-border bg-card',
+      isResolved && 'border-green-500/30 bg-green-50/50 opacity-50 dark:bg-green-950/20',
+      isDismissed && 'border-muted bg-muted/50 opacity-60',
+      focused && 'ring-2 ring-ring',
+      isOpen && 'cursor-pointer hover:bg-accent/50'
+    )
+  );
+
+  function getSeverityIcon(severity: Severity, sourceKind: string): string {
+    if (sourceKind === 'human') return '\u25C6'; // diamond
+    switch (severity) {
+      case 'block':
+        return '\u25CF'; // filled circle
+      case 'warn':
+        return '\u25B2'; // triangle
+      case 'info':
+        return '\u25CB'; // circle outline
+    }
   }
 
-  function severityVariant(severity: string): 'destructive' | 'secondary' | 'outline' {
-    if (severity === 'block') return 'destructive';
-    if (severity === 'warn') return 'secondary';
-    return 'outline';
-  }
-
-  function statusVariant(status: string): 'destructive' | 'secondary' | 'outline' {
-    if (status === 'open') return 'destructive';
-    if (status === 'resolved') return 'secondary';
-    return 'outline';
+  function getSeverityColor(severity: Severity, sourceKind: string): string {
+    if (sourceKind === 'human') return 'text-[var(--finding-human)]';
+    switch (severity) {
+      case 'block':
+        return 'text-[var(--finding-block)]';
+      case 'warn':
+        return 'text-[var(--finding-warn)]';
+      case 'info':
+        return 'text-[var(--finding-info)]';
+    }
   }
 </script>
 
-<Card class="p-4">
-  <div class="flex items-start justify-between gap-4">
-    <div class="flex-1">
-      <div class="flex items-center gap-2">
-        <span class="font-mono text-sm text-muted-foreground">{finding.target}</span>
-        <Badge variant={severityVariant(finding.severity)}>{finding.severity}</Badge>
-        <Badge variant={statusVariant(finding.status)}>{finding.status}</Badge>
-      </div>
-      <p class="mt-2">{finding.message}</p>
-      <p class="mt-1 text-xs text-muted-foreground">source: {finding.source}</p>
+<!-- svelte-ignore a11y_click_events_have_key_events -->
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class={cardClasses} onclick={onToggleExpand}>
+  <!-- Header row (always visible) -->
+  <div class="flex items-center gap-2">
+    <span class={cn('text-sm font-bold leading-none', severityColor)} aria-label={finding.severity}>
+      {severityIcon}
+    </span>
+    <span class="text-xs font-semibold uppercase tracking-wide text-foreground">
+      {finding.severity}
+    </span>
+    <span class={cn('flex-1 truncate text-sm', isDismissed && 'line-through')}>
+      {finding.message}
+    </span>
+    <span class="shrink-0 text-xs text-muted-foreground">
+      {sourceDisplay}
+    </span>
 
-      {#if finding.suggestion}
-        <p class="mt-2 rounded bg-muted p-2 text-sm">
-          Suggestion: {finding.suggestion}
-        </p>
-      {/if}
-    </div>
+    {#if isResolved}
+      <span class="shrink-0 text-green-600 dark:text-green-400">
+        <Check class="size-4" />
+      </span>
+    {/if}
+
+    {#if isOpen}
+      <Button
+        variant="ghost"
+        size="sm"
+        class="h-6 shrink-0 px-2 text-xs"
+        onclick={(e: MouseEvent) => {
+          e.stopPropagation();
+          onResolve();
+        }}
+      >
+        Resolve
+      </Button>
+    {/if}
+
+    {#if expanded && isOpen}
+      <div onclick={(e: MouseEvent) => e.stopPropagation()} role="presentation">
+        <DropdownMenu.Root bind:open={dismissOpen}>
+          <DropdownMenu.Trigger>
+            {#snippet children()}
+              <Button variant="outline" size="sm" class="h-6 shrink-0 gap-1 px-2 text-xs">
+                Dismiss
+                <ChevronDown class="size-3" />
+              </Button>
+            {/snippet}
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Content align="end">
+            {#each dismissOptions as opt (opt.reason)}
+              <DropdownMenu.Item
+                onclick={() => {
+                  onDismiss(opt.reason);
+                  dismissOpen = false;
+                }}
+              >
+                {opt.label}
+              </DropdownMenu.Item>
+            {/each}
+          </DropdownMenu.Content>
+        </DropdownMenu.Root>
+      </div>
+    {/if}
   </div>
 
-  {#if finding.status === 'open'}
-    <div class="mt-4">
-      <Button onclick={handleResolve} disabled={$resolveFinding.isPending}>
-        {$resolveFinding.isPending ? 'Resolving...' : 'Resolve'}
-      </Button>
+  <!-- Expanded detail -->
+  {#if expanded}
+    <div transition:slide={{ duration: 200 }} class="mt-3">
+      <div class="mb-2 text-xs text-muted-foreground">
+        source: {sourceDisplay}
+      </div>
+
+      <hr class="mb-3 border-border" />
+
+      <p class="whitespace-pre-wrap text-sm text-foreground">
+        {finding.message}
+      </p>
+
+      {#if finding.suggestion}
+        <div class="mt-3">
+          <p class="mb-1 text-xs font-medium text-muted-foreground">Suggestion:</p>
+          <div class="rounded border border-border bg-muted/50 p-3">
+            <pre class="overflow-x-auto whitespace-pre text-xs font-mono text-foreground">{finding
+                .suggestion.replacement}</pre>
+          </div>
+        </div>
+      {/if}
+
+      {#if finding.notes.length > 0}
+        <div class="mt-3">
+          <p class="mb-1 text-xs font-medium text-muted-foreground">Notes:</p>
+          <div class="space-y-1">
+            {#each finding.notes as note (note.id)}
+              <p class="text-xs text-muted-foreground">{note.content}</p>
+            {/each}
+          </div>
+        </div>
+      {/if}
+
+      {#if isDismissed && finding.dismiss_reason}
+        <div class="mt-2 text-xs italic text-muted-foreground">
+          Dismissed: {finding.dismiss_reason.replace(/_/g, ' ')}
+        </div>
+      {/if}
+
+      {#if isResolved && finding.resolution_reason}
+        <div class="mt-2 text-xs italic text-green-600 dark:text-green-400">
+          Resolved: {finding.resolution_reason.replace(/_/g, ' ')}
+        </div>
+      {/if}
     </div>
   {/if}
-</Card>
+</div>

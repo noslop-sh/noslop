@@ -1,0 +1,8 @@
+import { setContext, getContext } from 'svelte';
+const key = Symbol('widget');
+export function setWidget(widget) {
+    setContext(key, () => widget);
+}
+export function getWidget() {
+    return getContext(key);
+}

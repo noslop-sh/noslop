@@ -41,11 +41,14 @@
 		"globals": "^17.3.0",
 		"jsdom": "^28.0.0",
 		"lucide-svelte": "^0.563.0",
+		"mode-watcher": "^1.1.0",
+		"paneforge": "^1.0.2",
 		"prettier": "^3.8.1",
 		"prettier-plugin-svelte": "^3.4.1",
 		"svelte": "^5.48.2",
 		"svelte-check": "^4.3.5",
 		"svelte-eslint-parser": "^1.4.1",
+		"svelte-sonner": "^1.0.7",
 		"tailwind-merge": "^3.4.0",
 		"tailwind-variants": "^3.2.2",
 		"tailwindcss": "^4.1.18",
@@ -55,6 +58,10 @@
 		"vitest": "^4.0.18"
 	},
 	"dependencies": {
+		"@git-diff-view/core": "^0.0.39",
+		"@git-diff-view/shiki": "^0.0.39",
+		"@git-diff-view/svelte": "^0.0.13",
+		"@pierre/diffs": "^1.0.11",
 		"@tanstack/svelte-query": "^5.90.2",
 		"@tauri-apps/api": "^2.10.1"
 	},

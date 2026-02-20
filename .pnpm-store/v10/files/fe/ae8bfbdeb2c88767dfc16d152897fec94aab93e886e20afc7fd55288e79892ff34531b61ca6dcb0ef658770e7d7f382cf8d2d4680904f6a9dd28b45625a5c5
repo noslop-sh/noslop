@@ -1,0 +1,12 @@
+import { SplitSide, type DiffFile } from '@git-diff-view/core';
+interface Props {
+    side: SplitSide;
+    diffFile: DiffFile;
+    onSelect?: (side?: SplitSide) => void;
+    selectState: {
+        current?: SplitSide;
+    };
+}
+declare const DiffSplitViewNormalTable: import("svelte").Component<Props, {}, "">;
+type DiffSplitViewNormalTable = ReturnType<typeof DiffSplitViewNormalTable>;
+export default DiffSplitViewNormalTable;

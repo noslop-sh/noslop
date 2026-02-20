@@ -35,6 +35,10 @@ impl RawAgentFinding {
             source,
             status: FindingStatus::Open,
             suggestion: self.suggestion,
+            dismiss_reason: None,
+            resolution_reason: None,
+            confidence: None,
+            notes: Vec::new(),
             created_at: String::new(),
         }
     }

@@ -1,0 +1,11 @@
+import { type DiffLine, type File } from '@git-diff-view/core';
+interface Props {
+    rawLine: string;
+    diffLine?: DiffLine;
+    plainLine?: File['plainFile'][number];
+    operator?: 'add' | 'del';
+    enableWrap?: boolean;
+}
+declare const DiffString: import("svelte").Component<Props, {}, "">;
+type DiffString = ReturnType<typeof DiffString>;
+export default DiffString;

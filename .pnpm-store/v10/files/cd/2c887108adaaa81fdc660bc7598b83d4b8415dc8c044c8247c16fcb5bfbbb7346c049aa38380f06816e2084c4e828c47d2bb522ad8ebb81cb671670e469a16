@@ -1,0 +1,6 @@
+interface Props {
+    className?: string;
+}
+declare const DiffExpandDown: import("svelte").Component<Props, {}, "">;
+type DiffExpandDown = ReturnType<typeof DiffExpandDown>;
+export default DiffExpandDown;

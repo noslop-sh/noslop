@@ -1,0 +1,4 @@
+export declare function setFontSize(props: {
+    diffViewFontSize?: number;
+}): void;
+export declare function getFontSize(): () => number;

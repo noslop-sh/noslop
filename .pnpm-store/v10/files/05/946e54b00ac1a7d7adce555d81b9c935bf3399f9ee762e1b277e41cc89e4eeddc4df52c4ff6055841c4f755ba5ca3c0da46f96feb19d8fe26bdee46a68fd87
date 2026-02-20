@@ -1,0 +1,10 @@
+import { SplitSide, type DiffFile } from '@git-diff-view/core';
+interface Props {
+    index: number;
+    side: SplitSide;
+    diffFile: DiffFile;
+    lineNumber: number;
+}
+declare const DiffSplitHunkLineNormalGitHub: import("svelte").Component<Props, {}, "">;
+type DiffSplitHunkLineNormalGitHub = ReturnType<typeof DiffSplitHunkLineNormalGitHub>;
+export default DiffSplitHunkLineNormalGitHub;

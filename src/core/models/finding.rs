@@ -12,6 +12,45 @@ use uuid::Uuid;
 
 use super::primitives::{FindingSource, Severity, Target};
 
+/// Reason why a finding was dismissed.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DismissReason {
+    /// Analyzer was wrong; this is not actually an issue
+    FalsePositive,
+    /// Known issue, intentionally not fixing
+    WontFix,
+    /// Finding does not apply to this context
+    NotApplicable,
+    /// Will look into it later
+    InvestigateLater,
+}
+
+/// Reason why a finding was resolved.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ResolutionReason {
+    /// Developer manually fixed the issue
+    Manual,
+    /// The suggested fix was applied
+    SuggestionApplied,
+    /// The relevant code was changed (auto-detected)
+    CodeChanged,
+    /// The file containing the finding was removed
+    FileRemoved,
+}
+
+/// A timestamped note on a finding.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FindingNote {
+    /// Unique identifier
+    pub id: String,
+    /// Note content
+    pub content: String,
+    /// ISO 8601 timestamp
+    pub created_at: String,
+}
+
 /// A note on code from any source.
 ///
 /// Findings are the primary output of the review pipeline. Every analyzer
@@ -35,6 +74,18 @@ pub struct Finding {
     /// Optional suggested fix or action.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub suggestion: Option<String>,
+    /// Why the finding was dismissed (set when status is Dismissed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub dismiss_reason: Option<DismissReason>,
+    /// Why the finding was resolved (set when status is Resolved).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub resolution_reason: Option<ResolutionReason>,
+    /// Confidence score from the analyzer (0.0 - 1.0).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f32>,
+    /// Timestamped notes on this finding.
+    #[serde(default)]
+    pub notes: Vec<FindingNote>,
     /// ISO 8601 timestamp of creation.
     pub created_at: String,
 }
@@ -73,6 +124,10 @@ impl Finding {
             source,
             status: FindingStatus::Open,
             suggestion: None,
+            dismiss_reason: None,
+            resolution_reason: None,
+            confidence: None,
+            notes: Vec::new(),
             created_at: Utc::now().to_rfc3339(),
         }
     }
@@ -90,14 +145,27 @@ impl Finding {
         self.severity == Severity::Block && self.status == FindingStatus::Open
     }
 
-    /// Mark as resolved.
-    pub const fn resolve(&mut self) {
+    /// Mark as resolved, optionally with a reason.
+    pub fn resolve(&mut self, reason: Option<ResolutionReason>) {
         self.status = FindingStatus::Resolved;
+        self.resolution_reason = reason;
     }
 
-    /// Mark as dismissed.
-    pub const fn dismiss(&mut self) {
+    /// Mark as dismissed with a reason.
+    pub fn dismiss(&mut self, reason: DismissReason) {
         self.status = FindingStatus::Dismissed;
+        self.dismiss_reason = Some(reason);
+    }
+
+    /// Add a timestamped note to this finding.
+    pub fn add_note(&mut self, content: String) -> &FindingNote {
+        let note = FindingNote {
+            id: format!("N-{}", &Uuid::new_v4().to_string()[..8]),
+            content,
+            created_at: Utc::now().to_rfc3339(),
+        };
+        self.notes.push(note);
+        self.notes.last().expect("just pushed")
     }
 
     /// Whether this finding is still open.
@@ -149,10 +217,23 @@ mod tests {
             "Test",
             FindingSource::Human,
         );
-        f.resolve();
+        f.resolve(None);
         assert!(!f.is_open());
         assert!(!f.is_blocking());
         assert_eq!(f.status, FindingStatus::Resolved);
+    }
+
+    #[test]
+    fn finding_resolve_with_reason() {
+        let mut f = Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Block,
+            "Test",
+            FindingSource::Human,
+        );
+        f.resolve(Some(ResolutionReason::Manual));
+        assert_eq!(f.status, FindingStatus::Resolved);
+        assert_eq!(f.resolution_reason, Some(ResolutionReason::Manual));
     }
 
     #[test]
@@ -163,10 +244,11 @@ mod tests {
             "Test",
             FindingSource::Human,
         );
-        f.dismiss();
+        f.dismiss(DismissReason::FalsePositive);
         assert!(!f.is_open());
         assert!(!f.is_blocking());
         assert_eq!(f.status, FindingStatus::Dismissed);
+        assert_eq!(f.dismiss_reason, Some(DismissReason::FalsePositive));
     }
 
     #[test]
@@ -255,7 +337,7 @@ mod tests {
             FindingSource::Human,
         );
         assert!(f.is_blocking());
-        f.resolve();
+        f.resolve(None);
         assert!(!f.is_blocking());
     }
 
@@ -267,8 +349,57 @@ mod tests {
             "Dismissed blocker",
             FindingSource::Human,
         );
-        f.dismiss();
+        f.dismiss(DismissReason::WontFix);
         assert!(!f.is_blocking());
+    }
+
+    #[test]
+    fn finding_add_note() {
+        let mut f = Finding::new(
+            Target::file("src/auth.rs"),
+            Severity::Block,
+            "Test",
+            FindingSource::Human,
+        );
+        assert!(f.notes.is_empty());
+        let note = f.add_note("This needs attention".into());
+        assert!(note.id.starts_with("N-"));
+        assert_eq!(note.content, "This needs attention");
+        assert_eq!(f.notes.len(), 1);
+    }
+
+    #[test]
+    fn finding_notes_default_empty() {
+        let f = Finding::new(Target::file("test.rs"), Severity::Info, "Test", FindingSource::Human);
+        assert!(f.notes.is_empty());
+    }
+
+    #[test]
+    fn finding_new_fields_default_none() {
+        let f = Finding::new(Target::file("test.rs"), Severity::Info, "Test", FindingSource::Human);
+        assert!(f.dismiss_reason.is_none());
+        assert!(f.resolution_reason.is_none());
+        assert!(f.confidence.is_none());
+    }
+
+    #[test]
+    fn finding_backwards_compat_serde() {
+        // JSON without new fields should deserialize successfully
+        let json = r#"{
+            "id": "F-test1234",
+            "target": {"path": "test.rs"},
+            "severity": "block",
+            "message": "Old finding",
+            "source": {"kind": "Human"},
+            "status": "open",
+            "created_at": "2025-01-01T00:00:00+00:00"
+        }"#;
+        let f: Finding = serde_json::from_str(json).unwrap();
+        assert_eq!(f.id, "F-test1234");
+        assert!(f.dismiss_reason.is_none());
+        assert!(f.resolution_reason.is_none());
+        assert!(f.confidence.is_none());
+        assert!(f.notes.is_empty());
     }
 
     #[test]

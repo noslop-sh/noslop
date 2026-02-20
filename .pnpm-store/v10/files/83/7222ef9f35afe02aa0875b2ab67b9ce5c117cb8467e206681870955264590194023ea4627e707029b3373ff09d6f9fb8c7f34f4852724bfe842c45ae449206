@@ -1,0 +1,9 @@
+import { type DiffFile } from '@git-diff-view/core';
+interface Props {
+    index: number;
+    diffFile: DiffFile;
+    lineNumber: number;
+}
+declare const DiffUnifiedHunkLine: import("svelte").Component<Props, {}, "">;
+type DiffUnifiedHunkLine = ReturnType<typeof DiffUnifiedHunkLine>;
+export default DiffUnifiedHunkLine;

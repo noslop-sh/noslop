@@ -1,0 +1,2 @@
+export declare function setDom(getDom: () => HTMLElement): void;
+export declare function getDom(): () => HTMLElement;

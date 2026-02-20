@@ -1,0 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import { setContext, getContext } from 'svelte';
+const key = Symbol('extend');
+export function setExtend(props) {
+    setContext(key, () => props.extendData);
+}
+export function getExtend() {
+    return getContext(key);
+}

@@ -1,0 +1,5 @@
+import type { SplitSide } from '@git-diff-view/core';
+export declare function setOnAddWidgetClick(props: {
+    onAddWidgetClick?: (lineNumber: number, side: SplitSide) => void;
+}): void;
+export declare function getOnAddWidgetClick(): () => (lineNumber: number, side: SplitSide) => void;

@@ -1,0 +1,52 @@
+{
+  "name": "@git-diff-view/shiki",
+  "description": "@git-diff-view/shiki",
+  "author": "MrWangJustToDo",
+  "license": "MIT",
+  "version": "0.0.39",
+  "types": "index.d.ts",
+  "main": "./dist/esm/index.mjs",
+  "type": "module",
+  "files": [
+    "src",
+    "dist",
+    "index.d.ts"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/MrWangJustToDo/git-diff-view.git",
+    "directory": "packages/shiki"
+  },
+  "homepage": "https://mrwangjusttodo.github.io/git-diff-view",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./dist/esm/index.mjs",
+      "default": "./dist/esm/index.mjs"
+    },
+    "./package.json": "./package.json"
+  },
+  "buildOptions": {
+    "input": "./src/index.ts",
+    "output": [
+      {
+        "dir": "./dist",
+        "entryFileNames": "esm/index.mjs",
+        "type": true,
+        "format": "esm",
+        "sourcemap": true
+      }
+    ]
+  },
+  "keywords": [
+    "highlight",
+    "virtual dom highlight"
+  ],
+  "dependencies": {
+    "@types/hast": "^3.0.0",
+    "shiki": "^3.22.0"
+  },
+  "scripts": {
+    "gen:type": "dts-bundle-generator -o index.d.ts dist/types/index.d.ts"
+  }
+}

@@ -1,0 +1,8 @@
+export type ObserveElement = HTMLElement & {
+    __observeCallback?: Set<() => void>;
+    __observeInstance?: ResizeObserver;
+};
+export declare const useDomWidth: ({ selector, enable }: {
+    selector: () => string;
+    enable: () => boolean;
+}) => () => number;
