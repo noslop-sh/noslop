@@ -3,6 +3,7 @@ import type {
   ActiveFilters,
   DiffViewMode,
   FindingStatus,
+  ReviewView,
   Severity,
   SidebarCollapseState,
   ThemeMode,
@@ -21,6 +22,7 @@ export interface SessionState {
   diff_view_mode: DiffViewMode;
   theme: ThemeMode;
   findings_panel_collapsed: boolean;
+  active_view: ReviewView;
 }
 
 const STORAGE_KEY = 'noslop-session';
@@ -43,6 +45,7 @@ function defaultSession(): SessionState {
     diff_view_mode: 'split',
     theme: 'dark',
     findings_panel_collapsed: false,
+    active_view: 'summary',
   };
 }
 

@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { Review, StructuredDiff, SidebarCollapseState } from '$lib/types';
+  import type { Review, ReviewView, StructuredDiff, SidebarCollapseState } from '$lib/types';
   import { ResizablePaneGroup, ResizablePane, ResizableHandle } from '$lib/components/ui/resizable';
   import { Button } from '$lib/components/ui/button';
   import { PanelLeftClose, PanelLeft } from '@lucide/svelte';
@@ -18,6 +18,8 @@
     sidebarCollapseState: SidebarCollapseState;
     onSidebarWidthChange: (width: number) => void;
     onCycleSidebar: () => void;
+    activeView: ReviewView;
+    onViewChange: (view: ReviewView) => void;
     baseBranch: string;
     compareBranch: string;
     branches: string[];
@@ -36,6 +38,8 @@
     sidebarCollapseState,
     onSidebarWidthChange,
     onCycleSidebar,
+    activeView,
+    onViewChange,
     baseBranch,
     compareBranch,
     branches,
@@ -49,6 +53,9 @@
   let isFull = $derived(sidebarCollapseState === 'full');
   let isMini = $derived(sidebarCollapseState === 'mini');
   let isHidden = $derived(sidebarCollapseState === 'hidden');
+
+  // Hide sidebar on summary view
+  let effectiveHidden = $derived(activeView === 'summary' || isHidden);
 
   // Compute the sidebar size as a percentage of a reference width (assume ~1200px container).
   // PaneGroup works with percentages, so we convert pixel widths.
@@ -86,20 +93,24 @@
     {baseBranch}
     {compareBranch}
     {branches}
+    {activeView}
     {onBaseChange}
     {onCompareChange}
+    {onViewChange}
     onToggleTheme={toggleTheme}
   />
 
   <!-- Main area: sidebar + content -->
   <div class="relative flex flex-1 overflow-hidden">
-    {#if isHidden}
+    {#if effectiveHidden}
       <!-- Hidden sidebar: just show a toggle button and the main content -->
-      <div class="absolute left-2 top-2 z-20">
-        <Button variant="ghost" size="icon-sm" onclick={onCycleSidebar} aria-label="Show sidebar">
-          <PanelLeft class="size-4" />
-        </Button>
-      </div>
+      {#if activeView === 'files' && isHidden}
+        <div class="absolute left-2 top-2 z-20">
+          <Button variant="ghost" size="icon-sm" onclick={onCycleSidebar} aria-label="Show sidebar">
+            <PanelLeft class="size-4" />
+          </Button>
+        </div>
+      {/if}
       <main class="flex-1 overflow-y-auto" onscroll={handleMainScroll}>
         {@render children()}
       </main>

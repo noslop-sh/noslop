@@ -1,6 +1,7 @@
 <script lang="ts">
   import type {
     Review,
+    ReviewView,
     StructuredDiff,
     SidebarCollapseState,
     DiffViewMode,
@@ -38,7 +39,6 @@
   import BlockedCloseDialog from '$lib/views/BlockedCloseDialog.svelte';
   import CommandPalette from '$lib/views/CommandPalette.svelte';
   import ShortcutOverlay from '$lib/views/ShortcutOverlay.svelte';
-  import { Separator } from '$lib/components/ui/separator';
   import { ChevronDown, ChevronRight } from '@lucide/svelte';
 
   // ---------------------------------------------------------------------------
@@ -56,6 +56,7 @@
   let activeFilters = $state<ActiveFilters>(session.active_filters);
   let findingsPanelCollapsed = $state(session.findings_panel_collapsed);
   let expandedFindingIds = $state<string[]>(session.expanded_finding_ids);
+  let activeView = $state<ReviewView>(session.active_view);
 
   // Dialog state
   let showNewReviewDialog = $state(false);
@@ -81,6 +82,7 @@
       active_filters: activeFilters,
       findings_panel_collapsed: findingsPanelCollapsed,
       expanded_finding_ids: expandedFindingIds,
+      active_view: activeView,
     });
   });
 
@@ -289,6 +291,7 @@
     } else {
       expandedFindingIds = [...expandedFindingIds, id];
     }
+    activeView = 'files';
   }
 
   async function handleSubmitFinding(
@@ -320,7 +323,12 @@
         expandedFindingIds = [...expandedFindingIds, blockers[0].id];
       }
       showBlockedDialog = false;
+      activeView = 'files';
     }
+  }
+
+  function switchToFilesView(): void {
+    activeView = 'files';
   }
 
   function cycleSidebar(): void {
@@ -341,12 +349,30 @@
   const files = $derived(diff?.files ?? []);
 
   const keyboardActions: KeyboardActions = {
-    nextFile: () => nav.nextFile(files),
-    prevFile: () => nav.prevFile(files),
-    nextFinding: () => nav.nextFinding(findings),
-    prevFinding: () => nav.prevFinding(findings),
-    nextUnresolved: () => nav.nextUnresolved(findings),
-    prevUnresolved: () => nav.prevUnresolved(findings),
+    nextFile: () => {
+      nav.nextFile(files);
+      switchToFilesView();
+    },
+    prevFile: () => {
+      nav.prevFile(files);
+      switchToFilesView();
+    },
+    nextFinding: () => {
+      nav.nextFinding(findings);
+      switchToFilesView();
+    },
+    prevFinding: () => {
+      nav.prevFinding(findings);
+      switchToFilesView();
+    },
+    nextUnresolved: () => {
+      nav.nextUnresolved(findings);
+      switchToFilesView();
+    },
+    prevUnresolved: () => {
+      nav.prevUnresolved(findings);
+      switchToFilesView();
+    },
     resolveFocused: () => {
       if (nav.currentFindingId) handleResolve(nav.currentFindingId);
     },
@@ -381,6 +407,12 @@
     },
     showShortcuts: () => {
       showShortcutOverlay = !showShortcutOverlay;
+    },
+    switchToSummary: () => {
+      activeView = 'summary';
+    },
+    switchToFiles: () => {
+      activeView = 'files';
     },
   };
 
@@ -460,6 +492,8 @@
     {sidebarCollapseState}
     onSidebarWidthChange={(w) => (sidebarWidth = w)}
     onCycleSidebar={cycleSidebar}
+    {activeView}
+    onViewChange={(v) => (activeView = v)}
     {baseBranch}
     {compareBranch}
     branches={allBranches}
@@ -477,7 +511,10 @@
             selectedPath={nav.currentFilePath}
             sortMode={nav.sortMode}
             filterText={nav.filterText}
-            onFileSelect={(path) => nav.selectFile(path)}
+            onFileSelect={(path) => {
+              nav.selectFile(path);
+              switchToFilesView();
+            }}
             onSortChange={(mode) => nav.setSortMode(mode)}
             onFilterChange={(text) => nav.setFilterText(text)}
           />
@@ -515,16 +552,28 @@
       </div>
     {/snippet}
 
-    <!-- Main content: landing page + continuous diff -->
-    <ReviewLandingPage
-      {review}
-      {diff}
-      onClose={handleCloseAttempt}
-      onScrollToBlocker={handleScrollToBlocker}
-    />
-
-    {#if diff}
-      <Separator />
+    <!-- Main content: conditional view rendering -->
+    {#if activeView === 'summary'}
+      <ReviewLandingPage
+        {review}
+        {diff}
+        viewedFiles={nav.viewedFiles}
+        onClose={handleCloseAttempt}
+        onScrollToBlocker={handleScrollToBlocker}
+        onFileClick={(path) => {
+          nav.selectFile(path);
+          switchToFilesView();
+        }}
+        onFindingClick={(id) => {
+          const finding = review!.findings.find((f) => f.id === id);
+          if (finding) nav.selectFile(finding.target.path);
+          handleFindingClick(id);
+          switchToFilesView();
+        }}
+        onResolve={handleResolve}
+        onDismiss={handleDismiss}
+      />
+    {:else if diff}
       <DiffView
         {rawPatch}
         {diff}

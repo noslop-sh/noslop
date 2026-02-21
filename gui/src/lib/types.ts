@@ -133,6 +133,7 @@ export interface FileTreeEntry {
 export type SidebarCollapseState = 'full' | 'mini' | 'hidden';
 export type DiffViewMode = 'split' | 'unified';
 export type ThemeMode = 'light' | 'dark' | 'system';
+export type ReviewView = 'summary' | 'files';
 export type FocusZone = 'tree' | 'diff' | 'finding' | 'dialog';
 export type SortMode = 'findings' | 'alphabetical';
 

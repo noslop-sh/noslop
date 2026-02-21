@@ -19,6 +19,8 @@ export interface KeyboardActions {
   openCommandPalette: () => void;
   openFileJump: () => void;
   showShortcuts: () => void;
+  switchToSummary: () => void;
+  switchToFiles: () => void;
 }
 
 function isTextInput(): boolean {
@@ -71,6 +73,8 @@ export function createKeyboardManager(actions: KeyboardActions) {
       Enter: actions.expandFocused,
       Escape: actions.collapseFocused,
       '?': actions.showShortcuts,
+      '1': actions.switchToSummary,
+      '2': actions.switchToFiles,
     };
 
     const handler = handlers[e.key];

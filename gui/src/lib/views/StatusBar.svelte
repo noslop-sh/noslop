@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Review } from '$lib/types';
+  import type { Review, ReviewView } from '$lib/types';
   import { Badge } from '$lib/components/ui/badge';
   import { Button } from '$lib/components/ui/button';
   import * as Popover from '$lib/components/ui/popover';
@@ -13,8 +13,10 @@
     baseBranch: string;
     compareBranch: string;
     branches: string[];
+    activeView: ReviewView;
     onBaseChange: (branch: string) => void;
     onCompareChange: (branch: string) => void;
+    onViewChange: (view: ReviewView) => void;
     onToggleTheme: () => void;
   }
 
@@ -24,8 +26,10 @@
     baseBranch,
     compareBranch,
     branches,
+    activeView,
     onBaseChange,
     onCompareChange,
+    onViewChange,
     onToggleTheme,
   }: Props = $props();
 
@@ -118,23 +122,42 @@
   </div>
 
   {#if review}
-    <div class="flex flex-1 items-center justify-end gap-3">
-      {#if isCompact}
+    <!-- View tabs (centered) -->
+    <div class="flex flex-1 items-center justify-center gap-1">
+      <button
+        type="button"
+        class="h-6 rounded px-2.5 text-xs font-medium transition-colors {activeView === 'summary'
+          ? 'bg-muted text-foreground'
+          : 'text-muted-foreground hover:text-foreground'}"
+        onclick={() => onViewChange('summary')}
+      >
+        Summary
+      </button>
+      <button
+        type="button"
+        class="flex h-6 items-center gap-1.5 rounded px-2.5 text-xs font-medium transition-colors {activeView === 'files'
+          ? 'bg-muted text-foreground'
+          : 'text-muted-foreground hover:text-foreground'}"
+        onclick={() => onViewChange('files')}
+      >
+        Files
         {#if blockCount > 0}
-          <Badge variant="destructive" class="h-5 gap-1 px-1.5 text-[10px]">
-            {blockCount} block
+          <Badge variant="destructive" class="h-4 px-1 text-[9px] leading-none">
+            {blockCount}
           </Badge>
-        {/if}
-        {#if warnCount > 0}
+        {:else if warnCount > 0}
           <Badge
             variant="secondary"
-            class="h-5 gap-1 px-1.5 text-[10px] bg-finding-warn/15 text-finding-warn border-finding-warn/25"
+            class="h-4 px-1 text-[9px] leading-none bg-finding-warn/15 text-finding-warn border-finding-warn/25"
           >
-            {warnCount} warn
+            {warnCount}
           </Badge>
         {/if}
-      {/if}
+      </button>
+    </div>
 
+    <!-- Right info -->
+    <div class="flex items-center gap-2">
       <span class="text-xs text-muted-foreground">
         {viewedCount} viewed
       </span>
