@@ -945,7 +945,7 @@ severity = "warn"
 
     // Dismiss the finding
     noslop()
-        .args(["findings", "dismiss", review_id, finding_id, "--reason", "false positive"])
+        .args(["findings", "dismiss", review_id, finding_id, "--reason", "false_positive"])
         .current_dir(repo_path)
         .assert()
         .success()

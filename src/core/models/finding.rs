@@ -146,18 +146,21 @@ impl Finding {
     }
 
     /// Mark as resolved, optionally with a reason.
-    pub fn resolve(&mut self, reason: Option<ResolutionReason>) {
+    pub const fn resolve(&mut self, reason: Option<ResolutionReason>) {
         self.status = FindingStatus::Resolved;
         self.resolution_reason = reason;
     }
 
     /// Mark as dismissed with a reason.
-    pub fn dismiss(&mut self, reason: DismissReason) {
+    pub const fn dismiss(&mut self, reason: DismissReason) {
         self.status = FindingStatus::Dismissed;
         self.dismiss_reason = Some(reason);
     }
 
     /// Add a timestamped note to this finding.
+    ///
+    /// # Panics
+    /// Cannot panic — the note is pushed immediately before access.
     pub fn add_note(&mut self, content: String) -> &FindingNote {
         let note = FindingNote {
             id: format!("N-{}", &Uuid::new_v4().to_string()[..8]),
