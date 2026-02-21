@@ -54,6 +54,10 @@
   }: Props = $props();
 
   let headerRef = $state<HTMLElement | null>(null);
+  let wrapperRef = $state<HTMLElement | null>(null);
+  let diffContainerRef = $state<HTMLElement | null>(null);
+  let formRef = $state<HTMLElement | null>(null);
+  let formTop = $state<number | null>(null);
 
   let fileName = $derived(fileDiffMeta.name);
 
@@ -67,6 +71,39 @@
   $effect(() => {
     if (isCurrentFile && headerRef) {
       headerRef.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  });
+
+  // Calculate form position from selected lines in Shadow DOM
+  $effect(() => {
+    if (!showForm || !diffContainerRef || !wrapperRef) {
+      formTop = null;
+      return;
+    }
+
+    const diffsContainer = diffContainerRef.querySelector('diffs-container');
+    const shadowRoot = diffsContainer?.shadowRoot;
+    if (!shadowRoot) {
+      formTop = null;
+      return;
+    }
+
+    const selectedLines = shadowRoot.querySelectorAll('[data-selected-line]');
+    if (selectedLines.length === 0) {
+      formTop = null;
+      return;
+    }
+
+    const lastLine = selectedLines[selectedLines.length - 1];
+    const lineRect = lastLine.getBoundingClientRect();
+    const wrapperRect = wrapperRef.getBoundingClientRect();
+    formTop = lineRect.bottom - wrapperRect.top;
+  });
+
+  // Scroll form into view when it appears
+  $effect(() => {
+    if (showForm && formRef) {
+      formRef.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
     }
   });
 
@@ -88,20 +125,28 @@
   {/if}
 </div>
 
-<div style="content-visibility: auto; contain-intrinsic-block-size: auto 300px;">
-  <FileDiffRenderer
-    {fileDiffMeta}
-    {findings}
-    {reviewOpen}
-    {diffViewMode}
-    {onFindingClick}
-    {onResolve}
-    {onDismiss}
-    onLineSelected={handleLineSelected}
-  />
+<div bind:this={wrapperRef} class="relative">
+  <div style="content-visibility: auto; contain-intrinsic-block-size: auto 300px;">
+    <div bind:this={diffContainerRef}>
+      <FileDiffRenderer
+        {fileDiffMeta}
+        {findings}
+        {reviewOpen}
+        {diffViewMode}
+        {onFindingClick}
+        {onResolve}
+        {onDismiss}
+        onLineSelected={handleLineSelected}
+      />
+    </div>
+  </div>
 
   {#if showForm && activeForm}
-    <div class="px-4 py-2">
+    <div
+      bind:this={formRef}
+      class="absolute left-0 right-0 z-20 px-4 py-2"
+      style={formTop !== null ? `top: ${formTop}px` : ''}
+    >
       <InlineFindingForm
         filePath={activeForm.filePath}
         startLine={activeForm.startLine}

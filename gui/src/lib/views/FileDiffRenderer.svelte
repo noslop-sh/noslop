@@ -68,7 +68,7 @@
   // ---------------------------------------------------------------------------
 
   function initDiff(node: HTMLElement) {
-    const annotations = buildAnnotationsForFile(findings, fileDiffMeta.name);
+    const annotations = buildAnnotationsForFile(findings, fileDiffMeta.name, fileDiffMeta.type);
 
     const options: FileDiffOptions<AnnotationMeta> = {
       diffStyle: diffViewMode === 'split' ? 'split' : 'unified',
@@ -105,7 +105,7 @@
   // ---------------------------------------------------------------------------
 
   $effect(() => {
-    const annots = buildAnnotationsForFile(findings, fileDiffMeta.name);
+    const annots = buildAnnotationsForFile(findings, fileDiffMeta.name, fileDiffMeta.type);
     const inst = untrack(() => instance);
     if (!inst) return;
     inst.setLineAnnotations(annots);
