@@ -14,6 +14,26 @@ use std::process::Command;
 use crate::dto::{FeedbackDto, FeedbackNoteDto, ReviewDto};
 
 // ---------------------------------------------------------------------------
+// Shared helpers
+// ---------------------------------------------------------------------------
+
+/// Run a git command and return its stdout as a String.
+fn run_git(args: &[&str]) -> Result<String, String> {
+    let output = Command::new("git").args(args).output().map_err(|e| e.to_string())?;
+
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).to_string());
+    }
+
+    String::from_utf8(output.stdout).map_err(|e| e.to_string())
+}
+
+/// Parse a dismiss reason string into its enum variant.
+fn parse_dismiss_reason(reason: &str) -> Result<DismissReason, String> {
+    reason.parse()
+}
+
+// ---------------------------------------------------------------------------
 // Existing commands
 // ---------------------------------------------------------------------------
 
@@ -48,16 +68,7 @@ pub fn get_review(id: String) -> Result<ReviewDto, String> {
 /// Get git diff between two commits
 #[tauri::command]
 pub fn get_diff(base: String, head: String) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(["diff", &format!("{base}..{head}")])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    String::from_utf8(output.stdout).map_err(|e| e.to_string())
+    run_git(&["diff", &format!("{base}..{head}")])
 }
 
 /// Start a new review for a commit range
@@ -77,16 +88,7 @@ pub fn start_review(
 /// Get the default branch name (main, master, or first available)
 #[tauri::command]
 pub fn get_default_branch() -> Result<String, String> {
-    let output = Command::new("git")
-        .args(["branch", "--format=%(refname:short)"])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = run_git(&["branch", "--format=%(refname:short)"])?;
     let branches: Vec<&str> = stdout.lines().map(|l| l.trim()).filter(|l| !l.is_empty()).collect();
 
     if branches.contains(&"main") {
@@ -188,17 +190,7 @@ pub fn dismiss_feedback(
     feedback_id: String,
     reason: String,
 ) -> Result<(), String> {
-    let dismiss_reason = match reason.as_str() {
-        "false_positive" => DismissReason::FalsePositive,
-        "wont_fix" => DismissReason::WontFix,
-        "not_applicable" => DismissReason::NotApplicable,
-        "investigate_later" => DismissReason::InvestigateLater,
-        other => {
-            return Err(format!(
-                "Invalid dismiss reason: {other}. Expected: false_positive, wont_fix, not_applicable, investigate_later"
-            ));
-        },
-    };
+    let dismiss_reason = parse_dismiss_reason(&reason)?;
 
     let store = FileReviewStore::new();
     let mut review = store
@@ -234,47 +226,20 @@ pub fn reopen_review(id: String) -> Result<(), String> {
 /// Get the current git branch name
 #[tauri::command]
 pub fn get_current_branch() -> Result<String, String> {
-    let output = Command::new("git")
-        .args(["rev-parse", "--abbrev-ref", "HEAD"])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(run_git(&["rev-parse", "--abbrev-ref", "HEAD"])?.trim().to_string())
 }
 
 /// Get list of local branches
 #[tauri::command]
 pub fn get_branches() -> Result<Vec<String>, String> {
-    let output = Command::new("git")
-        .args(["branch", "--format=%(refname:short)"])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stdout = run_git(&["branch", "--format=%(refname:short)"])?;
     Ok(stdout.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
 }
 
 /// Get the merge base between HEAD and a branch
 #[tauri::command]
 pub fn get_merge_base(branch: String) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(["merge-base", "HEAD", &branch])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
+    Ok(run_git(&["merge-base", "HEAD", &branch])?.trim().to_string())
 }
 
 /// Get file content at a specific commit, optionally limited to a line range
@@ -285,16 +250,7 @@ pub fn get_file_content(
     start_line: u32,
     end_line: u32,
 ) -> Result<String, String> {
-    let output = Command::new("git")
-        .args(["show", &format!("{commit}:{path}")])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    let content = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
+    let content = run_git(&["show", &format!("{commit}:{path}")])?;
 
     // If start and end are both 0, return full content
     if start_line == 0 && end_line == 0 {
@@ -635,7 +591,7 @@ fn parse_unified_diff(raw: &str) -> StructuredDiff {
 fn parse_diff_header(line: &str) -> (String, String) {
     // Format: diff --git a/path b/path
     let rest = line.strip_prefix("diff --git ").unwrap_or(line);
-    // Split on " b/" - handle paths with spaces by feedback the last " b/"
+    // Split on " b/" - handle paths with spaces by finding the last " b/"
     if let Some(idx) = rest.rfind(" b/") {
         let a = rest[..idx].strip_prefix("a/").unwrap_or(&rest[..idx]);
         let b = &rest[idx + 3..]; // skip " b/"
@@ -857,16 +813,7 @@ fn compute_char_changes(lines: &mut [DiffLineEntry]) {
 /// Get a structured diff between two commits
 #[tauri::command]
 pub fn get_structured_diff(base: String, head: String) -> Result<StructuredDiff, String> {
-    let output = Command::new("git")
-        .args(["diff", &format!("{base}..{head}")])
-        .output()
-        .map_err(|e| e.to_string())?;
-
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).to_string());
-    }
-
-    let raw = String::from_utf8(output.stdout).map_err(|e| e.to_string())?;
+    let raw = run_git(&["diff", &format!("{base}..{head}")])?;
     Ok(parse_unified_diff(&raw))
 }
 

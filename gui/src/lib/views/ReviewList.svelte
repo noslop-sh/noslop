@@ -1,5 +1,6 @@
 <script lang="ts">
   import { useReviews } from '$lib/queries';
+  import { openFeedbackCount, formatDate } from '$lib/helpers';
   import { Badge } from '$lib/components/ui/badge';
   import { ScrollArea } from '$lib/components/ui/scroll-area';
   import type { Review } from '$lib/types';
@@ -12,14 +13,6 @@
   let { selected, onSelect }: Props = $props();
 
   const reviews = useReviews(true);
-
-  function getOpenFeedbackCount(review: Review): number {
-    return review.feedbacks.filter((f) => f.status === 'open').length;
-  }
-
-  function formatDate(iso: string): string {
-    return new Date(iso).toLocaleDateString();
-  }
 </script>
 
 <ScrollArea class="h-full">
@@ -43,8 +36,8 @@
         >
           <div class="flex items-center justify-between">
             <span class="font-mono text-sm">{review.id}</span>
-            {#if getOpenFeedbackCount(review) > 0}
-              <Badge variant="destructive">{getOpenFeedbackCount(review)}</Badge>
+            {#if openFeedbackCount(review.feedbacks) > 0}
+              <Badge variant="destructive">{openFeedbackCount(review.feedbacks)}</Badge>
             {/if}
           </div>
           <div class="mt-1 text-xs text-muted-foreground">

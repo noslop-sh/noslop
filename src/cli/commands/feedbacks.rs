@@ -95,15 +95,8 @@ fn dismiss_feedback(
         .find(|f| f.id == feedback_id)
         .ok_or_else(|| anyhow::anyhow!("Feedback not found: {feedback_id}"))?;
 
-    let dismiss_reason = match reason.unwrap_or("wont_fix") {
-        "false_positive" => DismissReason::FalsePositive,
-        "wont_fix" => DismissReason::WontFix,
-        "not_applicable" => DismissReason::NotApplicable,
-        "investigate_later" => DismissReason::InvestigateLater,
-        other => anyhow::bail!(
-            "Invalid dismiss reason: {other}. Expected: false_positive, wont_fix, not_applicable, investigate_later"
-        ),
-    };
+    let dismiss_reason: DismissReason =
+        reason.unwrap_or("wont_fix").parse().map_err(|e: String| anyhow::anyhow!(e))?;
     feedback.dismiss(dismiss_reason);
     store.save(&review)?;
 

@@ -18,7 +18,6 @@
   import {
     useStartReview,
     useCloseReview,
-    useReopenReview,
     useResolveFeedback,
     useDismissFeedback,
     useMarkFileViewed,
@@ -96,7 +95,6 @@
   const branchesQuery = useBranches();
   const startReview = useStartReview();
   const closeReview = useCloseReview();
-  const reopenReview = useReopenReview();
   const resolveFeedback = useResolveFeedback();
   const dismissFeedback = useDismissFeedback();
   const markFileViewed = useMarkFileViewed();

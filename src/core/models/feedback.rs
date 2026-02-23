@@ -5,6 +5,7 @@
 //! whether a check rule, a script, an LLM, or a human produced it.
 
 use std::fmt;
+use std::str::FromStr;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -24,6 +25,22 @@ pub enum DismissReason {
     NotApplicable,
     /// Will look into it later
     InvestigateLater,
+}
+
+impl FromStr for DismissReason {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "false_positive" => Ok(Self::FalsePositive),
+            "wont_fix" => Ok(Self::WontFix),
+            "not_applicable" => Ok(Self::NotApplicable),
+            "investigate_later" => Ok(Self::InvestigateLater),
+            other => Err(format!(
+                "Invalid dismiss reason: {other}. Expected: false_positive, wont_fix, not_applicable, investigate_later"
+            )),
+        }
+    }
 }
 
 /// Reason why a feedback was resolved.

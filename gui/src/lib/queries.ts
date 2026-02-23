@@ -10,23 +10,6 @@ export function useReviews(openOnly = true) {
   });
 }
 
-export function useReview(id: string) {
-  return createQuery({
-    queryKey: ['review', id],
-    queryFn: () => api.getReview(id),
-    enabled: !!id,
-  });
-}
-
-export function useStructuredDiff(base: string, head: string) {
-  return createQuery({
-    queryKey: ['structured-diff', base, head],
-    queryFn: () => api.getStructuredDiff(base, head),
-    enabled: !!base && !!head,
-    staleTime: 1000 * 60 * 5,
-  });
-}
-
 export function useCurrentBranch() {
   return createQuery({
     queryKey: ['current-branch'],
@@ -74,16 +57,6 @@ export function useCloseReview() {
   });
 }
 
-export function useReopenReview() {
-  const client = useQueryClient();
-  return createMutation({
-    mutationFn: (id: string) => api.reopenReview(id),
-    onSuccess: () => {
-      client.invalidateQueries({ queryKey: ['reviews'] });
-    },
-  });
-}
-
 export function useResolveFeedback() {
   const client = useQueryClient();
   return createMutation({
@@ -103,18 +76,6 @@ export function useDismissFeedback() {
       api.dismissFeedback(params.reviewId, params.feedbackId, params.reason),
     onSuccess: (_, { reviewId }) => {
       client.invalidateQueries({ queryKey: ['review', reviewId] });
-    },
-  });
-}
-
-export function useApplySuggestion() {
-  const client = useQueryClient();
-  return createMutation({
-    mutationFn: (params: { reviewId: string; feedbackId: string }) =>
-      api.applySuggestion(params.reviewId, params.feedbackId),
-    onSuccess: (_, { reviewId }) => {
-      client.invalidateQueries({ queryKey: ['review', reviewId] });
-      client.invalidateQueries({ queryKey: ['structured-diff'] });
     },
   });
 }

@@ -1,6 +1,7 @@
 import type {
   ActiveFilters,
   DiffLine,
+  DismissReason,
   FileChangeType,
   FileDiff,
   FileTreeEntry,
@@ -76,6 +77,75 @@ export function getCodeSnippet(
   }
 
   return lines;
+}
+
+// --- Severity display helpers ---
+
+export function severityIcon(severity: Severity, sourceKind: string): string {
+  if (sourceKind === 'human') return '\u25C6'; // diamond
+  switch (severity) {
+    case 'block':
+      return '\u25CF'; // filled circle
+    case 'warn':
+      return '\u25B2'; // triangle
+    case 'info':
+      return '\u25CB'; // circle outline
+  }
+}
+
+export function severityColor(severity: Severity, sourceKind: string): string {
+  if (sourceKind === 'human') return 'text-[var(--feedback-human)]';
+  switch (severity) {
+    case 'block':
+      return 'text-[var(--feedback-block)]';
+    case 'warn':
+      return 'text-[var(--feedback-warn)]';
+    case 'info':
+      return 'text-[var(--feedback-info)]';
+  }
+}
+
+export function severityBorderColor(severity: Severity, sourceKind: string): string {
+  if (sourceKind === 'human') return 'border-l-[var(--feedback-human)]';
+  switch (severity) {
+    case 'block':
+      return 'border-l-[var(--feedback-block)]';
+    case 'warn':
+      return 'border-l-[var(--feedback-warn)]';
+    case 'info':
+      return 'border-l-[var(--feedback-info)]';
+  }
+}
+
+export function severityVar(severity: Severity, sourceKind: string): string {
+  if (sourceKind === 'human') return 'var(--feedback-human)';
+  switch (severity) {
+    case 'block':
+      return 'var(--feedback-block)';
+    case 'warn':
+      return 'var(--feedback-warn)';
+    case 'info':
+      return 'var(--feedback-info)';
+  }
+}
+
+// --- Shared constants ---
+
+export const DISMISS_OPTIONS: { label: string; reason: DismissReason }[] = [
+  { label: 'False positive', reason: 'false_positive' },
+  { label: "Won't fix", reason: 'wont_fix' },
+  { label: 'Not applicable', reason: 'not_applicable' },
+  { label: 'Investigate later', reason: 'investigate_later' },
+];
+
+export const SEVERITY_OPTIONS: { label: string; value: Severity }[] = [
+  { label: 'Block', value: 'block' },
+  { label: 'Warn', value: 'warn' },
+  { label: 'Info', value: 'info' },
+];
+
+export function formatReason(reason: string): string {
+  return reason.replace(/_/g, ' ');
 }
 
 // --- Source display ---

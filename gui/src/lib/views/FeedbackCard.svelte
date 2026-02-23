@@ -1,9 +1,15 @@
 <script lang="ts">
-  import type { Feedback, DismissReason, Severity } from '$lib/types';
-  import { formatSource } from '$lib/helpers';
+  import type { Feedback, DismissReason } from '$lib/types';
+  import {
+    formatSource,
+    severityIcon,
+    severityColor,
+    formatReason,
+    DISMISS_OPTIONS,
+  } from '$lib/helpers';
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
-  import { Check, ChevronDown, X } from '@lucide/svelte';
+  import { Check, ChevronDown } from '@lucide/svelte';
   import { slide } from 'svelte/transition';
   import { cn } from '$lib/utils';
 
@@ -20,17 +26,10 @@
   let { feedback, reviewId, expanded, focused, onToggleExpand, onResolve, onDismiss }: Props =
     $props();
 
-  const dismissOptions: { label: string; reason: DismissReason }[] = [
-    { label: 'False positive', reason: 'false_positive' },
-    { label: "Won't fix", reason: 'wont_fix' },
-    { label: 'Not applicable', reason: 'not_applicable' },
-    { label: 'Investigate later', reason: 'investigate_later' },
-  ];
-
   let dismissOpen = $state(false);
 
-  let severityIcon = $derived(getSeverityIcon(feedback.severity, feedback.source.kind));
-  let severityColor = $derived(getSeverityColor(feedback.severity, feedback.source.kind));
+  let icon = $derived(severityIcon(feedback.severity, feedback.source.kind));
+  let color = $derived(severityColor(feedback.severity, feedback.source.kind));
   let sourceDisplay = $derived(formatSource(feedback.source));
 
   let isOpen = $derived(feedback.status === 'open');
@@ -47,30 +46,6 @@
       isOpen && 'cursor-pointer hover:bg-accent/50'
     )
   );
-
-  function getSeverityIcon(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return '\u25C6'; // diamond
-    switch (severity) {
-      case 'block':
-        return '\u25CF'; // filled circle
-      case 'warn':
-        return '\u25B2'; // triangle
-      case 'info':
-        return '\u25CB'; // circle outline
-    }
-  }
-
-  function getSeverityColor(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return 'text-[var(--feedback-human)]';
-    switch (severity) {
-      case 'block':
-        return 'text-[var(--feedback-block)]';
-      case 'warn':
-        return 'text-[var(--feedback-warn)]';
-      case 'info':
-        return 'text-[var(--feedback-info)]';
-    }
-  }
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
@@ -78,8 +53,8 @@
 <div class={cardClasses} onclick={onToggleExpand}>
   <!-- Header row (always visible) -->
   <div class="flex items-center gap-2">
-    <span class={cn('text-sm font-bold leading-none', severityColor)} aria-label={feedback.severity}>
-      {severityIcon}
+    <span class={cn('text-sm font-bold leading-none', color)} aria-label={feedback.severity}>
+      {icon}
     </span>
     <span class="text-xs font-semibold uppercase tracking-wide text-foreground">
       {feedback.severity}
@@ -123,7 +98,7 @@
             {/snippet}
           </DropdownMenu.Trigger>
           <DropdownMenu.Content align="end">
-            {#each dismissOptions as opt (opt.reason)}
+            {#each DISMISS_OPTIONS as opt (opt.reason)}
               <DropdownMenu.Item
                 onclick={() => {
                   onDismiss(opt.reason);
@@ -175,13 +150,13 @@
 
       {#if isDismissed && feedback.dismiss_reason}
         <div class="mt-2 text-xs italic text-muted-foreground">
-          Dismissed: {feedback.dismiss_reason.replace(/_/g, ' ')}
+          Dismissed: {formatReason(feedback.dismiss_reason)}
         </div>
       {/if}
 
       {#if isResolved && feedback.resolution_reason}
         <div class="mt-2 text-xs italic text-green-600 dark:text-green-400">
-          Resolved: {feedback.resolution_reason.replace(/_/g, ' ')}
+          Resolved: {formatReason(feedback.resolution_reason)}
         </div>
       {/if}
     </div>

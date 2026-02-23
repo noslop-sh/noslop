@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Review, StructuredDiff, DismissReason, Severity } from '$lib/types';
+  import type { Review, StructuredDiff, DismissReason } from '$lib/types';
   import {
     blockingFeedbacks,
     feedbackCountsByFile,
@@ -7,6 +7,8 @@
     changeTypeLabel,
     changeTypeColor,
     getCodeSnippet,
+    severityIcon,
+    severityColor,
   } from '$lib/helpers';
   import { slide } from 'svelte/transition';
   import { Button } from '$lib/components/ui/button';
@@ -122,29 +124,6 @@
       });
   });
 
-  function severityIcon(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return '\u25C6';
-    switch (severity) {
-      case 'block':
-        return '\u25CF';
-      case 'warn':
-        return '\u25B2';
-      case 'info':
-        return '\u25CB';
-    }
-  }
-
-  function severityColor(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return 'text-[var(--feedback-human)]';
-    switch (severity) {
-      case 'block':
-        return 'text-[var(--feedback-block)]';
-      case 'warn':
-        return 'text-[var(--feedback-warn)]';
-      case 'info':
-        return 'text-[var(--feedback-info)]';
-    }
-  }
 </script>
 
 <div class="mx-auto max-w-4xl space-y-5 px-6 py-5">

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Severity } from '$lib/types';
+  import { SEVERITY_OPTIONS } from '$lib/helpers';
   import { Button } from '$lib/components/ui/button';
 
   interface Props {
@@ -17,12 +18,6 @@
   let textareaEl = $state<HTMLTextAreaElement | null>(null);
 
   let lineLabel = $derived(startLine === endLine ? `L${startLine}` : `L${startLine}-L${endLine}`);
-
-  const severityOptions: { label: string; value: Severity }[] = [
-    { label: 'Block', value: 'block' },
-    { label: 'Warn', value: 'warn' },
-    { label: 'Info', value: 'info' },
-  ];
 
   $effect(() => {
     textareaEl?.focus();
@@ -66,7 +61,7 @@
 
   <div class="flex items-center gap-2">
     <div class="flex gap-0.5 rounded border border-border p-0.5">
-      {#each severityOptions as opt (opt.value)}
+      {#each SEVERITY_OPTIONS as opt (opt.value)}
         <button
           type="button"
           class="rounded px-2 py-0.5 text-xs font-medium transition-colors

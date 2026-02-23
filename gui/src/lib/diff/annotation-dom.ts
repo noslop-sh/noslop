@@ -1,5 +1,5 @@
-import type { Feedback, DismissReason, Severity } from '$lib/types';
-import { formatSource } from '$lib/helpers';
+import type { Feedback, DismissReason } from '$lib/types';
+import { formatSource, severityVar, DISMISS_OPTIONS } from '$lib/helpers';
 
 /**
  * Mutable ref object for callbacks. Captured by closure, properties
@@ -9,24 +9,6 @@ export interface AnnotationCallbacksRef {
   onResolve: (feedbackId: string) => void;
   onDismiss: (feedbackId: string, reason: DismissReason) => void;
   onFeedbackClick: (feedbackId: string) => void;
-}
-
-const DISMISS_OPTIONS: { label: string; reason: DismissReason }[] = [
-  { label: 'False positive', reason: 'false_positive' },
-  { label: "Won't fix", reason: 'wont_fix' },
-  { label: 'Not applicable', reason: 'not_applicable' },
-];
-
-function severityVar(severity: Severity, sourceKind: string): string {
-  if (sourceKind === 'human') return 'var(--feedback-human)';
-  switch (severity) {
-    case 'block':
-      return 'var(--feedback-block)';
-    case 'warn':
-      return 'var(--feedback-warn)';
-    case 'info':
-      return 'var(--feedback-info)';
-  }
 }
 
 /**

@@ -1,5 +1,6 @@
 <script lang="ts">
   import type { Severity } from '$lib/types';
+  import { SEVERITY_OPTIONS } from '$lib/helpers';
   import * as Dialog from '$lib/components/ui/dialog';
   import { Button } from '$lib/components/ui/button';
   import { MessageSquarePlus } from '@lucide/svelte';
@@ -14,12 +15,6 @@
   }
 
   let { open = $bindable(), filePath, startLine, endLine, onSubmit, onCancel }: Props = $props();
-
-  const severityOptions: { label: string; value: Severity }[] = [
-    { label: 'Block', value: 'block' },
-    { label: 'Warn', value: 'warn' },
-    { label: 'Info', value: 'info' },
-  ];
 
   let severity = $state<Severity>('warn');
   let message = $state('');
@@ -71,7 +66,7 @@
       <div>
         <label class="mb-1.5 block text-sm font-medium">Severity</label>
         <div class="flex gap-1 rounded-md border border-border p-0.5">
-          {#each severityOptions as opt (opt.value)}
+          {#each SEVERITY_OPTIONS as opt (opt.value)}
             <button
               class="flex-1 rounded px-3 py-1.5 text-sm font-medium transition-colors
                 {severity === opt.value

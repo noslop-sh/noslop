@@ -1,6 +1,11 @@
 <script lang="ts">
-  import type { Feedback, DismissReason, Severity } from '$lib/types';
-  import { formatSource } from '$lib/helpers';
+  import type { Feedback, DismissReason } from '$lib/types';
+  import {
+    formatSource,
+    severityColor,
+    severityBorderColor,
+    DISMISS_OPTIONS,
+  } from '$lib/helpers';
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { Check, ChevronDown } from '@lucide/svelte';
@@ -14,37 +19,7 @@
 
   let { feedback, onResolve, onDismiss, onclick }: Props = $props();
 
-  const dismissOptions: { label: string; reason: DismissReason }[] = [
-    { label: 'False positive', reason: 'false_positive' },
-    { label: "Won't fix", reason: 'wont_fix' },
-    { label: 'Not applicable', reason: 'not_applicable' },
-  ];
-
   let dismissOpen = $state(false);
-
-  function borderColor(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return 'border-l-[var(--feedback-human)]';
-    switch (severity) {
-      case 'block':
-        return 'border-l-[var(--feedback-block)]';
-      case 'warn':
-        return 'border-l-[var(--feedback-warn)]';
-      case 'info':
-        return 'border-l-[var(--feedback-info)]';
-    }
-  }
-
-  function severityColor(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return 'text-[var(--feedback-human)]';
-    switch (severity) {
-      case 'block':
-        return 'text-[var(--feedback-block)]';
-      case 'warn':
-        return 'text-[var(--feedback-warn)]';
-      case 'info':
-        return 'text-[var(--feedback-info)]';
-    }
-  }
 
   let isOpen = $derived(feedback.status === 'open');
   let isResolved = $derived(feedback.status === 'resolved');
@@ -54,7 +29,7 @@
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="border-l-3 rounded-sm bg-card px-3 py-2 text-sm {borderColor(
+  class="border-l-3 rounded-sm bg-card px-3 py-2 text-sm {severityBorderColor(
     feedback.severity,
     feedback.source.kind
   )}"
@@ -102,7 +77,7 @@
             {/snippet}
           </DropdownMenu.Trigger>
           <DropdownMenu.Content align="end">
-            {#each dismissOptions as opt (opt.reason)}
+            {#each DISMISS_OPTIONS as opt (opt.reason)}
               <DropdownMenu.Item
                 onclick={() => {
                   onDismiss(opt.reason);
