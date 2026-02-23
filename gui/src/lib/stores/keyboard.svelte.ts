@@ -3,13 +3,13 @@ import type { FocusZone } from '$lib/types';
 export interface KeyboardActions {
   nextFile: () => void;
   prevFile: () => void;
-  nextFinding: () => void;
-  prevFinding: () => void;
+  nextFeedback: () => void;
+  prevFeedback: () => void;
   nextUnresolved: () => void;
   prevUnresolved: () => void;
   resolveFocused: () => void;
   dismissFocused: () => void;
-  addFindingOnLine: () => void;
+  addFeedbackOnLine: () => void;
   toggleViewed: () => void;
   cycleSidebar: () => void;
   toggleDiffMode: () => void;
@@ -59,13 +59,13 @@ export function createKeyboardManager(actions: KeyboardActions) {
     const handlers: Record<string, () => void> = {
       ']': actions.nextFile,
       '[': actions.prevFile,
-      j: actions.nextFinding,
-      k: actions.prevFinding,
+      j: actions.nextFeedback,
+      k: actions.prevFeedback,
       n: actions.nextUnresolved,
       p: actions.prevUnresolved,
       r: actions.resolveFocused,
       d: actions.dismissFocused,
-      c: actions.addFindingOnLine,
+      c: actions.addFeedbackOnLine,
       v: actions.toggleViewed,
       f: actions.cycleSidebar,
       s: actions.toggleDiffMode,

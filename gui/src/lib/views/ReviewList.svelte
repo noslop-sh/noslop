@@ -13,8 +13,8 @@
 
   const reviews = useReviews(true);
 
-  function getOpenFindingCount(review: Review): number {
-    return review.findings.filter((f) => f.status === 'open').length;
+  function getOpenFeedbackCount(review: Review): number {
+    return review.feedbacks.filter((f) => f.status === 'open').length;
   }
 
   function formatDate(iso: string): string {
@@ -43,8 +43,8 @@
         >
           <div class="flex items-center justify-between">
             <span class="font-mono text-sm">{review.id}</span>
-            {#if getOpenFindingCount(review) > 0}
-              <Badge variant="destructive">{getOpenFindingCount(review)}</Badge>
+            {#if getOpenFeedbackCount(review) > 0}
+              <Badge variant="destructive">{getOpenFeedbackCount(review)}</Badge>
             {/if}
           </div>
           <div class="mt-1 text-xs text-muted-foreground">

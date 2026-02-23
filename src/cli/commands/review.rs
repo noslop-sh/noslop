@@ -95,8 +95,8 @@ fn run_review(base: &str, head: &str, check: bool, mode: OutputMode) -> anyhow::
 
     // Save
     let id = review.id.clone();
-    let total_findings = review.findings.len();
-    let blocking_count = review.blocking_findings().len();
+    let total_feedbacks = review.feedbacks.len();
+    let blocking_count = review.blocking_feedbacks().len();
     let is_blocked = review.is_blocked();
     store.save(&review)?;
 
@@ -109,7 +109,7 @@ fn run_review(base: &str, head: &str, check: bool, mode: OutputMode) -> anyhow::
                 "review_id": id,
                 "base": base,
                 "head": head,
-                "findings": total_findings,
+                "feedbacks": total_feedbacks,
                 "blocking": blocking_count,
                 "blocked": is_blocked,
             })
@@ -117,12 +117,12 @@ fn run_review(base: &str, head: &str, check: bool, mode: OutputMode) -> anyhow::
     } else {
         println!("Review: {id}");
         println!("  Range: {base}..{head}");
-        println!("  Findings: {total_findings}");
+        println!("  Feedbacks: {total_feedbacks}");
         println!("  Blocking: {blocking_count}");
         if is_blocked {
-            println!("\n  BLOCKED: {blocking_count} unresolved blocking finding(s)");
+            println!("\n  BLOCKED: {blocking_count} unresolved blocking feedback(s)");
         } else {
-            println!("\n  No blocking findings.");
+            println!("\n  No blocking feedbacks.");
         }
     }
 
@@ -167,8 +167,8 @@ struct ReviewListItem {
     base: String,
     head: String,
     status: String,
-    findings: usize,
-    open_findings: usize,
+    feedbacks: usize,
+    open_feedbacks: usize,
 }
 
 fn list_reviews(store: &FileReviewStore, open_only: bool, mode: OutputMode) -> anyhow::Result<()> {
@@ -186,8 +186,8 @@ fn list_reviews(store: &FileReviewStore, open_only: bool, mode: OutputMode) -> a
                 base: r.base.clone(),
                 head: r.head.clone(),
                 status: format!("{:?}", r.status).to_lowercase(),
-                findings: r.findings.len(),
-                open_findings: r.open_findings().len(),
+                feedbacks: r.feedbacks.len(),
+                open_feedbacks: r.open_feedbacks().len(),
             })
             .collect();
         println!("{}", serde_json::to_string_pretty(&items)?);
@@ -196,8 +196,8 @@ fn list_reviews(store: &FileReviewStore, open_only: bool, mode: OutputMode) -> a
     } else {
         println!("Reviews:\n");
         for r in &reviews {
-            let open = r.open_findings().len();
-            let total = r.findings.len();
+            let open = r.open_feedbacks().len();
+            let total = r.feedbacks.len();
             println!(
                 "  [{}] {} ({open} open / {total} total)",
                 format!("{:?}", r.status).to_uppercase(),
@@ -228,11 +228,11 @@ fn show_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::R
         );
         println!();
 
-        if review.findings.is_empty() {
-            println!("No findings.");
+        if review.feedbacks.is_empty() {
+            println!("No feedbacks.");
         } else {
-            println!("Findings:");
-            for f in &review.findings {
+            println!("Feedbacks:");
+            for f in &review.feedbacks {
                 let status = if f.is_open() { "OPEN" } else { "RESOLVED" };
                 println!("  [{status}] {} - {}", f.id, f.target);
                 println!("        {}", f.message);
@@ -245,11 +245,11 @@ fn show_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::R
 fn close_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::Result<()> {
     let mut review = store.load(id)?.ok_or_else(|| anyhow::anyhow!("Review not found: {id}"))?;
 
-    // Check for unresolved blocking findings
-    let blocking_count = review.blocking_findings().len();
+    // Check for unresolved blocking feedbacks
+    let blocking_count = review.blocking_feedbacks().len();
     if blocking_count > 0 {
         anyhow::bail!(
-            "Cannot close review with {blocking_count} blocking finding(s). Resolve all blocking findings first.",
+            "Cannot close review with {blocking_count} blocking feedback(s). Resolve all blocking feedbacks first.",
         );
     }
 

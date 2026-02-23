@@ -26,20 +26,20 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
     let repo = TomlCheckRepository::current_dir()?;
     let applicable = repo.find_for_files(&staged)?;
 
-    // Also check for open review findings that apply to staged files
+    // Also check for open review feedbacks that apply to staged files
     let review_store = FileReviewStore::new();
     let mut all_matches: Vec<(noslop::Check, String)> = applicable;
 
     for file in &staged {
         for review in review_store.find_blocking_for_file(file)? {
-            for finding in review.findings_for_file(file) {
-                if finding.is_blocking() {
-                    // Create a synthetic check to represent the blocking finding
+            for feedback in review.feedbacks_for_file(file) {
+                if feedback.is_blocking() {
+                    // Create a synthetic check to represent the blocking feedback
                     let check = noslop::Check::new(
-                        &finding.id,
+                        &feedback.id,
                         noslop::Target::file(file),
-                        &finding.message,
-                        finding.severity,
+                        &feedback.message,
+                        feedback.severity,
                     );
                     all_matches.push((check, file.clone()));
                 }

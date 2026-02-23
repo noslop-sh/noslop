@@ -1,19 +1,19 @@
 //! Shared output parsing for agent adapters
 //!
-//! Extracts structured [`Finding`]s from raw agent text output. Both
-//! Claude and Codex adapters delegate here via [`extract_findings`].
+//! Extracts structured [`Feedback`]s from raw agent text output. Both
+//! Claude and Codex adapters delegate here via [`extract_feedbacks`].
 
 use serde::Deserialize;
 
-use crate::core::models::{Finding, FindingSource, FindingStatus, Severity, Span, Target};
+use crate::core::models::{Feedback, FeedbackSource, FeedbackStatus, Severity, Span, Target};
 use crate::core::ports::agent::ReviewOutput;
 
 /// Intermediate type mirroring what agents actually output.
 ///
 /// Flat JSON schema requested in review prompts. Converted to domain
-/// [`Finding`] via [`RawAgentFinding::into_finding`].
+/// [`Feedback`] via [`RawAgentFeedback::into_feedback`].
 #[derive(Debug, Deserialize)]
-struct RawAgentFinding {
+struct RawAgentFeedback {
     severity: String,
     file: String,
     line: Option<u32>,
@@ -21,9 +21,9 @@ struct RawAgentFinding {
     suggestion: Option<String>,
 }
 
-impl RawAgentFinding {
-    fn into_finding(self, source: FindingSource) -> Finding {
-        Finding {
+impl RawAgentFeedback {
+    fn into_feedback(self, source: FeedbackSource) -> Feedback {
+        Feedback {
             id: String::new(),
             target: Target {
                 path: self.file,
@@ -33,7 +33,7 @@ impl RawAgentFinding {
             severity: parse_severity(&self.severity),
             message: self.message,
             source,
-            status: FindingStatus::Open,
+            status: FeedbackStatus::Open,
             suggestion: self.suggestion,
             dismiss_reason: None,
             resolution_reason: None,
@@ -56,19 +56,19 @@ fn parse_severity(s: &str) -> Severity {
     }
 }
 
-/// Extract findings from raw agent output.
+/// Extract feedbacks from raw agent output.
 ///
 /// Looks for a JSON array in the text, deserializes it into
-/// [`RawAgentFinding`]s, and converts them to domain [`Finding`]s.
+/// [`RawAgentFeedback`]s, and converts them to domain [`Feedback`]s.
 #[must_use]
-pub fn extract_findings(output: &str, source: &FindingSource) -> ReviewOutput {
-    let findings = extract_json_array(output)
-        .and_then(|json| serde_json::from_str::<Vec<RawAgentFinding>>(&json).ok())
-        .map(|raw| raw.into_iter().map(|r| r.into_finding(source.clone())).collect())
+pub fn extract_feedbacks(output: &str, source: &FeedbackSource) -> ReviewOutput {
+    let feedbacks = extract_json_array(output)
+        .and_then(|json| serde_json::from_str::<Vec<RawAgentFeedback>>(&json).ok())
+        .map(|raw| raw.into_iter().map(|r| r.into_feedback(source.clone())).collect())
         .unwrap_or_default();
 
     ReviewOutput {
-        findings,
+        feedbacks,
         raw_output: output.to_string(),
         errors: extract_error_lines(output),
     }
@@ -121,28 +121,28 @@ fn extract_error_lines(output: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    fn src() -> FindingSource {
-        FindingSource::Agent("security".into())
+    fn src() -> FeedbackSource {
+        FeedbackSource::Agent("security".into())
     }
 
     #[test]
     fn clean_json() {
         let out = r#"[{"severity":"warn","file":"src/auth.rs","line":42,"message":"Timing attack","suggestion":"Use constant-time comparison"}]"#;
-        let r = extract_findings(out, &src());
-        assert_eq!(r.findings.len(), 1);
-        assert_eq!(r.findings[0].severity, Severity::Warn);
-        assert_eq!(r.findings[0].target.path, "src/auth.rs");
-        assert_eq!(r.findings[0].target.span, Some(Span { start: 42, end: 42 }));
-        assert_eq!(r.findings[0].suggestion.as_deref(), Some("Use constant-time comparison"));
+        let r = extract_feedbacks(out, &src());
+        assert_eq!(r.feedbacks.len(), 1);
+        assert_eq!(r.feedbacks[0].severity, Severity::Warn);
+        assert_eq!(r.feedbacks[0].target.path, "src/auth.rs");
+        assert_eq!(r.feedbacks[0].target.span, Some(Span { start: 42, end: 42 }));
+        assert_eq!(r.feedbacks[0].suggestion.as_deref(), Some("Use constant-time comparison"));
     }
 
     #[test]
     fn narrative_wrapper() {
-        let out = "Here are findings:\n\n[{\"severity\":\"block\",\"file\":\"src/db.rs\",\"line\":15,\"message\":\"SQL injection\",\"suggestion\":\"Parameterized queries\"}]\n\nClean otherwise.";
-        let r = extract_findings(out, &src());
-        assert_eq!(r.findings.len(), 1);
-        assert_eq!(r.findings[0].severity, Severity::Block);
-        assert_eq!(r.findings[0].target.path, "src/db.rs");
+        let out = "Here are feedbacks:\n\n[{\"severity\":\"block\",\"file\":\"src/db.rs\",\"line\":15,\"message\":\"SQL injection\",\"suggestion\":\"Parameterized queries\"}]\n\nClean otherwise.";
+        let r = extract_feedbacks(out, &src());
+        assert_eq!(r.feedbacks.len(), 1);
+        assert_eq!(r.feedbacks[0].severity, Severity::Block);
+        assert_eq!(r.feedbacks[0].target.path, "src/db.rs");
     }
 
     #[test]
@@ -159,7 +159,7 @@ mod tests {
         for (sev, expected) in cases {
             let out = format!(r#"[{{"severity":"{sev}","file":"f.rs","line":1,"message":"x"}}]"#);
             assert_eq!(
-                extract_findings(&out, &src()).findings[0].severity,
+                extract_feedbacks(&out, &src()).feedbacks[0].severity,
                 expected,
                 "severity '{sev}' should map to {expected:?}"
             );
@@ -169,30 +169,30 @@ mod tests {
     #[test]
     fn unknown_severity_defaults_to_warn() {
         let out = r#"[{"severity":"unknown","file":"f.rs","line":1,"message":"x"}]"#;
-        assert_eq!(extract_findings(out, &src()).findings[0].severity, Severity::Warn);
+        assert_eq!(extract_feedbacks(out, &src()).feedbacks[0].severity, Severity::Warn);
     }
 
     #[test]
     fn no_json_returns_empty() {
-        let r = extract_findings("No issues found.", &src());
-        assert!(r.findings.is_empty());
+        let r = extract_feedbacks("No issues found.", &src());
+        assert!(r.feedbacks.is_empty());
         assert_eq!(r.raw_output, "No issues found.");
     }
 
     #[test]
     fn malformed_json_returns_empty() {
-        assert!(extract_findings("[{bad json}]", &src()).findings.is_empty());
+        assert!(extract_feedbacks("[{bad json}]", &src()).feedbacks.is_empty());
     }
 
     #[test]
     fn empty_array_returns_empty() {
-        let r = extract_findings("[]", &src());
-        assert!(r.findings.is_empty());
+        let r = extract_feedbacks("[]", &src());
+        assert!(r.feedbacks.is_empty());
     }
 
     #[test]
     fn error_line_extraction() {
-        let r = extract_findings("ok\nError: timeout\nFAILED to connect\ndone", &src());
+        let r = extract_feedbacks("ok\nError: timeout\nFAILED to connect\ndone", &src());
         assert_eq!(r.errors.len(), 2);
         assert!(r.errors[0].contains("timeout"));
         assert!(r.errors[1].contains("FAILED"));
@@ -200,38 +200,38 @@ mod tests {
 
     #[test]
     fn panicked_at_extraction() {
-        let r = extract_findings("thread 'main' panicked at 'oops'", &src());
+        let r = extract_feedbacks("thread 'main' panicked at 'oops'", &src());
         assert_eq!(r.errors.len(), 1);
         assert!(r.errors[0].contains("panicked at"));
     }
 
     #[test]
-    fn multiple_findings() {
+    fn multiple_feedbacks() {
         let out = r#"[
             {"severity":"warn","file":"a.rs","line":1,"message":"first"},
             {"severity":"block","file":"b.rs","line":2,"message":"second"},
             {"severity":"info","file":"c.rs","line":null,"message":"third"}
         ]"#;
-        let r = extract_findings(out, &src());
-        assert_eq!(r.findings.len(), 3);
-        assert_eq!(r.findings[0].severity, Severity::Warn);
-        assert_eq!(r.findings[1].severity, Severity::Block);
-        assert_eq!(r.findings[2].severity, Severity::Info);
-        assert!(r.findings[2].target.span.is_none());
+        let r = extract_feedbacks(out, &src());
+        assert_eq!(r.feedbacks.len(), 3);
+        assert_eq!(r.feedbacks[0].severity, Severity::Warn);
+        assert_eq!(r.feedbacks[1].severity, Severity::Block);
+        assert_eq!(r.feedbacks[2].severity, Severity::Info);
+        assert!(r.feedbacks[2].target.span.is_none());
     }
 
     #[test]
     fn null_suggestion_is_none() {
         let out = r#"[{"severity":"warn","file":"f.rs","line":1,"message":"x","suggestion":null}]"#;
-        let r = extract_findings(out, &src());
-        assert!(r.findings[0].suggestion.is_none());
+        let r = extract_feedbacks(out, &src());
+        assert!(r.feedbacks[0].suggestion.is_none());
     }
 
     #[test]
-    fn finding_source_is_preserved() {
+    fn feedback_source_is_preserved() {
         let out = r#"[{"severity":"warn","file":"f.rs","line":1,"message":"x"}]"#;
-        let r = extract_findings(out, &FindingSource::Agent("quality".into()));
-        assert_eq!(r.findings[0].source, FindingSource::Agent("quality".into()));
+        let r = extract_feedbacks(out, &FeedbackSource::Agent("quality".into()));
+        assert_eq!(r.feedbacks[0].source, FeedbackSource::Agent("quality".into()));
     }
 
     #[test]
@@ -239,9 +239,9 @@ mod tests {
         // The outer array should be extracted correctly even with JSON-like content in strings
         let out =
             r#"[{"severity":"warn","file":"f.rs","line":1,"message":"found [1,2,3] in code"}]"#;
-        let r = extract_findings(out, &src());
-        assert_eq!(r.findings.len(), 1);
-        assert_eq!(r.findings[0].message, "found [1,2,3] in code");
+        let r = extract_feedbacks(out, &src());
+        assert_eq!(r.feedbacks.len(), 1);
+        assert_eq!(r.feedbacks[0].message, "found [1,2,3] in code");
     }
 
     #[test]

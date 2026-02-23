@@ -4,7 +4,7 @@
   import { Button } from '$lib/components/ui/button';
   import * as Popover from '$lib/components/ui/popover';
   import * as Command from '$lib/components/ui/command';
-  import { blockingFindings } from '$lib/helpers';
+  import { blockingFeedbacks } from '$lib/helpers';
   import { Sun, Moon, ChevronsLeftRight, Check } from '@lucide/svelte';
 
   interface Props {
@@ -33,9 +33,9 @@
     onToggleTheme,
   }: Props = $props();
 
-  let blockCount = $derived(review ? blockingFindings(review.findings).length : 0);
+  let blockCount = $derived(review ? blockingFeedbacks(review.feedbacks).length : 0);
   let warnCount = $derived(
-    review ? review.findings.filter((f) => f.severity === 'warn' && f.status === 'open').length : 0
+    review ? review.feedbacks.filter((f) => f.severity === 'warn' && f.status === 'open').length : 0
   );
   let viewedCount = $derived(review ? review.viewed_files.length : 0);
 
@@ -148,7 +148,7 @@
         {:else if warnCount > 0}
           <Badge
             variant="secondary"
-            class="h-4 px-1 text-[9px] leading-none bg-finding-warn/15 text-finding-warn border-finding-warn/25"
+            class="h-4 px-1 text-[9px] leading-none bg-feedback-warn/15 text-feedback-warn border-feedback-warn/25"
           >
             {warnCount}
           </Badge>

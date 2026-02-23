@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { FileDiff, Finding, SortMode } from '$lib/types';
-  import { buildFileTree, openFindingCount } from '$lib/helpers';
+  import type { FileDiff, Feedback, SortMode } from '$lib/types';
+  import { buildFileTree, openFeedbackCount } from '$lib/helpers';
   import { Progress } from '$lib/components/ui/progress';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { Search, ArrowUpDown } from '@lucide/svelte';
@@ -8,7 +8,7 @@
 
   interface Props {
     files: FileDiff[];
-    findings: Finding[];
+    feedbacks: Feedback[];
     viewedFiles: Set<string>;
     selectedPath: string | null;
     sortMode: SortMode;
@@ -20,7 +20,7 @@
 
   let {
     files,
-    findings,
+    feedbacks,
     viewedFiles,
     selectedPath,
     sortMode,
@@ -30,17 +30,17 @@
     onFilterChange,
   }: Props = $props();
 
-  let tree = $derived(buildFileTree(files, findings, viewedFiles, sortMode, filterText));
+  let tree = $derived(buildFileTree(files, feedbacks, viewedFiles, sortMode, filterText));
 
   let fileCount = $derived(files.length);
   let viewedCount = $derived(viewedFiles.size);
   let viewedPercent = $derived(fileCount > 0 ? Math.round((viewedCount / fileCount) * 100) : 0);
 
-  let totalFindings = $derived(findings.filter((f) => f.status === 'open').length);
-  let resolvedFindings = $derived(findings.filter((f) => f.status === 'resolved').length);
-  let totalFindingCount = $derived(findings.length);
+  let totalFeedbacks = $derived(feedbacks.filter((f) => f.status === 'open').length);
+  let resolvedFeedbacks = $derived(feedbacks.filter((f) => f.status === 'resolved').length);
+  let totalFeedbackCount = $derived(feedbacks.length);
   let resolvedPercent = $derived(
-    totalFindingCount > 0 ? Math.round((resolvedFindings / totalFindingCount) * 100) : 0
+    totalFeedbackCount > 0 ? Math.round((resolvedFeedbacks / totalFeedbackCount) * 100) : 0
   );
 
   function handleFilterInput(event: Event) {
@@ -72,10 +72,10 @@
       </DropdownMenu.Trigger>
       <DropdownMenu.Content align="end" class="w-40">
         <DropdownMenu.Item
-          onclick={() => onSortChange('findings')}
-          class={sortMode === 'findings' ? 'bg-accent' : ''}
+          onclick={() => onSortChange('feedbacks')}
+          class={sortMode === 'feedbacks' ? 'bg-accent' : ''}
         >
-          By findings
+          By feedback
         </DropdownMenu.Item>
         <DropdownMenu.Item
           onclick={() => onSortChange('alphabetical')}
@@ -125,9 +125,9 @@
     </div>
     <div>
       <div class="mb-1 flex items-center justify-between">
-        <span class="text-[10px] text-muted-foreground">Findings resolved</span>
+        <span class="text-[10px] text-muted-foreground">Feedback resolved</span>
         <span class="text-[10px] font-medium text-muted-foreground">
-          {resolvedFindings}/{totalFindingCount}
+          {resolvedFeedbacks}/{totalFeedbackCount}
         </span>
       </div>
       <Progress value={resolvedPercent} max={100} class="h-1.5" />

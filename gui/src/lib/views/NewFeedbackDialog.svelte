@@ -59,7 +59,7 @@
     <Dialog.Header>
       <Dialog.Title class="flex items-center gap-2">
         <MessageSquarePlus class="size-5" />
-        Add Finding
+        Add Feedback
       </Dialog.Title>
       <Dialog.Description>
         <span class="font-mono">{filePath}</span> {lineLabel}
@@ -87,9 +87,9 @@
 
       <!-- Message textarea -->
       <div>
-        <label for="finding-message" class="mb-1.5 block text-sm font-medium">Message</label>
+        <label for="feedback-message" class="mb-1.5 block text-sm font-medium">Message</label>
         <textarea
-          id="finding-message"
+          id="feedback-message"
           bind:value={message}
           onkeydown={handleKeydown}
           rows="3"
@@ -105,7 +105,7 @@
     <Dialog.Footer class="mt-4">
       <Button variant="outline" onclick={handleCancel}>Cancel</Button>
       <Button onclick={handleSubmit} disabled={!message.trim()}>
-        Add Finding
+        Add Feedback
       </Button>
     </Dialog.Footer>
   </Dialog.Content>

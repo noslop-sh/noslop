@@ -2,7 +2,7 @@
 //!
 //! These types are part of the `VersionControl` port interface.
 //! They represent VCS-specific data structures used by the review
-//! pipeline. They are NOT domain models -- domain types (Finding,
+//! pipeline. They are NOT domain models -- domain types (Feedback,
 //! Review, Target, etc.) live in `core::models`.
 
 use std::path::PathBuf;

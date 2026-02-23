@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { StructuredDiff, Finding, DiffViewMode, DismissReason, Severity } from '$lib/types';
+  import type { StructuredDiff, Feedback, DiffViewMode, DismissReason, Severity } from '$lib/types';
   import type { SelectedLineRange } from '@pierre/diffs';
   import { parsePatchFiles } from '@pierre/diffs';
   import { provideWorkerPool } from '$lib/diff/worker-pool.svelte';
@@ -8,20 +8,20 @@
   interface Props {
     rawPatch: string | null;
     diff: StructuredDiff | null;
-    findings: Finding[];
+    feedbacks: Feedback[];
     reviewId: string;
     reviewOpen: boolean;
     currentFilePath: string | null;
     viewedFiles: Set<string>;
     diffViewMode: DiffViewMode;
-    focusedFindingId: string | null;
+    focusedFeedbackId: string | null;
     onFileSelect: (path: string) => void;
     onToggleViewed: (path: string) => void;
-    onFindingClick: (id: string) => void;
-    onResolve: (findingId: string) => void;
-    onDismiss: (findingId: string, reason: DismissReason) => void;
+    onFeedbackClick: (id: string) => void;
+    onResolve: (feedbackId: string) => void;
+    onDismiss: (feedbackId: string, reason: DismissReason) => void;
     onToggleDiffMode: () => void;
-    onSubmitFinding: (
+    onSubmitFeedback: (
       filePath: string,
       startLine: number,
       endLine: number,
@@ -33,20 +33,20 @@
   let {
     rawPatch,
     diff,
-    findings,
+    feedbacks,
     reviewId,
     reviewOpen,
     currentFilePath,
     viewedFiles,
     diffViewMode,
-    focusedFindingId,
+    focusedFeedbackId,
     onFileSelect,
     onToggleViewed,
-    onFindingClick,
+    onFeedbackClick,
     onResolve,
     onDismiss,
     onToggleDiffMode,
-    onSubmitFinding,
+    onSubmitFeedback,
   }: Props = $props();
 
   // Provide shared worker pool to all FileDiffRenderer children.
@@ -68,7 +68,7 @@
     return patches.flatMap((p) => p.files);
   });
 
-  // Active inline form state (line selection for finding creation)
+  // Active inline form state (line selection for feedback creation)
   let activeForm = $state<{
     filePath: string;
     startLine: number;
@@ -89,7 +89,7 @@
 
   async function handleFormSubmit(message: string, severity: Severity): Promise<void> {
     if (!activeForm) return;
-    await onSubmitFinding(
+    await onSubmitFeedback(
       activeForm.filePath,
       activeForm.startLine,
       activeForm.endLine,
@@ -118,7 +118,7 @@
       <FileDiffSection
         {fileDiffMeta}
         {diff}
-        {findings}
+        {feedbacks}
         {reviewOpen}
         {diffViewMode}
         isCurrentFile={currentFilePath === fileDiffMeta.name}
@@ -126,7 +126,7 @@
         {activeForm}
         {onFileSelect}
         {onToggleViewed}
-        {onFindingClick}
+        {onFeedbackClick}
         {onResolve}
         {onDismiss}
         {onToggleDiffMode}

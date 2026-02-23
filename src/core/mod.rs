@@ -25,7 +25,7 @@
 //!          |  +----------+  +-----------+                |
 //!          |  |  Models  |  | Services  |                |
 //!          |  |  Check   |  | Pipeline  |                |
-//!          |  |  Finding |  +-----------+                |
+//!          |  |  Feedback |  +-----------+                |
 //!          |  |  Review  |                               |
 //!          |  | Severity |                               |
 //!          |  |  Target  |                               |
@@ -36,7 +36,7 @@
 //!
 //! # Modules
 //!
-//! - [`models`] - Domain types (`Check`, `Finding`, `Review`, `Target`, `Severity`, `AgentKind`)
+//! - [`models`] - Domain types (`Check`, `Feedback`, `Review`, `Target`, `Severity`, `AgentKind`)
 //! - [`services`] - Business logic (`ReviewPipeline` with tier-sorted fold semantics)
 //! - [`ports`] - Trait definitions for external dependencies
 

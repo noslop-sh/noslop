@@ -10,7 +10,7 @@
     PaletteCommand,
     Severity,
   } from '$lib/types';
-  import { blockingFindings } from '$lib/helpers';
+  import { blockingFeedbacks } from '$lib/helpers';
   import { getSession, updateSession } from '$lib/session';
   import { createReviewNavigation } from '$lib/stores/review-navigation.svelte';
   import { createKeyboardManager, type KeyboardActions } from '$lib/stores/keyboard.svelte';
@@ -19,10 +19,11 @@
     useStartReview,
     useCloseReview,
     useReopenReview,
-    useResolveFinding,
-    useDismissFinding,
+    useResolveFeedback,
+    useDismissFeedback,
     useMarkFileViewed,
-    useAddFinding,
+    useAddFeedback,
+    useAddFeedbackNote,
     useCurrentBranch,
     useBranches,
     useDefaultBranch,
@@ -31,7 +32,7 @@
   import AppShell from '$lib/views/AppShell.svelte';
   import BranchCompare from '$lib/views/BranchCompare.svelte';
   import FileTree from '$lib/views/FileTree.svelte';
-  import FindingsPanel from '$lib/views/FindingsPanel.svelte';
+  import FeedbackPanel from '$lib/views/FeedbackPanel.svelte';
   import ReviewLandingPage from '$lib/views/ReviewLandingPage.svelte';
   import DiffView from '$lib/views/DiffView.svelte';
   import NewReviewDialog from '$lib/views/NewReviewDialog.svelte';
@@ -54,8 +55,8 @@
   let sidebarCollapseState = $state<SidebarCollapseState>(session.sidebar_collapse_state);
   let diffViewMode = $state<DiffViewMode>(session.diff_view_mode);
   let activeFilters = $state<ActiveFilters>(session.active_filters);
-  let findingsPanelCollapsed = $state(session.findings_panel_collapsed);
-  let expandedFindingIds = $state<string[]>(session.expanded_finding_ids);
+  let feedbackPanelCollapsed = $state(session.feedback_panel_collapsed);
+  let expandedFeedbackIds = $state<string[]>(session.expanded_feedback_ids);
   let activeView = $state<ReviewView>(session.active_view);
 
   // Dialog state
@@ -80,8 +81,8 @@
       sidebar_collapse_state: sidebarCollapseState,
       diff_view_mode: diffViewMode,
       active_filters: activeFilters,
-      findings_panel_collapsed: findingsPanelCollapsed,
-      expanded_finding_ids: expandedFindingIds,
+      feedback_panel_collapsed: feedbackPanelCollapsed,
+      expanded_feedback_ids: expandedFeedbackIds,
       active_view: activeView,
     });
   });
@@ -96,10 +97,11 @@
   const startReview = useStartReview();
   const closeReview = useCloseReview();
   const reopenReview = useReopenReview();
-  const resolveFinding = useResolveFinding();
-  const dismissFinding = useDismissFinding();
+  const resolveFeedback = useResolveFeedback();
+  const dismissFeedback = useDismissFeedback();
   const markFileViewed = useMarkFileViewed();
-  const addFinding = useAddFinding();
+  const addFeedback = useAddFeedback();
+  const addFeedbackNote = useAddFeedbackNote();
 
   const allBranches = $derived($branchesQuery.data ?? []);
 
@@ -249,7 +251,7 @@
 
   function handleCloseAttempt(): void {
     if (!review) return;
-    const blockers = blockingFindings(review.findings);
+    const blockers = blockingFeedbacks(review.feedbacks);
     if (blockers.length > 0) {
       showBlockedDialog = true;
     } else {
@@ -264,15 +266,15 @@
     await refetchReview();
   }
 
-  async function handleResolve(findingId: string): Promise<void> {
+  async function handleResolve(feedbackId: string): Promise<void> {
     if (!selectedReviewId) return;
-    await $resolveFinding.mutateAsync({ reviewId: selectedReviewId, findingId });
+    await $resolveFeedback.mutateAsync({ reviewId: selectedReviewId, feedbackId });
     await refetchReview();
   }
 
-  async function handleDismiss(findingId: string, reason: DismissReason): Promise<void> {
+  async function handleDismiss(feedbackId: string, reason: DismissReason): Promise<void> {
     if (!selectedReviewId) return;
-    await $dismissFinding.mutateAsync({ reviewId: selectedReviewId, findingId, reason });
+    await $dismissFeedback.mutateAsync({ reviewId: selectedReviewId, feedbackId, reason });
     await refetchReview();
   }
 
@@ -283,18 +285,18 @@
     await refetchReview();
   }
 
-  function handleFindingClick(id: string): void {
-    nav.selectFinding(id);
+  function handleFeedbackClick(id: string): void {
+    nav.selectFeedback(id);
     // Toggle expanded state
-    if (expandedFindingIds.includes(id)) {
-      expandedFindingIds = expandedFindingIds.filter((fid) => fid !== id);
+    if (expandedFeedbackIds.includes(id)) {
+      expandedFeedbackIds = expandedFeedbackIds.filter((fid) => fid !== id);
     } else {
-      expandedFindingIds = [...expandedFindingIds, id];
+      expandedFeedbackIds = [...expandedFeedbackIds, id];
     }
     activeView = 'files';
   }
 
-  async function handleSubmitFinding(
+  async function handleSubmitFeedback(
     filePath: string,
     startLine: number,
     endLine: number,
@@ -302,7 +304,7 @@
     severity: Severity
   ): Promise<void> {
     if (!selectedReviewId) return;
-    await $addFinding.mutateAsync({
+    await $addFeedback.mutateAsync({
       reviewId: selectedReviewId,
       target: filePath,
       message,
@@ -313,14 +315,20 @@
     await refetchReview();
   }
 
+  async function handleAddNote(feedbackId: string, content: string): Promise<void> {
+    if (!selectedReviewId) return;
+    await $addFeedbackNote.mutateAsync({ reviewId: selectedReviewId, feedbackId, content });
+    await refetchReview();
+  }
+
   function handleScrollToBlocker(): void {
     if (!review) return;
-    const blockers = blockingFindings(review.findings);
+    const blockers = blockingFeedbacks(review.feedbacks);
     if (blockers.length > 0) {
-      nav.selectFinding(blockers[0].id);
+      nav.selectFeedback(blockers[0].id);
       nav.selectFile(blockers[0].target.path);
-      if (!expandedFindingIds.includes(blockers[0].id)) {
-        expandedFindingIds = [...expandedFindingIds, blockers[0].id];
+      if (!expandedFeedbackIds.includes(blockers[0].id)) {
+        expandedFeedbackIds = [...expandedFeedbackIds, blockers[0].id];
       }
       showBlockedDialog = false;
       activeView = 'files';
@@ -345,7 +353,7 @@
   // Keyboard manager
   // ---------------------------------------------------------------------------
 
-  const findings = $derived(review?.findings ?? []);
+  const feedbacks = $derived(review?.feedbacks ?? []);
   const files = $derived(diff?.files ?? []);
 
   const keyboardActions: KeyboardActions = {
@@ -357,31 +365,31 @@
       nav.prevFile(files);
       switchToFilesView();
     },
-    nextFinding: () => {
-      nav.nextFinding(findings);
+    nextFeedback: () => {
+      nav.nextFeedback(feedbacks);
       switchToFilesView();
     },
-    prevFinding: () => {
-      nav.prevFinding(findings);
+    prevFeedback: () => {
+      nav.prevFeedback(feedbacks);
       switchToFilesView();
     },
     nextUnresolved: () => {
-      nav.nextUnresolved(findings);
+      nav.nextUnresolved(feedbacks);
       switchToFilesView();
     },
     prevUnresolved: () => {
-      nav.prevUnresolved(findings);
+      nav.prevUnresolved(feedbacks);
       switchToFilesView();
     },
     resolveFocused: () => {
-      if (nav.currentFindingId) handleResolve(nav.currentFindingId);
+      if (nav.currentFeedbackId) handleResolve(nav.currentFeedbackId);
     },
     dismissFocused: () => {
       // For keyboard shortcut, we can't show dropdown - use 'false_positive' as default
       // Users can dismiss with reason via the card UI
     },
-    addFindingOnLine: () => {
-      // Line selection and finding creation is handled inline by DiffView
+    addFeedbackOnLine: () => {
+      // Line selection and feedback creation is handled inline by DiffView
     },
     toggleViewed: () => {
       if (nav.currentFilePath) handleToggleViewed(nav.currentFilePath);
@@ -390,13 +398,13 @@
     toggleDiffMode,
     toggleWhitespace: () => nav.toggleWhitespaceVisibility(),
     expandFocused: () => {
-      if (nav.currentFindingId) {
-        handleFindingClick(nav.currentFindingId);
+      if (nav.currentFeedbackId) {
+        handleFeedbackClick(nav.currentFeedbackId);
       }
     },
     collapseFocused: () => {
-      if (nav.currentFindingId && expandedFindingIds.includes(nav.currentFindingId)) {
-        expandedFindingIds = expandedFindingIds.filter((id) => id !== nav.currentFindingId);
+      if (nav.currentFeedbackId && expandedFeedbackIds.includes(nav.currentFeedbackId)) {
+        expandedFeedbackIds = expandedFeedbackIds.filter((id) => id !== nav.currentFeedbackId);
       }
     },
     openCommandPalette: () => {
@@ -467,14 +475,14 @@
       action: () => nav.selectFile(f.path),
       available: () => true,
     })),
-    ...findings
+    ...feedbacks
       .filter((f) => f.status === 'open')
       .slice(0, 20)
       .map((f) => ({
-        id: `finding-${f.id}`,
+        id: `feedback-${f.id}`,
         label: `${f.severity}: ${f.message.slice(0, 60)}`,
-        group: 'findings' as const,
-        action: () => handleFindingClick(f.id),
+        group: 'feedbacks' as const,
+        action: () => handleFeedbackClick(f.id),
         available: () => true,
       })),
   ]);
@@ -506,7 +514,7 @@
         <div class="flex-1 overflow-hidden">
           <FileTree
             files={diff.files}
-            findings={review!.findings}
+            feedbacks={review!.feedbacks}
             viewedFiles={nav.viewedFiles}
             selectedPath={nav.currentFilePath}
             sortMode={nav.sortMode}
@@ -521,28 +529,28 @@
         </div>
       {/if}
 
-      <!-- Findings panel (collapsible) -->
+      <!-- Feedback panel (collapsible) -->
       <div class="border-t border-border">
         <button
           type="button"
           class="flex w-full items-center gap-1 px-3 py-2 text-xs font-medium text-muted-foreground hover:text-foreground"
-          onclick={() => (findingsPanelCollapsed = !findingsPanelCollapsed)}
+          onclick={() => (feedbackPanelCollapsed = !feedbackPanelCollapsed)}
         >
-          {#if findingsPanelCollapsed}
+          {#if feedbackPanelCollapsed}
             <ChevronRight class="size-3" />
           {:else}
             <ChevronDown class="size-3" />
           {/if}
-          Findings
+          Feedback
         </button>
-        {#if !findingsPanelCollapsed}
+        {#if !feedbackPanelCollapsed}
           <div class="max-h-72 overflow-hidden">
-            <FindingsPanel
-              findings={review!.findings}
+            <FeedbackPanel
+              feedbacks={review!.feedbacks}
               reviewId={review!.id}
               {activeFilters}
-              focusedFindingId={nav.currentFindingId}
-              onFindingClick={handleFindingClick}
+              focusedFeedbackId={nav.currentFeedbackId}
+              onFeedbackClick={handleFeedbackClick}
               onFilterChange={(filters) => (activeFilters = filters)}
               onResolve={handleResolve}
               onDismiss={handleDismiss}
@@ -564,33 +572,34 @@
           nav.selectFile(path);
           switchToFilesView();
         }}
-        onFindingClick={(id) => {
-          const finding = review!.findings.find((f) => f.id === id);
-          if (finding) nav.selectFile(finding.target.path);
-          handleFindingClick(id);
+        onFeedbackClick={(id) => {
+          const feedback = review!.feedbacks.find((f) => f.id === id);
+          if (feedback) nav.selectFile(feedback.target.path);
+          handleFeedbackClick(id);
           switchToFilesView();
         }}
         onResolve={handleResolve}
         onDismiss={handleDismiss}
+        onAddNote={handleAddNote}
       />
     {:else if diff}
       <DiffView
         {rawPatch}
         {diff}
-        findings={review.findings}
+        feedbacks={review.feedbacks}
         reviewId={review.id}
         reviewOpen={review.status === 'open'}
         currentFilePath={nav.currentFilePath}
         viewedFiles={nav.viewedFiles}
         {diffViewMode}
-        focusedFindingId={nav.currentFindingId}
+        focusedFeedbackId={nav.currentFeedbackId}
         onFileSelect={(path) => nav.selectFile(path)}
         onToggleViewed={handleToggleViewed}
-        onFindingClick={handleFindingClick}
+        onFeedbackClick={handleFeedbackClick}
         onResolve={handleResolve}
         onDismiss={handleDismiss}
         onToggleDiffMode={toggleDiffMode}
-        onSubmitFinding={handleSubmitFinding}
+        onSubmitFeedback={handleSubmitFeedback}
       />
     {/if}
   </AppShell>

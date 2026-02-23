@@ -84,11 +84,11 @@ export function useReopenReview() {
   });
 }
 
-export function useResolveFinding() {
+export function useResolveFeedback() {
   const client = useQueryClient();
   return createMutation({
-    mutationFn: (params: { reviewId: string; findingId: string }) =>
-      api.resolveFinding(params.reviewId, params.findingId),
+    mutationFn: (params: { reviewId: string; feedbackId: string }) =>
+      api.resolveFeedback(params.reviewId, params.feedbackId),
     onSuccess: (_, { reviewId }) => {
       client.invalidateQueries({ queryKey: ['reviews'] });
       client.invalidateQueries({ queryKey: ['review', reviewId] });
@@ -96,11 +96,11 @@ export function useResolveFinding() {
   });
 }
 
-export function useDismissFinding() {
+export function useDismissFeedback() {
   const client = useQueryClient();
   return createMutation({
-    mutationFn: (params: { reviewId: string; findingId: string; reason: string }) =>
-      api.dismissFinding(params.reviewId, params.findingId, params.reason),
+    mutationFn: (params: { reviewId: string; feedbackId: string; reason: string }) =>
+      api.dismissFeedback(params.reviewId, params.feedbackId, params.reason),
     onSuccess: (_, { reviewId }) => {
       client.invalidateQueries({ queryKey: ['review', reviewId] });
     },
@@ -110,8 +110,8 @@ export function useDismissFinding() {
 export function useApplySuggestion() {
   const client = useQueryClient();
   return createMutation({
-    mutationFn: (params: { reviewId: string; findingId: string }) =>
-      api.applySuggestion(params.reviewId, params.findingId),
+    mutationFn: (params: { reviewId: string; feedbackId: string }) =>
+      api.applySuggestion(params.reviewId, params.feedbackId),
     onSuccess: (_, { reviewId }) => {
       client.invalidateQueries({ queryKey: ['review', reviewId] });
       client.invalidateQueries({ queryKey: ['structured-diff'] });
@@ -119,7 +119,7 @@ export function useApplySuggestion() {
   });
 }
 
-export function useAddFinding() {
+export function useAddFeedback() {
   const client = useQueryClient();
   return createMutation({
     mutationFn: (params: {
@@ -130,7 +130,7 @@ export function useAddFinding() {
       startLine?: number;
       endLine?: number;
     }) =>
-      api.addFinding(
+      api.addFeedback(
         params.reviewId,
         params.target,
         params.message,
@@ -144,11 +144,11 @@ export function useAddFinding() {
   });
 }
 
-export function useAddFindingNote() {
+export function useAddFeedbackNote() {
   const client = useQueryClient();
   return createMutation({
-    mutationFn: (params: { reviewId: string; findingId: string; content: string }) =>
-      api.addFindingNote(params.reviewId, params.findingId, params.content),
+    mutationFn: (params: { reviewId: string; feedbackId: string; content: string }) =>
+      api.addFeedbackNote(params.reviewId, params.feedbackId, params.content),
     onSuccess: (_, { reviewId }) => {
       client.invalidateQueries({ queryKey: ['review', reviewId] });
     },

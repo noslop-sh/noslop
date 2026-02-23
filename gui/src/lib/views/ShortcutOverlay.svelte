@@ -37,20 +37,20 @@
       shortcuts: [
         { key: ']', description: 'Next file' },
         { key: '[', description: 'Previous file' },
-        { key: 'j', description: 'Next finding' },
-        { key: 'k', description: 'Previous finding' },
-        { key: 'n', description: 'Next unresolved finding' },
-        { key: 'p', description: 'Previous unresolved finding' },
+        { key: 'j', description: 'Next feedback' },
+        { key: 'k', description: 'Previous feedback' },
+        { key: 'n', description: 'Next unresolved feedback' },
+        { key: 'p', description: 'Previous unresolved feedback' },
         { key: '\u2318P', description: 'Go to file' },
       ],
     },
     {
-      label: 'Findings',
+      label: 'Feedback',
       shortcuts: [
-        { key: 'r', description: 'Resolve finding' },
-        { key: 'd', description: 'Dismiss finding' },
+        { key: 'r', description: 'Resolve feedback' },
+        { key: 'd', description: 'Dismiss feedback' },
         { key: 'c', description: 'Add comment' },
-        { key: 'Enter', description: 'Expand/collapse finding' },
+        { key: 'Enter', description: 'Expand/collapse feedback' },
       ],
     },
     {

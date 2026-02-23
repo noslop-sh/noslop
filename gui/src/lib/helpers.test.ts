@@ -1,11 +1,11 @@
 import { describe, it, expect } from 'vitest';
 import {
-  openFindingCount,
-  blockingFindings,
-  findingsForFile,
-  findingCountsByFile,
-  applyFindingFilters,
-  sortFindingsBySeverity,
+  openFeedbackCount,
+  blockingFeedbacks,
+  feedbacksForFile,
+  feedbackCountsByFile,
+  applyFeedbackFilters,
+  sortFeedbacksBySeverity,
   formatSource,
   changeTypeLabel,
   changeTypeColor,
@@ -13,14 +13,14 @@ import {
   formatRelativeDate,
   buildFileTree,
 } from './helpers';
-import type { Finding, FileDiff } from './types';
+import type { Feedback, FileDiff } from './types';
 
-function makeFinding(overrides: Partial<Finding> = {}): Finding {
+function makeFeedback(overrides: Partial<Feedback> = {}): Feedback {
   return {
     id: 'F-001',
     target: { path: 'src/main.rs', span: null, commit: null },
     severity: 'block',
-    message: 'Test finding',
+    message: 'Test feedback',
     source: { kind: 'check', name: 'NOS-1' },
     status: 'open',
     suggestion: null,
@@ -47,77 +47,77 @@ function makeFileDiff(overrides: Partial<FileDiff> = {}): FileDiff {
   };
 }
 
-describe('openFindingCount', () => {
-  it('counts only open findings', () => {
-    const findings = [
-      makeFinding({ id: 'F-1', status: 'open' }),
-      makeFinding({ id: 'F-2', status: 'resolved' }),
-      makeFinding({ id: 'F-3', status: 'open' }),
-      makeFinding({ id: 'F-4', status: 'dismissed' }),
+describe('openFeedbackCount', () => {
+  it('counts only open feedbacks', () => {
+    const feedbacks = [
+      makeFeedback({ id: 'F-1', status: 'open' }),
+      makeFeedback({ id: 'F-2', status: 'resolved' }),
+      makeFeedback({ id: 'F-3', status: 'open' }),
+      makeFeedback({ id: 'F-4', status: 'dismissed' }),
     ];
-    expect(openFindingCount(findings)).toBe(2);
+    expect(openFeedbackCount(feedbacks)).toBe(2);
   });
 
   it('returns 0 for empty array', () => {
-    expect(openFindingCount([])).toBe(0);
+    expect(openFeedbackCount([])).toBe(0);
   });
 });
 
-describe('blockingFindings', () => {
-  it('returns only open block-severity findings', () => {
-    const findings = [
-      makeFinding({ id: 'F-1', severity: 'block', status: 'open' }),
-      makeFinding({ id: 'F-2', severity: 'block', status: 'resolved' }),
-      makeFinding({ id: 'F-3', severity: 'warn', status: 'open' }),
-      makeFinding({ id: 'F-4', severity: 'block', status: 'open' }),
+describe('blockingFeedbacks', () => {
+  it('returns only open block-severity feedbacks', () => {
+    const feedbacks = [
+      makeFeedback({ id: 'F-1', severity: 'block', status: 'open' }),
+      makeFeedback({ id: 'F-2', severity: 'block', status: 'resolved' }),
+      makeFeedback({ id: 'F-3', severity: 'warn', status: 'open' }),
+      makeFeedback({ id: 'F-4', severity: 'block', status: 'open' }),
     ];
-    const result = blockingFindings(findings);
+    const result = blockingFeedbacks(feedbacks);
     expect(result).toHaveLength(2);
     expect(result.map((f) => f.id)).toEqual(['F-1', 'F-4']);
   });
 });
 
-describe('findingsForFile', () => {
-  it('filters findings by file path', () => {
-    const findings = [
-      makeFinding({ id: 'F-1', target: { path: 'src/auth.rs', span: null, commit: null } }),
-      makeFinding({ id: 'F-2', target: { path: 'src/main.rs', span: null, commit: null } }),
-      makeFinding({ id: 'F-3', target: { path: 'src/auth.rs', span: null, commit: null } }),
+describe('feedbacksForFile', () => {
+  it('filters feedbacks by file path', () => {
+    const feedbacks = [
+      makeFeedback({ id: 'F-1', target: { path: 'src/auth.rs', span: null, commit: null } }),
+      makeFeedback({ id: 'F-2', target: { path: 'src/main.rs', span: null, commit: null } }),
+      makeFeedback({ id: 'F-3', target: { path: 'src/auth.rs', span: null, commit: null } }),
     ];
-    const result = findingsForFile(findings, 'src/auth.rs');
+    const result = feedbacksForFile(feedbacks, 'src/auth.rs');
     expect(result).toHaveLength(2);
     expect(result.map((f) => f.id)).toEqual(['F-1', 'F-3']);
   });
 });
 
-describe('findingCountsByFile', () => {
-  it('counts open findings by severity for a file', () => {
-    const findings = [
-      makeFinding({ id: 'F-1', severity: 'block', status: 'open' }),
-      makeFinding({ id: 'F-2', severity: 'warn', status: 'open' }),
-      makeFinding({ id: 'F-3', severity: 'block', status: 'resolved' }),
-      makeFinding({ id: 'F-4', severity: 'info', status: 'open' }),
+describe('feedbackCountsByFile', () => {
+  it('counts open feedbacks by severity for a file', () => {
+    const feedbacks = [
+      makeFeedback({ id: 'F-1', severity: 'block', status: 'open' }),
+      makeFeedback({ id: 'F-2', severity: 'warn', status: 'open' }),
+      makeFeedback({ id: 'F-3', severity: 'block', status: 'resolved' }),
+      makeFeedback({ id: 'F-4', severity: 'info', status: 'open' }),
     ];
-    const result = findingCountsByFile(findings, 'src/main.rs');
+    const result = feedbackCountsByFile(feedbacks, 'src/main.rs');
     expect(result).toEqual({ block: 1, warn: 1, info: 1 });
   });
 });
 
-describe('applyFindingFilters', () => {
-  const findings = [
-    makeFinding({
+describe('applyFeedbackFilters', () => {
+  const feedbacks = [
+    makeFeedback({
       id: 'F-1',
       status: 'open',
       severity: 'block',
       source: { kind: 'check', name: 'x' },
     }),
-    makeFinding({
+    makeFeedback({
       id: 'F-2',
       status: 'resolved',
       severity: 'warn',
       source: { kind: 'agent', name: 'y' },
     }),
-    makeFinding({
+    makeFeedback({
       id: 'F-3',
       status: 'open',
       severity: 'info',
@@ -126,7 +126,7 @@ describe('applyFindingFilters', () => {
   ];
 
   it('filters by status', () => {
-    const result = applyFindingFilters(findings, {
+    const result = applyFeedbackFilters(feedbacks, {
       status: 'open',
       severity: 'all',
       source: 'all',
@@ -135,7 +135,7 @@ describe('applyFindingFilters', () => {
   });
 
   it('filters by severity', () => {
-    const result = applyFindingFilters(findings, {
+    const result = applyFeedbackFilters(feedbacks, {
       status: 'all',
       severity: 'block',
       source: 'all',
@@ -145,7 +145,7 @@ describe('applyFindingFilters', () => {
   });
 
   it('filters by source kind', () => {
-    const result = applyFindingFilters(findings, {
+    const result = applyFeedbackFilters(feedbacks, {
       status: 'all',
       severity: 'all',
       source: 'human',
@@ -155,27 +155,27 @@ describe('applyFindingFilters', () => {
   });
 
   it('all filters pass everything', () => {
-    const result = applyFindingFilters(findings, { status: 'all', severity: 'all', source: 'all' });
+    const result = applyFeedbackFilters(feedbacks, { status: 'all', severity: 'all', source: 'all' });
     expect(result).toHaveLength(3);
   });
 });
 
-describe('sortFindingsBySeverity', () => {
+describe('sortFeedbacksBySeverity', () => {
   it('sorts block first, then warn, then info', () => {
-    const findings = [
-      makeFinding({ id: 'F-info', severity: 'info' }),
-      makeFinding({ id: 'F-block', severity: 'block' }),
-      makeFinding({ id: 'F-warn', severity: 'warn' }),
+    const feedbacks = [
+      makeFeedback({ id: 'F-info', severity: 'info' }),
+      makeFeedback({ id: 'F-block', severity: 'block' }),
+      makeFeedback({ id: 'F-warn', severity: 'warn' }),
     ];
-    const sorted = sortFindingsBySeverity(findings);
+    const sorted = sortFeedbacksBySeverity(feedbacks);
     expect(sorted.map((f) => f.id)).toEqual(['F-block', 'F-warn', 'F-info']);
   });
 
   it('does not mutate original array', () => {
-    const findings = [makeFinding({ severity: 'info' }), makeFinding({ severity: 'block' })];
-    const sorted = sortFindingsBySeverity(findings);
-    expect(sorted).not.toBe(findings);
-    expect(findings[0].severity).toBe('info');
+    const feedbacks = [makeFeedback({ severity: 'info' }), makeFeedback({ severity: 'block' })];
+    const sorted = sortFeedbacksBySeverity(feedbacks);
+    expect(sorted).not.toBe(feedbacks);
+    expect(feedbacks[0].severity).toBe('info');
   });
 });
 
@@ -271,44 +271,44 @@ describe('buildFileTree', () => {
     expect(tree[0].children[0].name).toBe('jwt.rs');
   });
 
-  it('aggregates finding counts to directories', () => {
+  it('aggregates feedback counts to directories', () => {
     const files = [makeFileDiff({ path: 'src/auth.rs' }), makeFileDiff({ path: 'src/main.rs' })];
-    const findings = [
-      makeFinding({
+    const feedbacks = [
+      makeFeedback({
         id: 'F-1',
         severity: 'block',
         status: 'open',
         target: { path: 'src/auth.rs', span: null, commit: null },
       }),
-      makeFinding({
+      makeFeedback({
         id: 'F-2',
         severity: 'warn',
         status: 'open',
         target: { path: 'src/main.rs', span: null, commit: null },
       }),
     ];
-    const tree = buildFileTree(files, findings, new Set(), 'findings', '');
+    const tree = buildFileTree(files, feedbacks, new Set(), 'feedbacks', '');
     const srcDir = tree[0]; // should be the src directory
-    expect(srcDir.findings.block).toBe(1);
-    expect(srcDir.findings.warn).toBe(1);
+    expect(srcDir.feedbacks.block).toBe(1);
+    expect(srcDir.feedbacks.warn).toBe(1);
   });
 
-  it('sorts by findings priority', () => {
+  it('sorts by feedbacks priority', () => {
     const files = [
-      makeFileDiff({ path: 'no-findings.rs' }),
+      makeFileDiff({ path: 'no-feedbacks.rs' }),
       makeFileDiff({ path: 'has-block.rs' }),
     ];
-    const findings = [
-      makeFinding({
+    const feedbacks = [
+      makeFeedback({
         id: 'F-1',
         severity: 'block',
         status: 'open',
         target: { path: 'has-block.rs', span: null, commit: null },
       }),
     ];
-    const tree = buildFileTree(files, findings, new Set(), 'findings', '');
+    const tree = buildFileTree(files, feedbacks, new Set(), 'feedbacks', '');
     expect(tree[0].name).toBe('has-block.rs');
-    expect(tree[1].name).toBe('no-findings.rs');
+    expect(tree[1].name).toBe('no-feedbacks.rs');
   });
 
   it('filters by text', () => {

@@ -1,16 +1,16 @@
 //! Review model
 //!
-//! A review session on a branch diff. Contains all findings from all
+//! A review session on a branch diff. Contains all feedbacks from all
 //! analyzers across all pipeline runs.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use super::finding::Finding;
+use super::feedback::Feedback;
 
 /// A code review session on a branch diff.
 ///
-/// Created by `noslop review`. Contains findings from every analyzer
+/// Created by `noslop review`. Contains feedbacks from every analyzer
 /// that ran. The pre-push hook checks `is_blocked()` to gate push.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Review {
@@ -22,8 +22,9 @@ pub struct Review {
     pub head: String,
     /// Lifecycle state.
     pub status: ReviewStatus,
-    /// All findings from all sources.
-    pub findings: Vec<Finding>,
+    /// All feedbacks from all sources.
+    #[serde(alias = "findings")]
+    pub feedbacks: Vec<Feedback>,
     /// Branch name this review was created for.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub branch: Option<String>,
@@ -57,7 +58,7 @@ impl Review {
             base: base.into(),
             head: head.into(),
             status: ReviewStatus::Open,
-            findings: Vec::new(),
+            feedbacks: Vec::new(),
             branch: None,
             viewed_files: Vec::new(),
             created_at: Utc::now().to_rfc3339(),
@@ -65,40 +66,40 @@ impl Review {
         }
     }
 
-    /// Add a finding to this review.
-    pub fn add_finding(&mut self, finding: Finding) {
-        self.findings.push(finding);
+    /// Add a feedback to this review.
+    pub fn add_feedback(&mut self, feedback: Feedback) {
+        self.feedbacks.push(feedback);
     }
 
-    /// Add multiple findings from an analyzer pass.
-    pub fn add_findings(&mut self, findings: impl IntoIterator<Item = Finding>) {
-        self.findings.extend(findings);
+    /// Add multiple feedbacks from an analyzer pass.
+    pub fn add_feedbacks(&mut self, feedbacks: impl IntoIterator<Item = Feedback>) {
+        self.feedbacks.extend(feedbacks);
     }
 
-    /// All findings that currently prevent pushing
+    /// All feedbacks that currently prevent pushing
     /// (severity == Block and status == Open).
     #[must_use]
-    pub fn blocking_findings(&self) -> Vec<&Finding> {
-        self.findings.iter().filter(|f| f.is_blocking()).collect()
+    pub fn blocking_feedbacks(&self) -> Vec<&Feedback> {
+        self.feedbacks.iter().filter(|f| f.is_blocking()).collect()
     }
 
-    /// Whether this review has any blocking findings.
+    /// Whether this review has any blocking feedbacks.
     /// Used by pre-push hook: `noslop review --check` exits 1 when true.
     #[must_use]
     pub fn is_blocked(&self) -> bool {
-        self.findings.iter().any(Finding::is_blocking)
+        self.feedbacks.iter().any(Feedback::is_blocking)
     }
 
-    /// All findings that target a specific file path.
+    /// All feedbacks that target a specific file path.
     #[must_use]
-    pub fn findings_for_file(&self, path: &str) -> Vec<&Finding> {
-        self.findings.iter().filter(|f| f.target.path == path).collect()
+    pub fn feedbacks_for_file(&self, path: &str) -> Vec<&Feedback> {
+        self.feedbacks.iter().filter(|f| f.target.path == path).collect()
     }
 
-    /// All findings that are still open (any severity).
+    /// All feedbacks that are still open (any severity).
     #[must_use]
-    pub fn open_findings(&self) -> Vec<&Finding> {
-        self.findings.iter().filter(|f| f.is_open()).collect()
+    pub fn open_feedbacks(&self) -> Vec<&Feedback> {
+        self.feedbacks.iter().filter(|f| f.is_open()).collect()
     }
 
     /// Close this review.
@@ -138,7 +139,7 @@ fn generate_review_id() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::primitives::{FindingSource, Severity, Span, Target};
+    use crate::core::models::primitives::{FeedbackSource, Severity, Span, Target};
 
     #[test]
     fn new_review() {
@@ -147,75 +148,75 @@ mod tests {
         assert_eq!(review.base, "abc123");
         assert_eq!(review.head, "def456");
         assert!(review.is_open());
-        assert!(review.findings.is_empty());
+        assert!(review.feedbacks.is_empty());
     }
 
     #[test]
-    fn add_finding() {
+    fn add_feedback() {
         let mut review = Review::new("base", "head");
-        let finding = Finding::new(
+        let feedback = Feedback::new(
             Target::file("src/auth.rs").with_span(Span::line(42)),
             Severity::Block,
             "Session handling changed",
-            FindingSource::Check("NOS-1".into()),
+            FeedbackSource::Check("NOS-1".into()),
         );
-        review.add_finding(finding);
-        assert_eq!(review.findings.len(), 1);
+        review.add_feedback(feedback);
+        assert_eq!(review.feedbacks.len(), 1);
         assert!(review.is_blocked());
     }
 
     #[test]
-    fn blocking_findings() {
+    fn blocking_feedbacks() {
         let mut review = Review::new("base", "head");
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Block,
             "Blocker",
-            FindingSource::Check("NOS-1".into()),
+            FeedbackSource::Check("NOS-1".into()),
         ));
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Warn,
             "Warning",
-            FindingSource::Agent("security".into()),
+            FeedbackSource::Agent("security".into()),
         ));
-        assert_eq!(review.blocking_findings().len(), 1);
+        assert_eq!(review.blocking_feedbacks().len(), 1);
         assert!(review.is_blocked());
     }
 
     #[test]
     fn resolve_removes_block() {
         let mut review = Review::new("base", "head");
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Block,
             "Blocker",
-            FindingSource::Check("NOS-1".into()),
+            FeedbackSource::Check("NOS-1".into()),
         ));
         assert!(review.is_blocked());
 
-        review.findings[0].resolve(None);
+        review.feedbacks[0].resolve(None);
         assert!(!review.is_blocked());
     }
 
     #[test]
-    fn findings_for_file() {
+    fn feedbacks_for_file() {
         let mut review = Review::new("base", "head");
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Block,
-            "Auth finding",
-            FindingSource::Human,
+            "Auth feedback",
+            FeedbackSource::Human,
         ));
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("src/main.rs"),
             Severity::Warn,
-            "Main finding",
-            FindingSource::Human,
+            "Main feedback",
+            FeedbackSource::Human,
         ));
-        assert_eq!(review.findings_for_file("src/auth.rs").len(), 1);
-        assert_eq!(review.findings_for_file("src/main.rs").len(), 1);
-        assert_eq!(review.findings_for_file("src/other.rs").len(), 0);
+        assert_eq!(review.feedbacks_for_file("src/auth.rs").len(), 1);
+        assert_eq!(review.feedbacks_for_file("src/main.rs").len(), 1);
+        assert_eq!(review.feedbacks_for_file("src/other.rs").len(), 0);
     }
 
     #[test]
@@ -230,37 +231,37 @@ mod tests {
     }
 
     #[test]
-    fn open_findings() {
+    fn open_feedbacks() {
         let mut review = Review::new("base", "head");
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("a.rs"),
             Severity::Block,
             "Open",
-            FindingSource::Human,
+            FeedbackSource::Human,
         ));
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("b.rs"),
             Severity::Block,
             "Also open",
-            FindingSource::Human,
+            FeedbackSource::Human,
         ));
-        review.findings[0].resolve(None);
-        assert_eq!(review.open_findings().len(), 1);
+        review.feedbacks[0].resolve(None);
+        assert_eq!(review.open_feedbacks().len(), 1);
     }
 
     #[test]
     fn review_serde_roundtrip() {
         let mut review = Review::new("abc", "def");
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Block,
             "Test",
-            FindingSource::Human,
+            FeedbackSource::Human,
         ));
         let json = serde_json::to_string(&review).unwrap();
         let parsed: Review = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.id, review.id);
-        assert_eq!(parsed.findings.len(), 1);
+        assert_eq!(parsed.feedbacks.len(), 1);
     }
 
     // --- Additional edge case tests ---
@@ -273,35 +274,35 @@ mod tests {
     }
 
     #[test]
-    fn review_add_findings_batch() {
+    fn review_add_feedbacks_batch() {
         let mut review = Review::new("base", "head");
-        let findings = vec![
-            Finding::new(Target::file("a.rs"), Severity::Block, "A", FindingSource::Human),
-            Finding::new(Target::file("b.rs"), Severity::Warn, "B", FindingSource::Human),
-            Finding::new(Target::file("c.rs"), Severity::Info, "C", FindingSource::Human),
+        let feedbacks = vec![
+            Feedback::new(Target::file("a.rs"), Severity::Block, "A", FeedbackSource::Human),
+            Feedback::new(Target::file("b.rs"), Severity::Warn, "B", FeedbackSource::Human),
+            Feedback::new(Target::file("c.rs"), Severity::Info, "C", FeedbackSource::Human),
         ];
-        review.add_findings(findings);
-        assert_eq!(review.findings.len(), 3);
+        review.add_feedbacks(feedbacks);
+        assert_eq!(review.feedbacks.len(), 3);
     }
 
     #[test]
     fn review_not_blocked_by_warnings_only() {
         let mut review = Review::new("base", "head");
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Warn,
             "Warning only",
-            FindingSource::Human,
+            FeedbackSource::Human,
         ));
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("src/main.rs"),
             Severity::Info,
             "Info only",
-            FindingSource::Human,
+            FeedbackSource::Human,
         ));
         assert!(!review.is_blocked());
-        assert!(review.blocking_findings().is_empty());
-        assert_eq!(review.open_findings().len(), 2);
+        assert!(review.blocking_feedbacks().is_empty());
+        assert_eq!(review.open_feedbacks().len(), 2);
     }
 
     #[test]
@@ -321,22 +322,22 @@ mod tests {
     }
 
     #[test]
-    fn review_findings_for_file_empty_review() {
+    fn review_feedbacks_for_file_empty_review() {
         let review = Review::new("base", "head");
-        assert!(review.findings_for_file("any.rs").is_empty());
+        assert!(review.feedbacks_for_file("any.rs").is_empty());
     }
 
     #[test]
-    fn review_open_findings_all_resolved() {
+    fn review_open_feedbacks_all_resolved() {
         let mut review = Review::new("base", "head");
-        review.add_finding(Finding::new(
+        review.add_feedback(Feedback::new(
             Target::file("a.rs"),
             Severity::Block,
             "Resolved",
-            FindingSource::Human,
+            FeedbackSource::Human,
         ));
-        review.findings[0].resolve(None);
-        assert!(review.open_findings().is_empty());
+        review.feedbacks[0].resolve(None);
+        assert!(review.open_feedbacks().is_empty());
         assert!(!review.is_blocked());
     }
 

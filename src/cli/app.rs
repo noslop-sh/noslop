@@ -13,7 +13,7 @@ use noslop::output::OutputMode;
     about = "Local code review for agent-generated code",
     long_about = "Enforce code review considerations via pre-commit hooks.\n\n\
                   Checks declare what must be reviewed when files change.\n\
-                  Findings track review status before pushing."
+                  Feedbacks track review status before pushing."
 )]
 pub struct Cli {
     /// Enable verbose output
@@ -41,7 +41,7 @@ pub enum Command {
         force: bool,
     },
 
-    /// Check for unresolved findings in staged changes, or manage checks
+    /// Check for unresolved feedbacks in staged changes, or manage checks
     Check {
         /// Run in CI mode (stricter, non-interactive)
         #[arg(long)]
@@ -57,10 +57,10 @@ pub enum Command {
         action: ReviewAction,
     },
 
-    /// Manage findings within reviews
-    Findings {
+    /// Manage feedbacks within reviews
+    Feedbacks {
         #[command(subcommand)]
-        action: FindingsAction,
+        action: FeedbacksAction,
     },
 
     /// Safety commit: stage all changes and commit bypassing hooks
@@ -117,7 +117,7 @@ pub enum ReviewAction {
         #[arg(long, default_value = "HEAD")]
         head: String,
 
-        /// Exit with code 1 if unresolved blocking findings exist
+        /// Exit with code 1 if unresolved blocking feedbacks exist
         #[arg(long)]
         check: bool,
     },
@@ -151,31 +151,31 @@ pub enum ReviewAction {
     },
 }
 
-/// Findings management subcommands
+/// Feedbacks management subcommands
 #[derive(Subcommand, Debug)]
-pub enum FindingsAction {
-    /// List findings for a review
+pub enum FeedbacksAction {
+    /// List feedbacks for a review
     List {
         /// Review ID
         id: String,
     },
 
-    /// Resolve a finding
+    /// Resolve a feedback
     Resolve {
         /// Review ID
         review_id: String,
 
-        /// Finding ID
-        finding_id: String,
+        /// Feedback ID
+        feedback_id: String,
     },
 
-    /// Dismiss a finding
+    /// Dismiss a feedback
     Dismiss {
         /// Review ID
         review_id: String,
 
-        /// Finding ID
-        finding_id: String,
+        /// Feedback ID
+        feedback_id: String,
 
         /// Reason for dismissal
         #[arg(long)]
@@ -209,7 +209,7 @@ pub fn run() -> anyhow::Result<()> {
             ..
         }) => commands::check_manage(action, output_mode),
         Some(Command::Review { action }) => commands::review(action, output_mode),
-        Some(Command::Findings { action }) => commands::findings(action, output_mode),
+        Some(Command::Feedbacks { action }) => commands::feedbacks(action, output_mode),
         Some(Command::Checkpoint { message }) => {
             commands::checkpoint(message.as_deref(), output_mode)
         },

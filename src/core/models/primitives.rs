@@ -1,16 +1,16 @@
 //! Shared primitive types for the noslop domain.
 //!
-//! - [`Severity`] - How strictly a finding is enforced
+//! - [`Severity`] - How strictly a feedback is enforced
 //! - [`Span`] - A contiguous range of lines in a file
 //! - [`Target`] - A reference to a location in the codebase
-//! - [`FindingSource`] - Where a finding originated
+//! - [`FeedbackSource`] - Where a feedback originated
 
 use std::fmt;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 
-/// How strictly a finding is enforced.
+/// How strictly a feedback is enforced.
 ///
 /// - `Info`: shown, never blocks push
 /// - `Warn`: shown prominently, never blocks push
@@ -124,7 +124,7 @@ impl fmt::Display for Span {
 ///
 /// Used in three ways:
 /// - **Check**: `Target::pattern("src/**/*.rs")` -- glob for matching changed files
-/// - **Finding**: `Target::file("src/auth.rs").with_span(Span::line(42))` -- exact location
+/// - **Feedback**: `Target::file("src/auth.rs").with_span(Span::line(42))` -- exact location
 /// - **Diff**: `Target::file("src/auth.rs").with_commit("abc123")` -- revision-pinned
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Target {
@@ -210,10 +210,10 @@ impl fmt::Display for Target {
     }
 }
 
-/// Where a finding originated.
+/// Where a feedback originated.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", content = "name")]
-pub enum FindingSource {
+pub enum FeedbackSource {
     /// From a `[[check]]` rule in `.noslop.toml`. Name is the check ID.
     Check(String),
     /// From an external script analyzer. Name is the script name.
@@ -224,7 +224,7 @@ pub enum FindingSource {
     Human,
 }
 
-impl fmt::Display for FindingSource {
+impl fmt::Display for FeedbackSource {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::Check(id) => write!(f, "check:{id}"),
@@ -375,23 +375,23 @@ mod tests {
         assert!(!json.contains("commit"));
     }
 
-    // --- FindingSource tests ---
+    // --- FeedbackSource tests ---
 
     #[test]
-    fn finding_source_display() {
-        assert_eq!(FindingSource::Check("NOS-1".into()).to_string(), "check:NOS-1");
-        assert_eq!(FindingSource::Script("lint".into()).to_string(), "script:lint");
-        assert_eq!(FindingSource::Agent("security".into()).to_string(), "agent:security");
-        assert_eq!(FindingSource::Human.to_string(), "human");
+    fn feedback_source_display() {
+        assert_eq!(FeedbackSource::Check("NOS-1".into()).to_string(), "check:NOS-1");
+        assert_eq!(FeedbackSource::Script("lint".into()).to_string(), "script:lint");
+        assert_eq!(FeedbackSource::Agent("security".into()).to_string(), "agent:security");
+        assert_eq!(FeedbackSource::Human.to_string(), "human");
     }
 
     #[test]
-    fn finding_source_serde_tagged() {
-        let src = FindingSource::Human;
+    fn feedback_source_serde_tagged() {
+        let src = FeedbackSource::Human;
         let json = serde_json::to_string(&src).unwrap();
         assert_eq!(json, r#"{"kind":"Human"}"#);
 
-        let src = FindingSource::Check("NOS-1".into());
+        let src = FeedbackSource::Check("NOS-1".into());
         let json = serde_json::to_string(&src).unwrap();
         assert!(json.contains("\"kind\":\"Check\""));
         assert!(json.contains("\"name\":\"NOS-1\""));
@@ -480,24 +480,24 @@ mod tests {
     }
 
     #[test]
-    fn finding_source_serde_roundtrip_all_variants() {
+    fn feedback_source_serde_roundtrip_all_variants() {
         let variants = vec![
-            FindingSource::Check("NOS-1".into()),
-            FindingSource::Script("lint".into()),
-            FindingSource::Agent("security".into()),
-            FindingSource::Human,
+            FeedbackSource::Check("NOS-1".into()),
+            FeedbackSource::Script("lint".into()),
+            FeedbackSource::Agent("security".into()),
+            FeedbackSource::Human,
         ];
         for src in variants {
             let json = serde_json::to_string(&src).unwrap();
-            let parsed: FindingSource = serde_json::from_str(&json).unwrap();
+            let parsed: FeedbackSource = serde_json::from_str(&json).unwrap();
             assert_eq!(parsed, src);
         }
     }
 
     #[test]
-    fn finding_source_equality() {
-        assert_eq!(FindingSource::Check("A".into()), FindingSource::Check("A".into()));
-        assert_ne!(FindingSource::Check("A".into()), FindingSource::Check("B".into()));
-        assert_ne!(FindingSource::Human, FindingSource::Agent("x".into()));
+    fn feedback_source_equality() {
+        assert_eq!(FeedbackSource::Check("A".into()), FeedbackSource::Check("A".into()));
+        assert_ne!(FeedbackSource::Check("A".into()), FeedbackSource::Check("B".into()));
+        assert_ne!(FeedbackSource::Human, FeedbackSource::Agent("x".into()));
     }
 }

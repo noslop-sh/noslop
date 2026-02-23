@@ -4,15 +4,15 @@
   interface Props {
     totalFiles: number;
     viewedFiles: number;
-    totalFindings: number;
-    resolvedFindings: number;
+    totalFeedback: number;
+    resolvedFeedback: number;
   }
 
-  let { totalFiles, viewedFiles, totalFindings, resolvedFindings }: Props = $props();
+  let { totalFiles, viewedFiles, totalFeedback, resolvedFeedback }: Props = $props();
 
   let filesPercent = $derived(totalFiles > 0 ? Math.round((viewedFiles / totalFiles) * 100) : 0);
-  let findingsPercent = $derived(
-    totalFindings > 0 ? Math.round((resolvedFindings / totalFindings) * 100) : 0
+  let feedbackPercent = $derived(
+    totalFeedback > 0 ? Math.round((resolvedFeedback / totalFeedback) * 100) : 0
   );
 </script>
 
@@ -29,15 +29,15 @@
     <Progress value={filesPercent} max={100} class="h-2" />
   </div>
 
-  <!-- Findings resolved progress -->
+  <!-- Feedback resolved progress -->
   <div>
     <div class="mb-1.5 flex items-center justify-between">
-      <span class="text-xs text-muted-foreground">Findings resolved</span>
+      <span class="text-xs text-muted-foreground">Feedback resolved</span>
       <span class="text-xs font-medium">
-        {resolvedFindings}/{totalFindings}
-        <span class="text-muted-foreground">({findingsPercent}%)</span>
+        {resolvedFeedback}/{totalFeedback}
+        <span class="text-muted-foreground">({feedbackPercent}%)</span>
       </span>
     </div>
-    <Progress value={findingsPercent} max={100} class="h-2" />
+    <Progress value={feedbackPercent} max={100} class="h-2" />
   </div>
 </div>

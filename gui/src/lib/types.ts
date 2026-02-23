@@ -2,8 +2,8 @@
 
 export type ReviewStatus = 'open' | 'closed';
 export type Severity = 'block' | 'warn' | 'info';
-export type FindingStatus = 'open' | 'resolved' | 'dismissed';
-export type FindingSourceKind = 'check' | 'script' | 'agent' | 'human';
+export type FeedbackStatus = 'open' | 'resolved' | 'dismissed';
+export type FeedbackSourceKind = 'check' | 'script' | 'agent' | 'human';
 
 export type DismissReason = 'false_positive' | 'wont_fix' | 'not_applicable' | 'investigate_later';
 
@@ -20,8 +20,8 @@ export interface Target {
   commit: string | null;
 }
 
-export interface FindingSource {
-  kind: FindingSourceKind;
+export interface FeedbackSource {
+  kind: FeedbackSourceKind;
   name: string | null; // null for human
 }
 
@@ -31,24 +31,24 @@ export interface Suggestion {
   edited: boolean;
 }
 
-export interface FindingNote {
+export interface FeedbackNote {
   id: string;
   content: string;
   created_at: string;
 }
 
-export interface Finding {
+export interface Feedback {
   id: string;
   target: Target;
   severity: Severity;
   message: string;
-  source: FindingSource;
-  status: FindingStatus;
+  source: FeedbackSource;
+  status: FeedbackStatus;
   suggestion: Suggestion | null;
   dismiss_reason: DismissReason | null;
   resolution_reason: ResolutionReason | null;
   confidence: number | null;
-  notes: FindingNote[];
+  notes: FeedbackNote[];
   created_at: string;
 }
 
@@ -58,7 +58,7 @@ export interface Review {
   head: string;
   branch: string | null;
   status: ReviewStatus;
-  findings: Finding[];
+  feedbacks: Feedback[];
   viewed_files: string[];
   created_at: string;
   closed_at: string | null;
@@ -122,7 +122,7 @@ export interface FileTreeEntry {
   change_type: FileChangeType | null;
   additions: number;
   deletions: number;
-  findings: { block: number; warn: number; info: number };
+  feedbacks: { block: number; warn: number; info: number };
   viewed: boolean;
   children: FileTreeEntry[];
   collapsed_prefix: string | null;
@@ -134,13 +134,13 @@ export type SidebarCollapseState = 'full' | 'mini' | 'hidden';
 export type DiffViewMode = 'split' | 'unified';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type ReviewView = 'summary' | 'files';
-export type FocusZone = 'tree' | 'diff' | 'finding' | 'dialog';
-export type SortMode = 'findings' | 'alphabetical';
+export type FocusZone = 'tree' | 'diff' | 'feedback' | 'dialog';
+export type SortMode = 'feedbacks' | 'alphabetical';
 
 export interface ActiveFilters {
-  status: FindingStatus | 'all';
+  status: FeedbackStatus | 'all';
   severity: Severity | 'all';
-  source: FindingSourceKind | 'all';
+  source: FeedbackSourceKind | 'all';
 }
 
 // Command palette types
@@ -148,7 +148,7 @@ export interface ActiveFilters {
 export interface PaletteCommand {
   id: string;
   label: string;
-  group: 'actions' | 'files' | 'findings' | 'navigation';
+  group: 'actions' | 'files' | 'feedbacks' | 'navigation';
   shortcut?: string;
   action: () => void;
   available: () => boolean;

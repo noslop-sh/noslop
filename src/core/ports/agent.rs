@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use crate::core::models::{AgentKind, Finding};
+use crate::core::models::{AgentKind, Feedback};
 
 // ---------------------------------------------------------------------------
 // AgentConfig types
@@ -143,8 +143,8 @@ pub struct InvocationResult {
 /// Parsed output from an agent review pass.
 #[derive(Debug, Clone, Default)]
 pub struct ReviewOutput {
-    /// Structured findings extracted from agent output.
-    pub findings: Vec<Finding>,
+    /// Structured feedbacks extracted from agent output.
+    pub feedbacks: Vec<Feedback>,
     /// The full raw output text.
     pub raw_output: String,
     /// Any error lines detected in the output.
@@ -154,7 +154,7 @@ pub struct ReviewOutput {
 /// Agent runtime for review invocation.
 ///
 /// Wraps a CLI tool (`claude`, `codex`), sends it a review prompt,
-/// and parses structured findings from the output.
+/// and parses structured feedbacks from the output.
 #[cfg_attr(test, mockall::automock)]
 pub trait AgentRuntime: Send + Sync {
     /// Which agent this runtime wraps.
@@ -163,7 +163,7 @@ pub trait AgentRuntime: Send + Sync {
     /// Invoke the agent CLI with the given configuration.
     fn invoke(&self, config: &InvocationConfig) -> anyhow::Result<InvocationResult>;
 
-    /// Parse structured findings from raw invocation output.
+    /// Parse structured feedbacks from raw invocation output.
     fn parse_output(&self, result: &InvocationResult) -> ReviewOutput;
 
     /// Whether the agent CLI is installed and available.

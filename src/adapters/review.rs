@@ -121,7 +121,7 @@ impl ReviewStore for FileReviewStore {
         let open = self.list_open()?;
         let blocking: Vec<Review> = open
             .into_iter()
-            .filter(|r| r.findings.iter().any(|f| f.target.path == file && f.is_blocking()))
+            .filter(|r| r.feedbacks.iter().any(|f| f.target.path == file && f.is_blocking()))
             .collect();
         Ok(blocking)
     }
@@ -130,7 +130,7 @@ impl ReviewStore for FileReviewStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::models::{Finding, FindingSource, Review, Severity, Target};
+    use crate::core::models::{Feedback, FeedbackSource, Review, Severity, Target};
     use tempfile::TempDir;
 
     fn test_store() -> (FileReviewStore, TempDir) {
@@ -212,19 +212,19 @@ mod tests {
         let (store, _dir) = test_store();
 
         let mut r1 = Review::new("a", "b");
-        r1.add_finding(Finding::new(
+        r1.add_feedback(Feedback::new(
             Target::file("src/main.rs"),
             Severity::Block,
             "Fix this",
-            FindingSource::Human,
+            FeedbackSource::Human,
         ));
 
         let mut r2 = Review::new("c", "d");
-        r2.add_finding(Finding::new(
+        r2.add_feedback(Feedback::new(
             Target::file("src/lib.rs"),
             Severity::Block,
             "Other file",
-            FindingSource::Human,
+            FeedbackSource::Human,
         ));
 
         store.save(&r1).unwrap();
@@ -232,6 +232,6 @@ mod tests {
 
         let blocking = store.find_blocking_for_file("src/main.rs").unwrap();
         assert_eq!(blocking.len(), 1);
-        assert_eq!(blocking[0].findings[0].target.path, "src/main.rs");
+        assert_eq!(blocking[0].feedbacks[0].target.path, "src/main.rs");
     }
 }

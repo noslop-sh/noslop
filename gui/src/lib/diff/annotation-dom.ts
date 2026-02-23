@@ -1,4 +1,4 @@
-import type { Finding, DismissReason, Severity } from '$lib/types';
+import type { Feedback, DismissReason, Severity } from '$lib/types';
 import { formatSource } from '$lib/helpers';
 
 /**
@@ -6,9 +6,9 @@ import { formatSource } from '$lib/helpers';
  * updated by $effect in FileDiffRenderer so we never read stale values.
  */
 export interface AnnotationCallbacksRef {
-  onResolve: (findingId: string) => void;
-  onDismiss: (findingId: string, reason: DismissReason) => void;
-  onFindingClick: (findingId: string) => void;
+  onResolve: (feedbackId: string) => void;
+  onDismiss: (feedbackId: string, reason: DismissReason) => void;
+  onFeedbackClick: (feedbackId: string) => void;
 }
 
 const DISMISS_OPTIONS: { label: string; reason: DismissReason }[] = [
@@ -18,31 +18,31 @@ const DISMISS_OPTIONS: { label: string; reason: DismissReason }[] = [
 ];
 
 function severityVar(severity: Severity, sourceKind: string): string {
-  if (sourceKind === 'human') return 'var(--finding-human)';
+  if (sourceKind === 'human') return 'var(--feedback-human)';
   switch (severity) {
     case 'block':
-      return 'var(--finding-block)';
+      return 'var(--feedback-block)';
     case 'warn':
-      return 'var(--finding-warn)';
+      return 'var(--feedback-warn)';
     case 'info':
-      return 'var(--finding-info)';
+      return 'var(--feedback-info)';
   }
 }
 
 /**
- * Renders a finding annotation as plain DOM with inline styles.
+ * Renders a feedback annotation as plain DOM with inline styles.
  * CSS custom properties (var()) inherit through Shadow DOM boundaries,
  * unlike Tailwind utility classes which do not cascade into Shadow DOM.
  */
-export function renderFindingAnnotation(
+export function renderFeedbackAnnotation(
   wrapper: HTMLElement,
-  finding: Finding,
+  feedback: Feedback,
   callbacksRef: AnnotationCallbacksRef
 ): void {
-  const isOpen = finding.status === 'open';
-  const isResolved = finding.status === 'resolved';
-  const isDismissed = finding.status === 'dismissed';
-  const color = severityVar(finding.severity, finding.source.kind);
+  const isOpen = feedback.status === 'open';
+  const isResolved = feedback.status === 'resolved';
+  const isDismissed = feedback.status === 'dismissed';
+  const color = severityVar(feedback.severity, feedback.source.kind);
 
   // Outer container
   const container = document.createElement('div');
@@ -57,7 +57,7 @@ export function renderFindingAnnotation(
     opacity: isResolved || isDismissed ? '0.5' : '1',
     cursor: 'pointer',
   });
-  container.addEventListener('click', () => callbacksRef.onFindingClick(finding.id));
+  container.addEventListener('click', () => callbacksRef.onFeedbackClick(feedback.id));
 
   // Row: severity badge + message + source + actions
   const row = document.createElement('div');
@@ -69,7 +69,7 @@ export function renderFindingAnnotation(
 
   // Severity badge
   const badge = document.createElement('span');
-  badge.textContent = finding.severity.toUpperCase();
+  badge.textContent = feedback.severity.toUpperCase();
   Object.assign(badge.style, {
     fontSize: '11px',
     fontWeight: '700',
@@ -81,7 +81,7 @@ export function renderFindingAnnotation(
 
   // Message
   const msg = document.createElement('span');
-  msg.textContent = finding.message;
+  msg.textContent = feedback.message;
   Object.assign(msg.style, {
     flex: '1',
     overflow: 'hidden',
@@ -93,7 +93,7 @@ export function renderFindingAnnotation(
 
   // Source label
   const src = document.createElement('span');
-  src.textContent = formatSource(finding.source);
+  src.textContent = formatSource(feedback.source);
   Object.assign(src.style, {
     fontSize: '11px',
     color: 'var(--muted-foreground)',
@@ -113,15 +113,15 @@ export function renderFindingAnnotation(
     row.appendChild(check);
   }
 
-  // Action buttons (only for open findings)
+  // Action buttons (only for open feedbacks)
   if (isOpen) {
     const resolveBtn = createActionButton('Resolve', (e) => {
       e.stopPropagation();
-      callbacksRef.onResolve(finding.id);
+      callbacksRef.onResolve(feedback.id);
     });
     row.appendChild(resolveBtn);
 
-    const dismissContainer = createDismissDropdown(finding.id, callbacksRef);
+    const dismissContainer = createDismissDropdown(feedback.id, callbacksRef);
     row.appendChild(dismissContainer);
   }
 
@@ -155,7 +155,7 @@ function createActionButton(label: string, onClick: (e: MouseEvent) => void): HT
 }
 
 function createDismissDropdown(
-  findingId: string,
+  feedbackId: string,
   callbacksRef: AnnotationCallbacksRef
 ): HTMLElement {
   const container = document.createElement('div');
@@ -205,7 +205,7 @@ function createDismissDropdown(
     });
     item.addEventListener('click', (e) => {
       e.stopPropagation();
-      callbacksRef.onDismiss(findingId, opt.reason);
+      callbacksRef.onDismiss(feedbackId, opt.reason);
       menu.style.display = 'none';
     });
     menu.appendChild(item);

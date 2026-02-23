@@ -47,7 +47,7 @@
   }
 </script>
 
-<div class="border-l-3 border-l-[var(--finding-warn)] rounded-sm border border-border bg-card p-3">
+<div class="border-l-3 border-l-[var(--feedback-warn)] rounded-sm border border-border bg-card p-3">
   <div class="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
     <span class="font-mono">{filePath.split('/').pop()}</span>
     <span>{lineLabel}</span>
@@ -85,7 +85,7 @@
     <span class="text-[10px] text-muted-foreground">⌘↩</span>
     <Button variant="ghost" size="sm" class="h-6 px-2 text-xs" onclick={onCancel}>Cancel</Button>
     <Button size="sm" class="h-6 px-2 text-xs" onclick={handleSubmit} disabled={!message.trim()}>
-      Add Finding
+      Add Feedback
     </Button>
   </div>
 </div>

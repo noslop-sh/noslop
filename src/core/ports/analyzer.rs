@@ -5,7 +5,7 @@
 
 use std::path::PathBuf;
 
-use crate::core::models::Finding;
+use crate::core::models::Feedback;
 
 /// What kind of context an analyzer needs from the pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -51,10 +51,10 @@ pub struct ReviewContext {
     pub head: String,
 }
 
-/// A review analyzer that produces findings from code changes.
+/// A review analyzer that produces feedbacks from code changes.
 ///
 /// Analyzers run in pipeline order: static -> computed -> agent.
-/// Each receives findings from all prior analyzers (fold semantics).
+/// Each receives feedbacks from all prior analyzers (fold semantics).
 ///
 /// # Implementors
 ///
@@ -68,14 +68,14 @@ pub trait ReviewAnalyzer: Send + Sync {
     /// What context this analyzer needs.
     fn required_context(&self) -> Vec<ContextKind>;
 
-    /// Run the analysis and return findings.
+    /// Run the analysis and return feedbacks.
     ///
-    /// `prior_findings` contains all findings from earlier analyzers.
+    /// `prior_feedbacks` contains all feedbacks from earlier analyzers.
     fn analyze(
         &self,
         context: &ReviewContext,
-        prior_findings: &[Finding],
-    ) -> anyhow::Result<Vec<Finding>>;
+        prior_feedbacks: &[Feedback],
+    ) -> anyhow::Result<Vec<Feedback>>;
 
     /// Human-readable name (e.g., "conventions", "agent:security").
     fn name(&self) -> &str;

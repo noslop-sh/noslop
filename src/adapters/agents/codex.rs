@@ -85,9 +85,9 @@ impl AgentRuntime for CodexRuntime {
     }
 
     fn parse_output(&self, result: &InvocationResult) -> ReviewOutput {
-        super::parsing::extract_findings(
+        super::parsing::extract_feedbacks(
             &result.output,
-            &crate::core::models::FindingSource::Agent("codex".into()),
+            &crate::core::models::FeedbackSource::Agent("codex".into()),
         )
     }
 
@@ -144,8 +144,8 @@ mod tests {
             duration: std::time::Duration::from_secs(1),
         };
         let review = CodexRuntime.parse_output(&result);
-        assert_eq!(review.findings.len(), 1);
-        assert_eq!(review.findings[0].target.path, "src/db.rs");
+        assert_eq!(review.feedbacks.len(), 1);
+        assert_eq!(review.feedbacks[0].target.path, "src/db.rs");
     }
 
     #[test]

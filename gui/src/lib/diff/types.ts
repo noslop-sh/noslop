@@ -1,5 +1,5 @@
-import type { Finding } from '$lib/types';
+import type { Feedback } from '$lib/types';
 
 export interface AnnotationMeta {
-  finding: Finding;
+  feedback: Feedback;
 }

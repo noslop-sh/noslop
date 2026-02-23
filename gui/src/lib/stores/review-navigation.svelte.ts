@@ -1,10 +1,10 @@
-import type { FileDiff, Finding, SortMode } from '$lib/types';
+import type { FileDiff, Feedback, SortMode } from '$lib/types';
 
 export function createReviewNavigation() {
   let currentFilePath = $state<string | null>(null);
-  let currentFindingId = $state<string | null>(null);
+  let currentFeedbackId = $state<string | null>(null);
   let viewedFiles = $state<Set<string>>(new Set());
-  let sortMode = $state<SortMode>('findings');
+  let sortMode = $state<SortMode>('feedbacks');
   let filterText = $state('');
   let showWhitespace = $state(true);
 
@@ -32,60 +32,60 @@ export function createReviewNavigation() {
     }
   }
 
-  function nextFinding(findings: Finding[]): void {
-    if (findings.length === 0) return;
-    if (!currentFindingId) {
-      currentFindingId = findings[0].id;
+  function nextFeedback(feedbacks: Feedback[]): void {
+    if (feedbacks.length === 0) return;
+    if (!currentFeedbackId) {
+      currentFeedbackId = feedbacks[0].id;
       return;
     }
-    const idx = findings.findIndex((f) => f.id === currentFindingId);
-    if (idx < findings.length - 1) {
-      currentFindingId = findings[idx + 1].id;
+    const idx = feedbacks.findIndex((f) => f.id === currentFeedbackId);
+    if (idx < feedbacks.length - 1) {
+      currentFeedbackId = feedbacks[idx + 1].id;
     }
   }
 
-  function prevFinding(findings: Finding[]): void {
-    if (findings.length === 0) return;
-    if (!currentFindingId) {
-      currentFindingId = findings[findings.length - 1].id;
+  function prevFeedback(feedbacks: Feedback[]): void {
+    if (feedbacks.length === 0) return;
+    if (!currentFeedbackId) {
+      currentFeedbackId = feedbacks[feedbacks.length - 1].id;
       return;
     }
-    const idx = findings.findIndex((f) => f.id === currentFindingId);
+    const idx = feedbacks.findIndex((f) => f.id === currentFeedbackId);
     if (idx > 0) {
-      currentFindingId = findings[idx - 1].id;
+      currentFeedbackId = feedbacks[idx - 1].id;
     }
   }
 
-  function nextUnresolved(findings: Finding[]): void {
-    const open = findings.filter((f) => f.status === 'open');
+  function nextUnresolved(feedbacks: Feedback[]): void {
+    const open = feedbacks.filter((f) => f.status === 'open');
     if (open.length === 0) return;
-    if (!currentFindingId) {
-      currentFindingId = open[0].id;
+    if (!currentFeedbackId) {
+      currentFeedbackId = open[0].id;
       return;
     }
-    const idx = open.findIndex((f) => f.id === currentFindingId);
+    const idx = open.findIndex((f) => f.id === currentFeedbackId);
     const next = idx < open.length - 1 ? open[idx + 1] : open[0];
-    currentFindingId = next.id;
+    currentFeedbackId = next.id;
   }
 
-  function prevUnresolved(findings: Finding[]): void {
-    const open = findings.filter((f) => f.status === 'open');
+  function prevUnresolved(feedbacks: Feedback[]): void {
+    const open = feedbacks.filter((f) => f.status === 'open');
     if (open.length === 0) return;
-    if (!currentFindingId) {
-      currentFindingId = open[open.length - 1].id;
+    if (!currentFeedbackId) {
+      currentFeedbackId = open[open.length - 1].id;
       return;
     }
-    const idx = open.findIndex((f) => f.id === currentFindingId);
+    const idx = open.findIndex((f) => f.id === currentFeedbackId);
     const prev = idx > 0 ? open[idx - 1] : open[open.length - 1];
-    currentFindingId = prev.id;
+    currentFeedbackId = prev.id;
   }
 
   function selectFile(path: string): void {
     currentFilePath = path;
   }
 
-  function selectFinding(id: string): void {
-    currentFindingId = id;
+  function selectFeedback(id: string): void {
+    currentFeedbackId = id;
   }
 
   function toggleViewed(path: string): void {
@@ -114,8 +114,8 @@ export function createReviewNavigation() {
     get currentFilePath() {
       return currentFilePath;
     },
-    get currentFindingId() {
-      return currentFindingId;
+    get currentFeedbackId() {
+      return currentFeedbackId;
     },
     get viewedFiles() {
       return viewedFiles;
@@ -131,12 +131,12 @@ export function createReviewNavigation() {
     },
     nextFile,
     prevFile,
-    nextFinding,
-    prevFinding,
+    nextFeedback,
+    prevFeedback,
     nextUnresolved,
     prevUnresolved,
     selectFile,
-    selectFinding,
+    selectFeedback,
     toggleViewed,
     setSortMode,
     setFilterText,

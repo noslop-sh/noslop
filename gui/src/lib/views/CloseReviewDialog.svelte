@@ -13,16 +13,16 @@
 
   let { open = $bindable(), review, onClose, onCancel }: Props = $props();
 
-  let totalFindings = $derived(review.findings.length);
-  let resolvedCount = $derived(review.findings.filter((f) => f.status === 'resolved').length);
-  let dismissedFindings = $derived(review.findings.filter((f) => f.status === 'dismissed'));
-  let dismissedCount = $derived(dismissedFindings.length);
-  let remainingFindings = $derived(review.findings.filter((f) => f.status === 'open'));
-  let remainingCount = $derived(remainingFindings.length);
+  let totalFeedback = $derived(review.feedbacks.length);
+  let resolvedCount = $derived(review.feedbacks.filter((f) => f.status === 'resolved').length);
+  let dismissedFeedback = $derived(review.feedbacks.filter((f) => f.status === 'dismissed'));
+  let dismissedCount = $derived(dismissedFeedback.length);
+  let remainingFeedback = $derived(review.feedbacks.filter((f) => f.status === 'open'));
+  let remainingCount = $derived(remainingFeedback.length);
 
   let dismissBreakdown = $derived.by(() => {
     const counts = new Map<DismissReason, number>();
-    for (const f of dismissedFindings) {
+    for (const f of dismissedFeedback) {
       if (f.dismiss_reason) {
         counts.set(f.dismiss_reason, (counts.get(f.dismiss_reason) ?? 0) + 1);
       }
@@ -46,7 +46,7 @@
 
   let allFilePaths = $derived.by(() => {
     const paths = new Set<string>();
-    for (const f of review.findings) {
+    for (const f of review.feedbacks) {
       paths.add(f.target.path);
     }
     for (const p of review.viewed_files) {
@@ -70,13 +70,13 @@
     return { label, dots: '.'.repeat(dotsNeeded), value };
   }
 
-  let resolvedRow = $derived(dotPad('Findings resolved', `${resolvedCount}/${totalFindings}`));
-  let dismissedRow = $derived(dotPad('Findings dismissed', `${dismissedCount}/${totalFindings}`));
-  let remainingRow = $derived(dotPad('Findings remaining', `${remainingCount}`));
+  let resolvedRow = $derived(dotPad('Feedback resolved', `${resolvedCount}/${totalFeedback}`));
+  let dismissedRow = $derived(dotPad('Feedback dismissed', `${dismissedCount}/${totalFeedback}`));
+  let remainingRow = $derived(dotPad('Feedback remaining', `${remainingCount}`));
   let viewedRow = $derived(dotPad('Files viewed', `${viewedCount}/${totalFiles}`));
 
-  let remainingInfoCount = $derived(remainingFindings.filter((f) => f.severity === 'info').length);
-  let remainingWarnCount = $derived(remainingFindings.filter((f) => f.severity === 'warn').length);
+  let remainingInfoCount = $derived(remainingFeedback.filter((f) => f.severity === 'info').length);
+  let remainingWarnCount = $derived(remainingFeedback.filter((f) => f.severity === 'warn').length);
   let remainingBreakdownParts = $derived([
     ...(remainingInfoCount > 0 ? [`${remainingInfoCount} info`] : []),
     ...(remainingWarnCount > 0 ? [`${remainingWarnCount} warn`] : []),

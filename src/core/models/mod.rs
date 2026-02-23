@@ -4,12 +4,12 @@
 
 mod agent;
 mod check;
-mod finding;
+mod feedback;
 mod primitives;
 mod review;
 
 pub use agent::AgentKind;
 pub use check::Check;
-pub use finding::{DismissReason, Finding, FindingNote, FindingStatus, ResolutionReason};
-pub use primitives::{FindingSource, Severity, Span, Target};
+pub use feedback::{DismissReason, Feedback, FeedbackNote, FeedbackStatus, ResolutionReason};
+pub use primitives::{FeedbackSource, Severity, Span, Target};
 pub use review::{Review, ReviewStatus};

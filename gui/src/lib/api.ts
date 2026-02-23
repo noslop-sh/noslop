@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Review, Finding, FindingNote, StructuredDiff } from './types';
+import type { Review, Feedback, FeedbackNote, StructuredDiff } from './types';
 
 export const api = {
   // Reviews
@@ -17,8 +17,8 @@ export const api = {
   getFileContent: (path: string, commit: string, startLine: number, endLine: number) =>
     invoke<string>('get_file_content', { path, commit, startLine, endLine }),
 
-  // Findings
-  addFinding: (
+  // Feedbacks
+  addFeedback: (
     reviewId: string,
     target: string,
     message: string,
@@ -26,7 +26,7 @@ export const api = {
     startLine?: number,
     endLine?: number
   ) =>
-    invoke<Finding>('add_finding', {
+    invoke<Feedback>('add_feedback', {
       reviewId,
       target,
       message,
@@ -34,14 +34,14 @@ export const api = {
       startLine,
       endLine,
     }),
-  resolveFinding: (reviewId: string, findingId: string) =>
-    invoke<void>('resolve_finding', { reviewId, findingId }),
-  dismissFinding: (reviewId: string, findingId: string, reason: string) =>
-    invoke<void>('dismiss_finding', { reviewId, findingId, reason }),
-  applySuggestion: (reviewId: string, findingId: string) =>
-    invoke<void>('apply_suggestion', { reviewId, findingId }),
-  addFindingNote: (reviewId: string, findingId: string, content: string) =>
-    invoke<FindingNote>('add_finding_note', { reviewId, findingId, content }),
+  resolveFeedback: (reviewId: string, feedbackId: string) =>
+    invoke<void>('resolve_feedback', { reviewId, feedbackId }),
+  dismissFeedback: (reviewId: string, feedbackId: string, reason: string) =>
+    invoke<void>('dismiss_feedback', { reviewId, feedbackId, reason }),
+  applySuggestion: (reviewId: string, feedbackId: string) =>
+    invoke<void>('apply_suggestion', { reviewId, feedbackId }),
+  addFeedbackNote: (reviewId: string, feedbackId: string, content: string) =>
+    invoke<FeedbackNote>('add_feedback_note', { reviewId, feedbackId, content }),
 
   // Files
   markFileViewed: (reviewId: string, path: string) =>

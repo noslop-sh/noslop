@@ -7,14 +7,14 @@
 
   interface Props {
     fileDiff: FileDiff;
-    findingCounts: { block: number; warn: number; info: number };
+    feedbackCounts: { block: number; warn: number; info: number };
     viewed: boolean;
     diffViewMode: DiffViewMode;
     onToggleViewed: () => void;
     onToggleDiffMode: () => void;
   }
 
-  let { fileDiff, findingCounts, viewed, diffViewMode, onToggleViewed, onToggleDiffMode }: Props =
+  let { fileDiff, feedbackCounts, viewed, diffViewMode, onToggleViewed, onToggleDiffMode }: Props =
     $props();
 
   let typeLabel = $derived(changeTypeLabel(fileDiff.change_type));
@@ -70,18 +70,18 @@
     {/if}
   </Button>
 
-  <!-- Finding badges -->
-  {#if findingCounts.block > 0}
+  <!-- Feedback badges -->
+  {#if feedbackCounts.block > 0}
     <Badge variant="destructive" class="h-5 gap-1 px-1.5 text-[10px]">
-      {findingCounts.block} block
+      {feedbackCounts.block} block
     </Badge>
   {/if}
-  {#if findingCounts.warn > 0}
+  {#if feedbackCounts.warn > 0}
     <Badge
       variant="secondary"
-      class="h-5 gap-1 px-1.5 text-[10px] bg-finding-warn/15 text-finding-warn border-finding-warn/25"
+      class="h-5 gap-1 px-1.5 text-[10px] bg-feedback-warn/15 text-feedback-warn border-feedback-warn/25"
     >
-      {findingCounts.warn} warn
+      {feedbackCounts.warn} warn
     </Badge>
   {/if}
 

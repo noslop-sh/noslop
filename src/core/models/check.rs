@@ -2,12 +2,12 @@
 //!
 //! A check declares: "When files matching `target` change, surface this message."
 //! Checks are static rules from `.noslop.toml`. The convention analyzer matches
-//! checks against changed files and calls `into_finding()` to bridge the two worlds.
+//! checks against changed files and calls `into_feedback()` to bridge the two worlds.
 
 use serde::{Deserialize, Serialize};
 
-use super::finding::Finding;
-use super::primitives::{FindingSource, Severity, Target};
+use super::feedback::Feedback;
+use super::primitives::{FeedbackSource, Severity, Target};
 
 /// A review rule from `.noslop.toml`.
 ///
@@ -67,14 +67,14 @@ impl Check {
         self.target.matches(path)
     }
 
-    /// Convert this check into a Finding for a specific matched file.
+    /// Convert this check into a Feedback for a specific matched file.
     ///
-    /// This is the bridge between the check world and the finding world.
+    /// This is the bridge between the check world and the feedback world.
     /// The convention analyzer calls this for each (check, `changed_file`) pair.
     #[must_use]
-    pub fn into_finding(self, matched_path: &str) -> Finding {
-        let source = FindingSource::Check(self.id.clone());
-        Finding::new(Target::file(matched_path), self.severity, self.message, source)
+    pub fn into_feedback(self, matched_path: &str) -> Feedback {
+        let source = FeedbackSource::Check(self.id.clone());
+        Feedback::new(Target::file(matched_path), self.severity, self.message, source)
     }
 }
 
@@ -115,17 +115,17 @@ mod tests {
     }
 
     #[test]
-    fn check_into_finding() {
+    fn check_into_feedback() {
         let check = Check::new(
             "NOS-5",
             Target::pattern("src/adapters/**/*.rs"),
             "Adapter changed -- verify port trait contract",
             Severity::Block,
         );
-        let finding = check.into_finding("src/adapters/git/hooks.rs");
-        assert_eq!(finding.target.path, "src/adapters/git/hooks.rs");
-        assert_eq!(finding.severity, Severity::Block);
-        assert!(finding.is_blocking());
+        let feedback = check.into_feedback("src/adapters/git/hooks.rs");
+        assert_eq!(feedback.target.path, "src/adapters/git/hooks.rs");
+        assert_eq!(feedback.severity, Severity::Block);
+        assert!(feedback.is_blocking());
     }
 
     #[test]

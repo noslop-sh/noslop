@@ -1,40 +1,40 @@
-//! Findings management commands
+//! Feedbacks management commands
 
 use noslop::DismissReason;
 use noslop::adapters::FileReviewStore;
 use noslop::core::ports::ReviewStore;
 use noslop::output::OutputMode;
 
-use crate::cli::app::FindingsAction;
+use crate::cli::app::FeedbacksAction;
 
-/// Handle findings subcommands
-pub fn findings(action: FindingsAction, mode: OutputMode) -> anyhow::Result<()> {
+/// Handle feedbacks subcommands
+pub fn feedbacks(action: FeedbacksAction, mode: OutputMode) -> anyhow::Result<()> {
     let store = FileReviewStore::new();
 
     match action {
-        FindingsAction::List { id } => list_findings(&store, &id, mode),
-        FindingsAction::Resolve {
+        FeedbacksAction::List { id } => list_feedbacks(&store, &id, mode),
+        FeedbacksAction::Resolve {
             review_id,
-            finding_id,
-        } => resolve_finding(&store, &review_id, &finding_id, mode),
-        FindingsAction::Dismiss {
+            feedback_id,
+        } => resolve_feedback(&store, &review_id, &feedback_id, mode),
+        FeedbacksAction::Dismiss {
             review_id,
-            finding_id,
+            feedback_id,
             reason,
-        } => dismiss_finding(&store, &review_id, &finding_id, reason.as_deref(), mode),
+        } => dismiss_feedback(&store, &review_id, &feedback_id, reason.as_deref(), mode),
     }
 }
 
-fn list_findings(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::Result<()> {
+fn list_feedbacks(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::Result<()> {
     let review = store.load(id)?.ok_or_else(|| anyhow::anyhow!("Review not found: {id}"))?;
 
     if mode == OutputMode::Json {
-        println!("{}", serde_json::to_string_pretty(&review.findings)?);
-    } else if review.findings.is_empty() {
-        println!("No findings for review {id}.");
+        println!("{}", serde_json::to_string_pretty(&review.feedbacks)?);
+    } else if review.feedbacks.is_empty() {
+        println!("No feedbacks for review {id}.");
     } else {
-        println!("Findings for review {id}:\n");
-        for f in &review.findings {
+        println!("Feedbacks for review {id}:\n");
+        for f in &review.feedbacks {
             let status = if f.is_open() { "OPEN" } else { "RESOLVED" };
             println!("  [{status}] {} - {}", f.id, f.target);
             println!("        {}", f.message);
@@ -43,23 +43,23 @@ fn list_findings(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow:
     Ok(())
 }
 
-fn resolve_finding(
+fn resolve_feedback(
     store: &FileReviewStore,
     review_id: &str,
-    finding_id: &str,
+    feedback_id: &str,
     mode: OutputMode,
 ) -> anyhow::Result<()> {
     let mut review = store
         .load(review_id)?
         .ok_or_else(|| anyhow::anyhow!("Review not found: {review_id}"))?;
 
-    let finding = review
-        .findings
+    let feedback = review
+        .feedbacks
         .iter_mut()
-        .find(|f| f.id == finding_id)
-        .ok_or_else(|| anyhow::anyhow!("Finding not found: {finding_id}"))?;
+        .find(|f| f.id == feedback_id)
+        .ok_or_else(|| anyhow::anyhow!("Feedback not found: {feedback_id}"))?;
 
-    finding.resolve(None);
+    feedback.resolve(None);
     store.save(&review)?;
 
     if mode == OutputMode::Json {
@@ -68,20 +68,20 @@ fn resolve_finding(
             serde_json::json!({
                 "success": true,
                 "review_id": review_id,
-                "finding_id": finding_id,
+                "feedback_id": feedback_id,
                 "status": "resolved"
             })
         );
     } else {
-        println!("Resolved finding {finding_id} in review {review_id}.");
+        println!("Resolved feedback {feedback_id} in review {review_id}.");
     }
     Ok(())
 }
 
-fn dismiss_finding(
+fn dismiss_feedback(
     store: &FileReviewStore,
     review_id: &str,
-    finding_id: &str,
+    feedback_id: &str,
     reason: Option<&str>,
     mode: OutputMode,
 ) -> anyhow::Result<()> {
@@ -89,11 +89,11 @@ fn dismiss_finding(
         .load(review_id)?
         .ok_or_else(|| anyhow::anyhow!("Review not found: {review_id}"))?;
 
-    let finding = review
-        .findings
+    let feedback = review
+        .feedbacks
         .iter_mut()
-        .find(|f| f.id == finding_id)
-        .ok_or_else(|| anyhow::anyhow!("Finding not found: {finding_id}"))?;
+        .find(|f| f.id == feedback_id)
+        .ok_or_else(|| anyhow::anyhow!("Feedback not found: {feedback_id}"))?;
 
     let dismiss_reason = match reason.unwrap_or("wont_fix") {
         "false_positive" => DismissReason::FalsePositive,
@@ -104,7 +104,7 @@ fn dismiss_finding(
             "Invalid dismiss reason: {other}. Expected: false_positive, wont_fix, not_applicable, investigate_later"
         ),
     };
-    finding.dismiss(dismiss_reason);
+    feedback.dismiss(dismiss_reason);
     store.save(&review)?;
 
     if mode == OutputMode::Json {
@@ -113,14 +113,14 @@ fn dismiss_finding(
             serde_json::json!({
                 "success": true,
                 "review_id": review_id,
-                "finding_id": finding_id,
+                "feedback_id": feedback_id,
                 "status": "dismissed",
                 "reason": reason.unwrap_or("wont_fix")
             })
         );
     } else {
         let r = reason.unwrap_or("(no reason)");
-        println!("Dismissed finding {finding_id} in review {review_id}: {r}");
+        println!("Dismissed feedback {feedback_id} in review {review_id}: {r}");
     }
     Ok(())
 }

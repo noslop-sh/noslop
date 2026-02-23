@@ -28,7 +28,7 @@ describe('api', () => {
   });
 
   it('getReview calls invoke with id', async () => {
-    const mockReview = { id: 'REV-1234', status: 'open', findings: [] };
+    const mockReview = { id: 'REV-1234', status: 'open', feedbacks: [] };
     vi.mocked(invoke).mockResolvedValue(mockReview);
     const result = await api.getReview('REV-1234');
     expect(invoke).toHaveBeenCalledWith('get_review', { id: 'REV-1234' });
@@ -79,12 +79,12 @@ describe('api', () => {
     });
   });
 
-  // --- Findings ---
+  // --- Feedbacks ---
 
-  it('addFinding calls invoke with all params including line span', async () => {
+  it('addFeedback calls invoke with all params including line span', async () => {
     vi.mocked(invoke).mockResolvedValue({ id: 'F-12345678' });
-    await api.addFinding('REV-1234', 'src/main.rs', 'Fix this', 'block', 10, 15);
-    expect(invoke).toHaveBeenCalledWith('add_finding', {
+    await api.addFeedback('REV-1234', 'src/main.rs', 'Fix this', 'block', 10, 15);
+    expect(invoke).toHaveBeenCalledWith('add_feedback', {
       reviewId: 'REV-1234',
       target: 'src/main.rs',
       message: 'Fix this',
@@ -94,10 +94,10 @@ describe('api', () => {
     });
   });
 
-  it('addFinding works without optional params', async () => {
+  it('addFeedback works without optional params', async () => {
     vi.mocked(invoke).mockResolvedValue({ id: 'F-12345678' });
-    await api.addFinding('REV-1234', 'src/main.rs', 'Fix this');
-    expect(invoke).toHaveBeenCalledWith('add_finding', {
+    await api.addFeedback('REV-1234', 'src/main.rs', 'Fix this');
+    expect(invoke).toHaveBeenCalledWith('add_feedback', {
       reviewId: 'REV-1234',
       target: 'src/main.rs',
       message: 'Fix this',
@@ -107,21 +107,21 @@ describe('api', () => {
     });
   });
 
-  it('resolveFinding calls invoke correctly', async () => {
+  it('resolveFeedback calls invoke correctly', async () => {
     vi.mocked(invoke).mockResolvedValue(undefined);
-    await api.resolveFinding('REV-1234', 'F-12345678');
-    expect(invoke).toHaveBeenCalledWith('resolve_finding', {
+    await api.resolveFeedback('REV-1234', 'F-12345678');
+    expect(invoke).toHaveBeenCalledWith('resolve_feedback', {
       reviewId: 'REV-1234',
-      findingId: 'F-12345678',
+      feedbackId: 'F-12345678',
     });
   });
 
-  it('dismissFinding calls invoke with reason', async () => {
+  it('dismissFeedback calls invoke with reason', async () => {
     vi.mocked(invoke).mockResolvedValue(undefined);
-    await api.dismissFinding('REV-1234', 'F-12345678', 'false_positive');
-    expect(invoke).toHaveBeenCalledWith('dismiss_finding', {
+    await api.dismissFeedback('REV-1234', 'F-12345678', 'false_positive');
+    expect(invoke).toHaveBeenCalledWith('dismiss_feedback', {
       reviewId: 'REV-1234',
-      findingId: 'F-12345678',
+      feedbackId: 'F-12345678',
       reason: 'false_positive',
     });
   });
@@ -131,17 +131,17 @@ describe('api', () => {
     await api.applySuggestion('REV-1234', 'F-12345678');
     expect(invoke).toHaveBeenCalledWith('apply_suggestion', {
       reviewId: 'REV-1234',
-      findingId: 'F-12345678',
+      feedbackId: 'F-12345678',
     });
   });
 
-  it('addFindingNote calls invoke correctly', async () => {
+  it('addFeedbackNote calls invoke correctly', async () => {
     const mockNote = { id: 'N-1', content: 'test note', created_at: '2026-01-01' };
     vi.mocked(invoke).mockResolvedValue(mockNote);
-    const result = await api.addFindingNote('REV-1234', 'F-12345678', 'test note');
-    expect(invoke).toHaveBeenCalledWith('add_finding_note', {
+    const result = await api.addFeedbackNote('REV-1234', 'F-12345678', 'test note');
+    expect(invoke).toHaveBeenCalledWith('add_feedback_note', {
       reviewId: 'REV-1234',
-      findingId: 'F-12345678',
+      feedbackId: 'F-12345678',
       content: 'test note',
     });
     expect(result).toEqual(mockNote);

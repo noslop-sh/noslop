@@ -537,7 +537,7 @@ fn test_review_start_and_list() {
         .stdout(predicate::str::contains("OPEN"));
 }
 
-/// Test closing a review without blocking findings
+/// Test closing a review without blocking feedbacks
 #[test]
 fn test_review_close() {
     let temp = TempDir::new().unwrap();
@@ -574,7 +574,7 @@ fn test_review_close() {
         .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
         .expect("Should find review ID in output");
 
-    // Close the review (no findings, so it should succeed)
+    // Close the review (no feedbacks, so it should succeed)
     noslop()
         .args(["review", "close", review_id])
         .current_dir(repo_path)
@@ -641,7 +641,7 @@ fn test_checkpoint_clean_tree() {
 // REVIEW RUN INTEGRATION TESTS
 // =============================================================================
 
-/// Test review run on a commit range with matching checks produces findings
+/// Test review run on a commit range with matching checks produces feedbacks
 #[test]
 fn test_review_run_with_checks() {
     let temp = TempDir::new().unwrap();
@@ -690,13 +690,13 @@ severity = "block"
         .assert()
         .success()
         .stdout(predicate::str::contains("Review: REV-"))
-        .stdout(predicate::str::contains("Findings: 1"))
+        .stdout(predicate::str::contains("Feedbacks: 1"))
         .stdout(predicate::str::contains("Blocking: 1"));
 }
 
-/// Test review run with no matching checks produces no findings
+/// Test review run with no matching checks produces no feedbacks
 #[test]
-fn test_review_run_no_findings() {
+fn test_review_run_no_feedbacks() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -741,11 +741,11 @@ severity = "block"
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Findings: 0"))
-        .stdout(predicate::str::contains("No blocking findings"));
+        .stdout(predicate::str::contains("Feedbacks: 0"))
+        .stdout(predicate::str::contains("No blocking feedbacks"));
 }
 
-/// Test review run --check exits 1 when blocking findings exist
+/// Test review run --check exits 1 when blocking feedbacks exist
 #[test]
 fn test_review_run_check_flag_blocks() {
     let temp = TempDir::new().unwrap();
@@ -783,7 +783,7 @@ severity = "block"
     git_add(repo_path, "main.rs");
     git_commit(repo_path, "Add main.rs");
 
-    // With --check, should exit 1 because blocking findings exist
+    // With --check, should exit 1 because blocking feedbacks exist
     noslop()
         .args(["review", "run", "--base", &base_sha, "--check"])
         .current_dir(repo_path)
@@ -793,12 +793,12 @@ severity = "block"
 }
 
 // =============================================================================
-// FINDINGS INTEGRATION TESTS
+// FEEDBACKS INTEGRATION TESTS
 // =============================================================================
 
-/// Test findings list, resolve, and dismiss workflow
+/// Test feedbacks list, resolve, and dismiss workflow
 #[test]
-fn test_findings_workflow() {
+fn test_feedbacks_workflow() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -834,7 +834,7 @@ severity = "block"
     git_add(repo_path, "main.rs");
     git_commit(repo_path, "Add main.rs");
 
-    // Run review to create findings
+    // Run review to create feedbacks
     let review_output = noslop()
         .args(["review", "run", "--base", &base_sha])
         .current_dir(repo_path)
@@ -849,30 +849,30 @@ severity = "block"
         .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
         .expect("Should find review ID in output");
 
-    // List findings
-    let findings_output = noslop()
-        .args(["findings", "list", review_id])
+    // List feedbacks
+    let feedbacks_output = noslop()
+        .args(["feedbacks", "list", review_id])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    let findings_stdout = String::from_utf8_lossy(&findings_output.get_output().stdout);
-    assert!(findings_stdout.contains("Rust files need review"));
+    let feedbacks_stdout = String::from_utf8_lossy(&feedbacks_output.get_output().stdout);
+    assert!(feedbacks_stdout.contains("Rust files need review"));
 
-    // Extract finding ID
-    let finding_id = findings_stdout
+    // Extract feedback ID
+    let feedback_id = feedbacks_stdout
         .lines()
         .find(|l| l.contains("F-"))
         .and_then(|l| l.split_whitespace().find(|w| w.starts_with("F-")))
-        .expect("Should find finding ID in output");
+        .expect("Should find feedback ID in output");
 
-    // Resolve the finding
+    // Resolve the feedback
     noslop()
-        .args(["findings", "resolve", review_id, finding_id])
+        .args(["feedbacks", "resolve", review_id, feedback_id])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Resolved finding"));
+        .stdout(predicate::str::contains("Resolved feedback"));
 
     // Now the review should be closable
     noslop()
@@ -883,9 +883,9 @@ severity = "block"
         .stdout(predicate::str::contains("Closed review"));
 }
 
-/// Test findings dismiss with reason
+/// Test feedbacks dismiss with reason
 #[test]
-fn test_findings_dismiss() {
+fn test_feedbacks_dismiss() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -932,31 +932,31 @@ severity = "warn"
     let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
     let review_id = json["review_id"].as_str().unwrap();
 
-    // List findings in JSON mode
-    let findings_output = noslop()
-        .args(["findings", "list", review_id, "--json"])
+    // List feedbacks in JSON mode
+    let feedbacks_output = noslop()
+        .args(["feedbacks", "list", review_id, "--json"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    let findings_json_str = String::from_utf8_lossy(&findings_output.get_output().stdout);
-    let findings_json: serde_json::Value = serde_json::from_str(&findings_json_str).unwrap();
-    let finding_id = findings_json[0]["id"].as_str().unwrap();
+    let feedbacks_json_str = String::from_utf8_lossy(&feedbacks_output.get_output().stdout);
+    let feedbacks_json: serde_json::Value = serde_json::from_str(&feedbacks_json_str).unwrap();
+    let feedback_id = feedbacks_json[0]["id"].as_str().unwrap();
 
-    // Dismiss the finding
+    // Dismiss the feedback
     noslop()
-        .args(["findings", "dismiss", review_id, finding_id, "--reason", "false_positive"])
+        .args(["feedbacks", "dismiss", review_id, feedback_id, "--reason", "false_positive"])
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Dismissed finding"));
+        .stdout(predicate::str::contains("Dismissed feedback"));
 }
 
 // =============================================================================
 // FULL LIFECYCLE INTEGRATION TESTS
 // =============================================================================
 
-/// Full workflow: init -> add check -> commit -> review run -> findings resolve -> review close
+/// Full workflow: init -> add check -> commit -> review run -> feedbacks resolve -> review close
 #[test]
 fn test_full_lifecycle_init_to_close() {
     let temp = TempDir::new().unwrap();
@@ -1000,7 +1000,7 @@ fn test_full_lifecycle_init_to_close() {
         .output()
         .expect("Failed to create commit");
 
-    // Phase 5: Run review (JSON) to produce findings
+    // Phase 5: Run review (JSON) to produce feedbacks
     let review_output = noslop()
         .args(["review", "run", "--base", &base_sha, "--json"])
         .current_dir(repo_path)
@@ -1011,33 +1011,33 @@ fn test_full_lifecycle_init_to_close() {
     let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
     let review_id = json["review_id"].as_str().unwrap();
     assert!(json["blocked"].as_bool().unwrap());
-    assert_eq!(json["findings"].as_u64().unwrap(), 1);
+    assert_eq!(json["feedbacks"].as_u64().unwrap(), 1);
 
-    // Phase 6: review --check should fail because there are blocking findings
+    // Phase 6: review --check should fail because there are blocking feedbacks
     noslop()
         .args(["review", "run", "--base", &base_sha, "--check"])
         .current_dir(repo_path)
         .assert()
         .failure();
 
-    // Phase 7: Resolve the finding
-    let findings_output = noslop()
-        .args(["findings", "list", review_id, "--json"])
+    // Phase 7: Resolve the feedback
+    let feedbacks_output = noslop()
+        .args(["feedbacks", "list", review_id, "--json"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    let findings_json_str = String::from_utf8_lossy(&findings_output.get_output().stdout);
-    let findings_json: serde_json::Value = serde_json::from_str(&findings_json_str).unwrap();
-    let finding_id = findings_json[0]["id"].as_str().unwrap();
+    let feedbacks_json_str = String::from_utf8_lossy(&feedbacks_output.get_output().stdout);
+    let feedbacks_json: serde_json::Value = serde_json::from_str(&feedbacks_json_str).unwrap();
+    let feedback_id = feedbacks_json[0]["id"].as_str().unwrap();
 
     noslop()
-        .args(["findings", "resolve", review_id, finding_id])
+        .args(["feedbacks", "resolve", review_id, feedback_id])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    // Phase 8: Close review (now succeeds since blocking findings are resolved)
+    // Phase 8: Close review (now succeeds since blocking feedbacks are resolved)
     noslop()
         .args(["review", "close", review_id])
         .current_dir(repo_path)
@@ -1047,12 +1047,12 @@ fn test_full_lifecycle_init_to_close() {
 }
 
 // =============================================================================
-// ERROR HANDLING TESTS (REVIEW / FINDINGS)
+// ERROR HANDLING TESTS (REVIEW / FEEDBACKS)
 // =============================================================================
 
-/// Closing a review with blocking findings should fail
+/// Closing a review with blocking feedbacks should fail
 #[test]
-fn test_review_close_blocked_by_findings() {
+fn test_review_close_blocked_by_feedbacks() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -1087,7 +1087,7 @@ severity = "block"
     git_add(repo_path, "main.rs");
     git_commit(repo_path, "Add code");
 
-    // Run review to create findings
+    // Run review to create feedbacks
     let review_output = noslop()
         .args(["review", "run", "--base", &base_sha, "--json"])
         .current_dir(repo_path)
@@ -1098,18 +1098,18 @@ severity = "block"
     let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
     let review_id = json["review_id"].as_str().unwrap();
 
-    // Try to close -- should fail because there are blocking findings
+    // Try to close -- should fail because there are blocking feedbacks
     noslop()
         .args(["review", "close", review_id])
         .current_dir(repo_path)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("blocking finding"));
+        .stderr(predicate::str::contains("blocking feedback"));
 }
 
-/// Findings list on a nonexistent review should fail
+/// Feedbacks list on a nonexistent review should fail
 #[test]
-fn test_findings_list_nonexistent_review() {
+fn test_feedbacks_list_nonexistent_review() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -1117,16 +1117,16 @@ fn test_findings_list_nonexistent_review() {
     fs::create_dir_all(repo_path.join(".noslop")).unwrap();
 
     noslop()
-        .args(["findings", "list", "REV-nonexistent"])
+        .args(["feedbacks", "list", "REV-nonexistent"])
         .current_dir(repo_path)
         .assert()
         .failure()
         .stderr(predicate::str::contains("Review not found"));
 }
 
-/// Resolve finding on a nonexistent review should fail
+/// Resolve feedback on a nonexistent review should fail
 #[test]
-fn test_findings_resolve_nonexistent_review() {
+fn test_feedbacks_resolve_nonexistent_review() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -1134,16 +1134,16 @@ fn test_findings_resolve_nonexistent_review() {
     fs::create_dir_all(repo_path.join(".noslop")).unwrap();
 
     noslop()
-        .args(["findings", "resolve", "REV-nonexistent", "F-nonexistent"])
+        .args(["feedbacks", "resolve", "REV-nonexistent", "F-nonexistent"])
         .current_dir(repo_path)
         .assert()
         .failure()
         .stderr(predicate::str::contains("Review not found"));
 }
 
-/// Dismiss finding on a nonexistent review should fail
+/// Dismiss feedback on a nonexistent review should fail
 #[test]
-fn test_findings_dismiss_nonexistent_review() {
+fn test_feedbacks_dismiss_nonexistent_review() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -1151,7 +1151,7 @@ fn test_findings_dismiss_nonexistent_review() {
     fs::create_dir_all(repo_path.join(".noslop")).unwrap();
 
     noslop()
-        .args(["findings", "dismiss", "REV-nonexistent", "F-nonexistent"])
+        .args(["feedbacks", "dismiss", "REV-nonexistent", "F-nonexistent"])
         .current_dir(repo_path)
         .assert()
         .failure()
@@ -1245,7 +1245,7 @@ severity = "block"
     // Verify JSON structure
     assert!(json["success"].as_bool().unwrap());
     assert!(json["review_id"].as_str().unwrap().starts_with("REV-"));
-    assert!(json["findings"].is_number());
+    assert!(json["feedbacks"].is_number());
     assert!(json["blocking"].is_number());
     assert!(json["blocked"].is_boolean());
     assert!(json["base"].is_string());
@@ -1337,12 +1337,12 @@ fn test_review_show_json_output() {
 
     assert_eq!(show_json["id"].as_str().unwrap(), review_id);
     assert_eq!(show_json["status"].as_str().unwrap(), "open");
-    assert!(show_json["findings"].is_array());
+    assert!(show_json["feedbacks"].is_array());
 }
 
-/// Findings list in JSON mode produces valid parseable JSON
+/// Feedbacks list in JSON mode produces valid parseable JSON
 #[test]
-fn test_findings_list_json_output() {
+fn test_feedbacks_list_json_output() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -1388,21 +1388,21 @@ severity = "warn"
     let json: serde_json::Value = serde_json::from_str(&json_stdout).unwrap();
     let review_id = json["review_id"].as_str().unwrap();
 
-    // List findings in JSON
-    let findings_output = noslop()
-        .args(["findings", "list", review_id, "--json"])
+    // List feedbacks in JSON
+    let feedbacks_output = noslop()
+        .args(["feedbacks", "list", review_id, "--json"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    let findings_json_str = String::from_utf8_lossy(&findings_output.get_output().stdout);
-    let findings_json: serde_json::Value = serde_json::from_str(&findings_json_str).unwrap();
+    let feedbacks_json_str = String::from_utf8_lossy(&feedbacks_output.get_output().stdout);
+    let feedbacks_json: serde_json::Value = serde_json::from_str(&feedbacks_json_str).unwrap();
 
-    // Should be an array with findings
-    assert!(findings_json.is_array());
-    assert!(!findings_json.as_array().unwrap().is_empty());
-    // Each finding should have id, severity, message
-    let first = &findings_json[0];
+    // Should be an array with feedbacks
+    assert!(feedbacks_json.is_array());
+    assert!(!feedbacks_json.as_array().unwrap().is_empty());
+    // Each feedback should have id, severity, message
+    let first = &feedbacks_json[0];
     assert!(first["id"].as_str().unwrap().starts_with("F-"));
     assert!(first["severity"].is_string());
     assert!(first["message"].is_string());
@@ -1630,5 +1630,5 @@ severity = "block"
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Findings: 0"));
+        .stdout(predicate::str::contains("Feedbacks: 0"));
 }

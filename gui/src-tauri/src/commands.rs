@@ -5,13 +5,13 @@
 use noslop::Review;
 use noslop::adapters::FileReviewStore;
 use noslop::core::models::{
-    DismissReason, Finding, FindingSource, ResolutionReason, Severity, Span, Target,
+    DismissReason, Feedback, FeedbackSource, ResolutionReason, Severity, Span, Target,
 };
 use noslop::core::ports::ReviewStore;
 use serde::Serialize;
 use std::process::Command;
 
-use crate::dto::{FindingDto, FindingNoteDto, ReviewDto};
+use crate::dto::{FeedbackDto, FeedbackNoteDto, ReviewDto};
 
 // ---------------------------------------------------------------------------
 // Existing commands
@@ -101,16 +101,16 @@ pub fn get_default_branch() -> Result<String, String> {
         .ok_or_else(|| "No branches found".to_string())
 }
 
-/// Add a finding to a review
+/// Add a feedback to a review
 #[tauri::command]
-pub fn add_finding(
+pub fn add_feedback(
     review_id: String,
     target: String,
     message: String,
     severity: Option<String>,
     start_line: Option<u32>,
     end_line: Option<u32>,
-) -> Result<FindingDto, String> {
+) -> Result<FeedbackDto, String> {
     let store = FileReviewStore::new();
     let mut review = store
         .load(&review_id)
@@ -130,30 +130,30 @@ pub fn add_finding(
         target_obj = target_obj.with_span(Span::line(start));
     }
 
-    let finding = Finding::new(target_obj, sev, message, FindingSource::Human);
-    let dto = FindingDto::from(finding.clone());
-    review.add_finding(finding);
+    let feedback = Feedback::new(target_obj, sev, message, FeedbackSource::Human);
+    let dto = FeedbackDto::from(feedback.clone());
+    review.add_feedback(feedback);
 
     store.save(&review).map_err(|e| e.to_string())?;
     Ok(dto)
 }
 
-/// Resolve a finding
+/// Resolve a feedback
 #[tauri::command]
-pub fn resolve_finding(review_id: String, finding_id: String) -> Result<(), String> {
+pub fn resolve_feedback(review_id: String, feedback_id: String) -> Result<(), String> {
     let store = FileReviewStore::new();
     let mut review = store
         .load(&review_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Review not found: {review_id}"))?;
 
-    let finding = review
-        .findings
+    let feedback = review
+        .feedbacks
         .iter_mut()
-        .find(|f| f.id == finding_id)
-        .ok_or_else(|| format!("Finding not found: {finding_id}"))?;
+        .find(|f| f.id == feedback_id)
+        .ok_or_else(|| format!("Feedback not found: {feedback_id}"))?;
 
-    finding.resolve(None);
+    feedback.resolve(None);
     store.save(&review).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -167,9 +167,9 @@ pub fn close_review(id: String) -> Result<(), String> {
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Review not found: {id}"))?;
 
-    let blocking_count = review.blocking_findings().len();
+    let blocking_count = review.blocking_feedbacks().len();
     if blocking_count > 0 {
-        return Err(format!("Cannot close with {blocking_count} blocking finding(s)"));
+        return Err(format!("Cannot close with {blocking_count} blocking feedback(s)"));
     }
 
     review.close();
@@ -181,11 +181,11 @@ pub fn close_review(id: String) -> Result<(), String> {
 // New commands
 // ---------------------------------------------------------------------------
 
-/// Dismiss a finding with a reason
+/// Dismiss a feedback with a reason
 #[tauri::command]
-pub fn dismiss_finding(
+pub fn dismiss_feedback(
     review_id: String,
-    finding_id: String,
+    feedback_id: String,
     reason: String,
 ) -> Result<(), String> {
     let dismiss_reason = match reason.as_str() {
@@ -206,13 +206,13 @@ pub fn dismiss_finding(
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Review not found: {review_id}"))?;
 
-    let finding = review
-        .findings
+    let feedback = review
+        .feedbacks
         .iter_mut()
-        .find(|f| f.id == finding_id)
-        .ok_or_else(|| format!("Finding not found: {finding_id}"))?;
+        .find(|f| f.id == feedback_id)
+        .ok_or_else(|| format!("Feedback not found: {feedback_id}"))?;
 
-    finding.dismiss(dismiss_reason);
+    feedback.dismiss(dismiss_reason);
     store.save(&review).map_err(|e| e.to_string())?;
     Ok(())
 }
@@ -313,27 +313,27 @@ pub fn get_file_content(
     Ok(lines[start..end].join("\n"))
 }
 
-/// Add a note to a finding
+/// Add a note to a feedback
 #[tauri::command]
-pub fn add_finding_note(
+pub fn add_feedback_note(
     review_id: String,
-    finding_id: String,
+    feedback_id: String,
     content: String,
-) -> Result<FindingNoteDto, String> {
+) -> Result<FeedbackNoteDto, String> {
     let store = FileReviewStore::new();
     let mut review = store
         .load(&review_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Review not found: {review_id}"))?;
 
-    let finding = review
-        .findings
+    let feedback = review
+        .feedbacks
         .iter_mut()
-        .find(|f| f.id == finding_id)
-        .ok_or_else(|| format!("Finding not found: {finding_id}"))?;
+        .find(|f| f.id == feedback_id)
+        .ok_or_else(|| format!("Feedback not found: {feedback_id}"))?;
 
-    let note = finding.add_note(content);
-    let dto = FindingNoteDto {
+    let note = feedback.add_note(content);
+    let dto = FeedbackNoteDto {
         id: note.id.clone(),
         content: note.content.clone(),
         created_at: note.created_at.clone(),
@@ -357,33 +357,33 @@ pub fn mark_file_viewed(review_id: String, path: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Apply a finding's suggestion by replacing the target span in the source file
+/// Apply a feedback's suggestion by replacing the target span in the source file
 #[tauri::command]
-pub fn apply_suggestion(review_id: String, finding_id: String) -> Result<(), String> {
+pub fn apply_suggestion(review_id: String, feedback_id: String) -> Result<(), String> {
     let store = FileReviewStore::new();
     let mut review = store
         .load(&review_id)
         .map_err(|e| e.to_string())?
         .ok_or_else(|| format!("Review not found: {review_id}"))?;
 
-    // Find the finding and extract the data we need before mutating
-    let finding_idx = review
-        .findings
+    // Find the feedback and extract the data we need before mutating
+    let feedback_idx = review
+        .feedbacks
         .iter()
-        .position(|f| f.id == finding_id)
-        .ok_or_else(|| format!("Finding not found: {finding_id}"))?;
+        .position(|f| f.id == feedback_id)
+        .ok_or_else(|| format!("Feedback not found: {feedback_id}"))?;
 
-    let replacement = review.findings[finding_idx]
+    let replacement = review.feedbacks[feedback_idx]
         .suggestion
         .clone()
-        .ok_or_else(|| format!("Finding {finding_id} has no suggestion"))?;
+        .ok_or_else(|| format!("Feedback {feedback_id} has no suggestion"))?;
 
-    let span = review.findings[finding_idx]
+    let span = review.feedbacks[feedback_idx]
         .target
         .span
-        .ok_or_else(|| format!("Finding {finding_id} has no target span"))?;
+        .ok_or_else(|| format!("Feedback {feedback_id} has no target span"))?;
 
-    let path = review.findings[finding_idx].target.path.clone();
+    let path = review.feedbacks[feedback_idx].target.path.clone();
 
     // Read the file
     let content =
@@ -426,8 +426,8 @@ pub fn apply_suggestion(review_id: String, finding_id: String) -> Result<(), Str
     // Write the modified file back
     std::fs::write(&path, &output).map_err(|e| format!("Failed to write file {path}: {e}"))?;
 
-    // Resolve the finding with SuggestionApplied reason
-    review.findings[finding_idx].resolve(Some(ResolutionReason::SuggestionApplied));
+    // Resolve the feedback with SuggestionApplied reason
+    review.feedbacks[feedback_idx].resolve(Some(ResolutionReason::SuggestionApplied));
 
     store.save(&review).map_err(|e| e.to_string())?;
     Ok(())
@@ -635,7 +635,7 @@ fn parse_unified_diff(raw: &str) -> StructuredDiff {
 fn parse_diff_header(line: &str) -> (String, String) {
     // Format: diff --git a/path b/path
     let rest = line.strip_prefix("diff --git ").unwrap_or(line);
-    // Split on " b/" - handle paths with spaces by finding the last " b/"
+    // Split on " b/" - handle paths with spaces by feedback the last " b/"
     if let Some(idx) = rest.rfind(" b/") {
         let a = rest[..idx].strip_prefix("a/").unwrap_or(&rest[..idx]);
         let b = &rest[idx + 3..]; // skip " b/"
@@ -913,11 +913,11 @@ mod tests {
     }
 
     #[test]
-    fn test_add_finding_to_review() {
+    fn test_add_feedback_to_review() {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into(), None).unwrap();
 
-        let finding = add_finding(
+        let feedback = add_feedback(
             review.id.clone(),
             "src/main.rs".into(),
             "Add error handling".into(),
@@ -927,32 +927,32 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(finding.target.path, "src/main.rs");
-        assert_eq!(finding.message, "Add error handling");
-        assert_eq!(finding.status, "open");
+        assert_eq!(feedback.target.path, "src/main.rs");
+        assert_eq!(feedback.message, "Add error handling");
+        assert_eq!(feedback.status, "open");
     }
 
     #[test]
-    fn test_resolve_finding() {
+    fn test_resolve_feedback() {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into(), None).unwrap();
-        let finding =
-            add_finding(review.id.clone(), "file.rs".into(), "Fix".into(), None, None, None)
+        let feedback =
+            add_feedback(review.id.clone(), "file.rs".into(), "Fix".into(), None, None, None)
                 .unwrap();
 
-        let result = resolve_finding(review.id.clone(), finding.id);
+        let result = resolve_feedback(review.id.clone(), feedback.id);
         assert!(result.is_ok());
 
-        // Verify finding is resolved
+        // Verify feedback is resolved
         let updated = get_review(review.id).unwrap();
-        assert_eq!(updated.findings[0].status, "resolved");
+        assert_eq!(updated.feedbacks[0].status, "resolved");
     }
 
     #[test]
-    fn test_close_review_with_blocking_findings_fails() {
+    fn test_close_review_with_blocking_feedbacks_fails() {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into(), None).unwrap();
-        add_finding(
+        add_feedback(
             review.id.clone(),
             "file.rs".into(),
             "Fix".into(),
@@ -968,10 +968,10 @@ mod tests {
     }
 
     #[test]
-    fn test_dismiss_finding() {
+    fn test_dismiss_feedback() {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into(), None).unwrap();
-        let finding = add_finding(
+        let feedback = add_feedback(
             review.id.clone(),
             "file.rs".into(),
             "Not applicable".into(),
@@ -981,23 +981,23 @@ mod tests {
         )
         .unwrap();
 
-        let result = dismiss_finding(review.id.clone(), finding.id, "false_positive".into());
+        let result = dismiss_feedback(review.id.clone(), feedback.id, "false_positive".into());
         assert!(result.is_ok());
 
         let updated = get_review(review.id).unwrap();
-        assert_eq!(updated.findings[0].status, "dismissed");
-        assert_eq!(updated.findings[0].dismiss_reason.as_deref(), Some("false_positive"));
+        assert_eq!(updated.feedbacks[0].status, "dismissed");
+        assert_eq!(updated.feedbacks[0].dismiss_reason.as_deref(), Some("false_positive"));
     }
 
     #[test]
-    fn test_dismiss_finding_invalid_reason() {
+    fn test_dismiss_feedback_invalid_reason() {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into(), None).unwrap();
-        let finding =
-            add_finding(review.id.clone(), "file.rs".into(), "Test".into(), None, None, None)
+        let feedback =
+            add_feedback(review.id.clone(), "file.rs".into(), "Test".into(), None, None, None)
                 .unwrap();
 
-        let result = dismiss_finding(review.id, finding.id, "bad_reason".into());
+        let result = dismiss_feedback(review.id, feedback.id, "bad_reason".into());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid dismiss reason"));
     }
@@ -1007,7 +1007,7 @@ mod tests {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into(), None).unwrap();
 
-        // Close it first (no blocking findings)
+        // Close it first (no blocking feedbacks)
         close_review(review.id.clone()).unwrap();
         let closed = get_review(review.id.clone()).unwrap();
         assert_eq!(closed.status, "closed");
@@ -1019,20 +1019,20 @@ mod tests {
     }
 
     #[test]
-    fn test_add_finding_note() {
+    fn test_add_feedback_note() {
         let _temp = setup_test_repo();
         let review = start_review("base".into(), "head".into(), None).unwrap();
-        let finding =
-            add_finding(review.id.clone(), "file.rs".into(), "Test".into(), None, None, None)
+        let feedback =
+            add_feedback(review.id.clone(), "file.rs".into(), "Test".into(), None, None, None)
                 .unwrap();
 
-        let note =
-            add_finding_note(review.id.clone(), finding.id, "Needs investigation".into()).unwrap();
+        let note = add_feedback_note(review.id.clone(), feedback.id, "Needs investigation".into())
+            .unwrap();
         assert!(note.id.starts_with("N-"));
         assert_eq!(note.content, "Needs investigation");
 
         let updated = get_review(review.id).unwrap();
-        assert_eq!(updated.findings[0].notes.len(), 1);
+        assert_eq!(updated.feedbacks[0].notes.len(), 1);
     }
 
     #[test]

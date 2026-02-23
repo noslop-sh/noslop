@@ -2,7 +2,7 @@
 //!
 //! This library provides the core functionality for:
 //! - Defining checks that must be reviewed when code changes
-//! - Tracking findings from checks, scripts, agents, and humans
+//! - Tracking feedbacks from checks, scripts, agents, and humans
 //! - Integrating with git hooks for enforcement
 //!
 //! # Architecture
@@ -10,7 +10,7 @@
 //! The library follows a hexagonal (ports & adapters) architecture:
 //!
 //! - [`core`] - Pure domain logic with no I/O dependencies
-//!   - [`core::models`] - Domain types (Check, Finding, Review, Severity, Target)
+//!   - [`core::models`] - Domain types (Check, Feedback, Review, Severity, Target)
 //!   - [`core::ports`] - Trait interfaces for I/O operations
 //!   - [`core::services`] - Pure business logic
 //!
@@ -54,7 +54,7 @@ pub mod output;
 
 // Re-exports for convenience
 pub use core::models::{
-    AgentKind, Check, DismissReason, Finding, FindingNote, FindingSource, FindingStatus,
+    AgentKind, Check, DismissReason, Feedback, FeedbackNote, FeedbackSource, FeedbackStatus,
     ResolutionReason, Review, ReviewStatus, Severity, Span, Target,
 };
 pub use core::ports::{

@@ -1,32 +1,35 @@
 import type {
   ActiveFilters,
+  DiffLine,
   FileChangeType,
   FileDiff,
   FileTreeEntry,
-  Finding,
+  Feedback,
   Severity,
   SortMode,
+  Span,
+  StructuredDiff,
 } from './types';
 
-// --- Finding helpers ---
+// --- Feedback helpers ---
 
-export function openFindingCount(findings: Finding[]): number {
-  return findings.filter((f) => f.status === 'open').length;
+export function openFeedbackCount(feedbacks: Feedback[]): number {
+  return feedbacks.filter((f) => f.status === 'open').length;
 }
 
-export function blockingFindings(findings: Finding[]): Finding[] {
-  return findings.filter((f) => f.severity === 'block' && f.status === 'open');
+export function blockingFeedbacks(feedbacks: Feedback[]): Feedback[] {
+  return feedbacks.filter((f) => f.severity === 'block' && f.status === 'open');
 }
 
-export function findingsForFile(findings: Finding[], path: string): Finding[] {
-  return findings.filter((f) => f.target.path === path);
+export function feedbacksForFile(feedbacks: Feedback[], path: string): Feedback[] {
+  return feedbacks.filter((f) => f.target.path === path);
 }
 
-export function findingCountsByFile(
-  findings: Finding[],
+export function feedbackCountsByFile(
+  feedbacks: Feedback[],
   path: string
 ): { block: number; warn: number; info: number } {
-  const fileFn = findings.filter((f) => f.target.path === path && f.status === 'open');
+  const fileFn = feedbacks.filter((f) => f.target.path === path && f.status === 'open');
   return {
     block: fileFn.filter((f) => f.severity === 'block').length,
     warn: fileFn.filter((f) => f.severity === 'warn').length,
@@ -34,8 +37,8 @@ export function findingCountsByFile(
   };
 }
 
-export function applyFindingFilters(findings: Finding[], filters: ActiveFilters): Finding[] {
-  return findings.filter((f) => {
+export function applyFeedbackFilters(feedbacks: Feedback[], filters: ActiveFilters): Feedback[] {
+  return feedbacks.filter((f) => {
     if (filters.status !== 'all' && f.status !== filters.status) return false;
     if (filters.severity !== 'all' && f.severity !== filters.severity) return false;
     if (filters.source !== 'all' && f.source.kind !== filters.source) return false;
@@ -43,9 +46,36 @@ export function applyFindingFilters(findings: Finding[], filters: ActiveFilters)
   });
 }
 
-export function sortFindingsBySeverity(findings: Finding[]): Finding[] {
+export function sortFeedbacksBySeverity(feedbacks: Feedback[]): Feedback[] {
   const order: Record<Severity, number> = { block: 0, warn: 1, info: 2 };
-  return [...findings].sort((a, b) => order[a.severity] - order[b.severity]);
+  return [...feedbacks].sort((a, b) => order[a.severity] - order[b.severity]);
+}
+
+// --- Code snippet extraction ---
+
+export function getCodeSnippet(
+  diff: StructuredDiff,
+  path: string,
+  span: Span,
+  contextLines: number = 3
+): DiffLine[] {
+  const file = diff.files.find((f) => f.path === path);
+  if (!file) return [];
+
+  const startLine = Math.max(1, span.start - contextLines);
+  const endLine = span.end + contextLines;
+
+  const lines: DiffLine[] = [];
+  for (const hunk of file.hunks) {
+    for (const line of hunk.lines) {
+      const lineNo = line.new_line_no ?? line.old_line_no;
+      if (lineNo !== null && lineNo >= startLine && lineNo <= endLine) {
+        lines.push(line);
+      }
+    }
+  }
+
+  return lines;
 }
 
 // --- Source display ---
@@ -90,7 +120,7 @@ export function formatRelativeDate(iso: string): string {
 
 export function buildFileTree(
   files: FileDiff[],
-  findings: Finding[],
+  feedbacks: Feedback[],
   viewedFiles: Set<string>,
   sortMode: SortMode,
   filterText: string
@@ -105,7 +135,7 @@ export function buildFileTree(
       change_type: f.change_type,
       additions: f.additions,
       deletions: f.deletions,
-      findings: findingCountsByFile(findings, f.path),
+      feedbacks: feedbackCountsByFile(feedbacks, f.path),
       viewed: viewedFiles.has(f.path),
       children: [],
       collapsed_prefix: null,
@@ -137,7 +167,7 @@ export function buildFileTree(
           change_type: null,
           additions: 0,
           deletions: 0,
-          findings: { block: 0, warn: 0, info: 0 },
+          feedbacks: { block: 0, warn: 0, info: 0 },
           viewed: false,
           children: [],
           collapsed_prefix: null,
@@ -151,19 +181,19 @@ export function buildFileTree(
     parent.push(entry);
   }
 
-  // Aggregate finding counts up to directories
+  // Aggregate feedback counts up to directories
   function aggregateDir(node: FileTreeEntry): void {
     if (node.kind === 'directory') {
-      node.findings = { block: 0, warn: 0, info: 0 };
+      node.feedbacks = { block: 0, warn: 0, info: 0 };
       node.additions = 0;
       node.deletions = 0;
       let allViewed = true;
 
       for (const child of node.children) {
         aggregateDir(child);
-        node.findings.block += child.findings.block;
-        node.findings.warn += child.findings.warn;
-        node.findings.info += child.findings.info;
+        node.feedbacks.block += child.feedbacks.block;
+        node.feedbacks.warn += child.feedbacks.warn;
+        node.feedbacks.info += child.feedbacks.info;
         node.additions += child.additions;
         node.deletions += child.deletions;
         if (!child.viewed) allViewed = false;
@@ -196,23 +226,23 @@ export function buildFileTree(
   const compacted = compact(root);
 
   // Sort
-  if (sortMode === 'findings') {
-    return sortByFindings(compacted);
+  if (sortMode === 'feedbacks') {
+    return sortByFeedbacks(compacted);
   }
   return sortAlphabetically(compacted);
 }
 
-function sortByFindings(nodes: FileTreeEntry[]): FileTreeEntry[] {
+function sortByFeedbacks(nodes: FileTreeEntry[]): FileTreeEntry[] {
   return [...nodes]
     .sort((a, b) => {
       // Directories first
       if (a.kind !== b.kind) return a.kind === 'directory' ? -1 : 1;
-      // Block findings first
-      if (a.findings.block !== b.findings.block) return b.findings.block - a.findings.block;
+      // Block feedbacks first
+      if (a.feedbacks.block !== b.feedbacks.block) return b.feedbacks.block - a.feedbacks.block;
       // Then warn
-      if (a.findings.warn !== b.findings.warn) return b.findings.warn - a.findings.warn;
+      if (a.feedbacks.warn !== b.feedbacks.warn) return b.feedbacks.warn - a.feedbacks.warn;
       // Then info
-      if (a.findings.info !== b.findings.info) return b.findings.info - a.findings.info;
+      if (a.feedbacks.info !== b.feedbacks.info) return b.feedbacks.info - a.feedbacks.info;
       // Unviewed first
       if (a.viewed !== b.viewed) return a.viewed ? 1 : -1;
       // Alphabetical tiebreak
@@ -220,7 +250,7 @@ function sortByFindings(nodes: FileTreeEntry[]): FileTreeEntry[] {
     })
     .map((n) => ({
       ...n,
-      children: n.children.length > 0 ? sortByFindings(n.children) : n.children,
+      children: n.children.length > 0 ? sortByFeedbacks(n.children) : n.children,
     }));
 }
 

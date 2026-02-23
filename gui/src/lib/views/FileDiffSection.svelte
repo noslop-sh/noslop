@@ -1,22 +1,22 @@
 <script lang="ts">
   import type {
     StructuredDiff,
-    Finding,
+    Feedback,
     DiffViewMode,
     DismissReason,
     Severity,
     FileDiff as OurFileDiff,
   } from '$lib/types';
   import type { FileDiffMetadata, SelectedLineRange } from '@pierre/diffs';
-  import { findingCountsByFile } from '$lib/helpers';
+  import { feedbackCountsByFile } from '$lib/helpers';
   import DiffFileHeader from './DiffFileHeader.svelte';
   import FileDiffRenderer from './FileDiffRenderer.svelte';
-  import InlineFindingForm from './InlineFindingForm.svelte';
+  import InlineFeedbackForm from './InlineFeedbackForm.svelte';
 
   interface Props {
     fileDiffMeta: FileDiffMetadata;
     diff: StructuredDiff | null;
-    findings: Finding[];
+    feedbacks: Feedback[];
     reviewOpen: boolean;
     diffViewMode: DiffViewMode;
     isCurrentFile: boolean;
@@ -24,9 +24,9 @@
     activeForm: { filePath: string; startLine: number; endLine: number } | null;
     onFileSelect: (path: string) => void;
     onToggleViewed: (path: string) => void;
-    onFindingClick: (id: string) => void;
-    onResolve: (findingId: string) => void;
-    onDismiss: (findingId: string, reason: DismissReason) => void;
+    onFeedbackClick: (id: string) => void;
+    onResolve: (feedbackId: string) => void;
+    onDismiss: (feedbackId: string, reason: DismissReason) => void;
     onToggleDiffMode: () => void;
     onLineSelected: (filePath: string, range: SelectedLineRange | null) => void;
     onFormSubmit: (message: string, severity: Severity) => Promise<void>;
@@ -36,7 +36,7 @@
   let {
     fileDiffMeta,
     diff,
-    findings,
+    feedbacks,
     reviewOpen,
     diffViewMode,
     isCurrentFile,
@@ -44,7 +44,7 @@
     activeForm,
     onFileSelect,
     onToggleViewed,
-    onFindingClick,
+    onFeedbackClick,
     onResolve,
     onDismiss,
     onToggleDiffMode,
@@ -63,7 +63,7 @@
 
   let ourFileDiff = $derived<OurFileDiff | undefined>(diff?.files.find((f) => f.path === fileName));
 
-  let fileFindingCounts = $derived(findingCountsByFile(findings, fileName));
+  let fileFeedbackCounts = $derived(feedbackCountsByFile(feedbacks, fileName));
 
   let showForm = $derived(activeForm !== null && activeForm.filePath === fileName);
 
@@ -116,7 +116,7 @@
   {#if ourFileDiff}
     <DiffFileHeader
       fileDiff={ourFileDiff}
-      findingCounts={fileFindingCounts}
+      feedbackCounts={fileFeedbackCounts}
       {viewed}
       {diffViewMode}
       onToggleViewed={() => onToggleViewed(fileName)}
@@ -130,10 +130,10 @@
     <div bind:this={diffContainerRef}>
       <FileDiffRenderer
         {fileDiffMeta}
-        {findings}
+        {feedbacks}
         {reviewOpen}
         {diffViewMode}
-        {onFindingClick}
+        {onFeedbackClick}
         {onResolve}
         {onDismiss}
         onLineSelected={handleLineSelected}
@@ -147,7 +147,7 @@
       class="absolute left-0 right-0 z-20 px-4 py-2"
       style={formTop !== null ? `top: ${formTop}px` : ''}
     >
-      <InlineFindingForm
+      <InlineFeedbackForm
         filePath={activeForm.filePath}
         startLine={activeForm.startLine}
         endLine={activeForm.endLine}

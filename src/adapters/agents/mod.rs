@@ -9,7 +9,7 @@
 
 mod claude;
 mod codex;
-/// Shared finding extraction from agent output.
+/// Shared feedback extraction from agent output.
 pub mod parsing;
 
 pub use claude::{ClaudeConfig, ClaudeRuntime};

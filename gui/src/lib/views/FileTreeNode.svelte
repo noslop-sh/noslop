@@ -17,10 +17,10 @@
 
   let isSelected = $derived(entry.kind === 'file' && entry.path === selectedPath);
 
-  let hasBlockFindings = $derived(entry.findings.block > 0);
-  let hasWarnFindings = $derived(entry.findings.warn > 0);
-  let hasInfoFindings = $derived(entry.findings.info > 0);
-  let hasFindings = $derived(hasBlockFindings || hasWarnFindings || hasInfoFindings);
+  let hasBlockFeedbacks = $derived(entry.feedbacks.block > 0);
+  let hasWarnFeedbacks = $derived(entry.feedbacks.warn > 0);
+  let hasInfoFeedbacks = $derived(entry.feedbacks.info > 0);
+  let hasFeedbacks = $derived(hasBlockFeedbacks || hasWarnFeedbacks || hasInfoFeedbacks);
 
   function handleClick() {
     if (entry.kind === 'directory') {
@@ -60,21 +60,21 @@
       <Folder class="size-3.5 shrink-0 text-muted-foreground" />
       <span class="truncate font-medium">{entry.name}</span>
 
-      <!-- Aggregated finding badges for directories -->
-      {#if hasFindings}
+      <!-- Aggregated feedback badges for directories -->
+      {#if hasFeedbacks}
         <div class="ml-auto flex shrink-0 items-center gap-1">
-          {#if hasBlockFindings}
+          {#if hasBlockFeedbacks}
             <span
-              class="flex size-4 items-center justify-center rounded-full bg-finding-block/15 text-[10px] font-medium text-finding-block"
+              class="flex size-4 items-center justify-center rounded-full bg-feedback-block/15 text-[10px] font-medium text-feedback-block"
             >
-              {entry.findings.block}
+              {entry.feedbacks.block}
             </span>
           {/if}
-          {#if hasWarnFindings}
+          {#if hasWarnFeedbacks}
             <span
-              class="flex size-4 items-center justify-center rounded-full bg-finding-warn/15 text-[10px] font-medium text-finding-warn"
+              class="flex size-4 items-center justify-center rounded-full bg-feedback-warn/15 text-[10px] font-medium text-feedback-warn"
             >
-              {entry.findings.warn}
+              {entry.feedbacks.warn}
             </span>
           {/if}
         </div>
@@ -99,21 +99,21 @@
           <span class="text-[10px] text-red-600 dark:text-red-400">-{entry.deletions}</span>
         {/if}
 
-        <!-- Finding badges -->
-        {#if hasBlockFindings}
+        <!-- Feedback badges -->
+        {#if hasBlockFeedbacks}
           <span
-            class="flex size-4 items-center justify-center rounded-full bg-finding-block text-[10px] font-bold text-white"
-            title="{entry.findings.block} blocking finding{entry.findings.block > 1 ? 's' : ''}"
+            class="flex size-4 items-center justify-center rounded-full bg-feedback-block text-[10px] font-bold text-white"
+            title="{entry.feedbacks.block} blocking feedback item{entry.feedbacks.block > 1 ? 's' : ''}"
           >
-            {entry.findings.block}
+            {entry.feedbacks.block}
           </span>
         {/if}
-        {#if hasWarnFindings}
+        {#if hasWarnFeedbacks}
           <span
-            class="flex size-4 items-center justify-center rounded-full bg-finding-warn/80 text-[10px] font-bold text-white"
-            title="{entry.findings.warn} warning{entry.findings.warn > 1 ? 's' : ''}"
+            class="flex size-4 items-center justify-center rounded-full bg-feedback-warn/80 text-[10px] font-bold text-white"
+            title="{entry.feedbacks.warn} warning{entry.feedbacks.warn > 1 ? 's' : ''}"
           >
-            {entry.findings.warn}
+            {entry.feedbacks.warn}
           </span>
         {/if}
 

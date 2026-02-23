@@ -1,14 +1,23 @@
 <script lang="ts">
   import type { Review, StructuredDiff, DismissReason, Severity } from '$lib/types';
   import {
-    blockingFindings,
-    findingCountsByFile,
-    sortFindingsBySeverity,
+    blockingFeedbacks,
+    feedbackCountsByFile,
+    sortFeedbacksBySeverity,
     changeTypeLabel,
     changeTypeColor,
+    getCodeSnippet,
   } from '$lib/helpers';
+  import { slide } from 'svelte/transition';
   import { Button } from '$lib/components/ui/button';
-  import { ShieldAlert, AlertTriangle, CheckCircle, Check } from '@lucide/svelte';
+  import {
+    ShieldAlert,
+    AlertTriangle,
+    CheckCircle,
+    Check,
+    ChevronRight,
+    ChevronDown,
+  } from '@lucide/svelte';
 
   interface Props {
     review: Review;
@@ -17,9 +26,10 @@
     onClose: () => void;
     onScrollToBlocker: () => void;
     onFileClick: (path: string) => void;
-    onFindingClick: (id: string) => void;
-    onResolve: (findingId: string) => void;
-    onDismiss: (findingId: string, reason: DismissReason) => void;
+    onFeedbackClick: (id: string) => void;
+    onResolve: (feedbackId: string) => void;
+    onDismiss: (feedbackId: string, reason: DismissReason) => void;
+    onAddNote: (feedbackId: string, content: string) => void;
   }
 
   let {
@@ -29,16 +39,27 @@
     onClose,
     onScrollToBlocker,
     onFileClick,
-    onFindingClick,
+    onFeedbackClick,
     onResolve,
     onDismiss,
+    onAddNote,
   }: Props = $props();
 
+  // Expanded feedback IDs (local to summary view)
+  let expandedFeedbackIds = $state<Set<string>>(new Set());
+
+  function toggleFeedbackExpanded(id: string) {
+    const next = new Set(expandedFeedbackIds);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    expandedFeedbackIds = next;
+  }
+
   // Verdict
-  let blockers = $derived(blockingFindings(review.findings));
+  let blockers = $derived(blockingFeedbacks(review.feedbacks));
   let blockCount = $derived(blockers.length);
   let warnCount = $derived(
-    review.findings.filter((f) => f.severity === 'warn' && f.status === 'open').length
+    review.feedbacks.filter((f) => f.severity === 'warn' && f.status === 'open').length
   );
 
   type VerdictState = 'blockers' | 'warnings' | 'clean';
@@ -56,9 +77,9 @@
 
   let verdictTextClass = $derived(
     verdictState === 'blockers'
-      ? 'text-finding-block'
+      ? 'text-feedback-block'
       : verdictState === 'warnings'
-        ? 'text-finding-warn'
+        ? 'text-feedback-warn'
         : 'text-success'
   );
 
@@ -68,15 +89,17 @@
   let deletions = $derived(diff?.stats.deletions ?? 0);
 
   // Progress
-  let resolvedCount = $derived(review.findings.filter((f) => f.status !== 'open').length);
-  let totalFindings = $derived(review.findings.length);
+  let resolvedCount = $derived(review.feedbacks.filter((f) => f.status !== 'open').length);
+  let totalFeedbacks = $derived(review.feedbacks.length);
   let viewedCount = $derived(diff ? diff.files.filter((f) => viewedFiles.has(f.path)).length : 0);
-  let viewedPercent = $derived(filesChanged > 0 ? Math.round((viewedCount / filesChanged) * 100) : 0);
+  let viewedPercent = $derived(
+    filesChanged > 0 ? Math.round((viewedCount / filesChanged) * 100) : 0
+  );
   let resolvedPercent = $derived(
-    totalFindings > 0 ? Math.round((resolvedCount / totalFindings) * 100) : 0
+    totalFeedbacks > 0 ? Math.round((resolvedCount / totalFeedbacks) * 100) : 0
   );
 
-  // File rows with findings
+  // File rows with feedback
   let fileRows = $derived.by(() => {
     if (!diff) return [];
     return diff.files
@@ -85,10 +108,10 @@
         change_type: f.change_type,
         additions: f.additions,
         deletions: f.deletions,
-        openFindings: sortFindingsBySeverity(
-          review.findings.filter((fn) => fn.target.path === f.path && fn.status === 'open')
+        openFeedbacks: sortFeedbacksBySeverity(
+          review.feedbacks.filter((fn) => fn.target.path === f.path && fn.status === 'open')
         ),
-        counts: findingCountsByFile(review.findings, f.path),
+        counts: feedbackCountsByFile(review.feedbacks, f.path),
         viewed: viewedFiles.has(f.path),
       }))
       .sort((a, b) => {
@@ -112,14 +135,14 @@
   }
 
   function severityColor(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return 'text-[var(--finding-human)]';
+    if (sourceKind === 'human') return 'text-[var(--feedback-human)]';
     switch (severity) {
       case 'block':
-        return 'text-[var(--finding-block)]';
+        return 'text-[var(--feedback-block)]';
       case 'warn':
-        return 'text-[var(--finding-warn)]';
+        return 'text-[var(--feedback-warn)]';
       case 'info':
-        return 'text-[var(--finding-info)]';
+        return 'text-[var(--feedback-info)]';
     }
   }
 </script>
@@ -165,9 +188,9 @@
         </div>
       {/if}
 
-      {#if totalFindings > 0}
+      {#if totalFeedbacks > 0}
         <div class="flex items-center gap-2">
-          <span>{resolvedCount}/{totalFindings} resolved</span>
+          <span>{resolvedCount}/{totalFeedbacks} resolved</span>
           <div class="h-1.5 w-16 overflow-hidden rounded-full bg-muted">
             <div
               class="h-full rounded-full bg-foreground/30 transition-all"
@@ -179,7 +202,7 @@
     </div>
   </div>
 
-  <!-- File list with nested findings -->
+  <!-- File list with nested feedback -->
   {#if fileRows.length > 0}
     <div class="space-y-0.5">
       {#each fileRows as file (file.path)}
@@ -190,7 +213,9 @@
           onclick={() => onFileClick(file.path)}
         >
           <span
-            class="w-4 shrink-0 text-center font-mono text-xs font-bold {changeTypeColor(file.change_type)}"
+            class="w-4 shrink-0 text-center font-mono text-xs font-bold {changeTypeColor(
+              file.change_type
+            )}"
           >
             {changeTypeLabel(file.change_type)}
           </span>
@@ -198,21 +223,23 @@
             {file.path}
           </span>
           {#if file.additions > 0}
-            <span class="shrink-0 text-xs text-green-600 dark:text-green-400">+{file.additions}</span>
+            <span class="shrink-0 text-xs text-green-600 dark:text-green-400"
+              >+{file.additions}</span
+            >
           {/if}
           {#if file.deletions > 0}
             <span class="shrink-0 text-xs text-red-600 dark:text-red-400">-{file.deletions}</span>
           {/if}
           {#if file.counts.block > 0}
             <span
-              class="flex size-4 shrink-0 items-center justify-center rounded-full bg-finding-block/15 text-[9px] font-bold text-finding-block"
+              class="flex size-4 shrink-0 items-center justify-center rounded-full bg-feedback-block/15 text-[9px] font-bold text-feedback-block"
             >
               {file.counts.block}
             </span>
           {/if}
           {#if file.counts.warn > 0}
             <span
-              class="flex size-4 shrink-0 items-center justify-center rounded-full bg-finding-warn/15 text-[9px] font-bold text-finding-warn"
+              class="flex size-4 shrink-0 items-center justify-center rounded-full bg-feedback-warn/15 text-[9px] font-bold text-feedback-warn"
             >
               {file.counts.warn}
             </span>
@@ -222,39 +249,131 @@
           {/if}
         </button>
 
-        <!-- Finding sub-rows -->
-        {#each file.openFindings as finding (finding.id)}
-          <div class="flex items-center gap-2 py-1 pl-9 pr-3">
-            <button
-              type="button"
-              class="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-0.5 text-left transition-colors hover:bg-accent/50"
-              onclick={() => onFindingClick(finding.id)}
-            >
-              <span
-                class="shrink-0 text-xs font-bold leading-none {severityColor(finding.severity, finding.source.kind)}"
+        <!-- Feedback sub-rows -->
+        {#each file.openFeedbacks as feedback (feedback.id)}
+          {@const isExpanded = expandedFeedbackIds.has(feedback.id)}
+          <div>
+            <div class="flex items-center gap-2 py-1 pl-9 pr-3">
+              <button
+                type="button"
+                class="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-0.5 text-left transition-colors hover:bg-accent/50"
+                onclick={() => toggleFeedbackExpanded(feedback.id)}
               >
-                {severityIcon(finding.severity, finding.source.kind)}
-              </span>
-              <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">
-                {finding.message}
-              </span>
-              {#if finding.target.span}
-                <span class="shrink-0 font-mono text-[10px] text-muted-foreground/50">
-                  :{finding.target.span.start}
+                {#if isExpanded}
+                  <ChevronDown class="size-3 shrink-0 text-muted-foreground/50" />
+                {:else}
+                  <ChevronRight class="size-3 shrink-0 text-muted-foreground/50" />
+                {/if}
+                <span
+                  class="shrink-0 text-xs font-bold leading-none {severityColor(
+                    feedback.severity,
+                    feedback.source.kind
+                  )}"
+                >
+                  {severityIcon(feedback.severity, feedback.source.kind)}
                 </span>
-              {/if}
-            </button>
-            <Button
-              variant="ghost"
-              size="sm"
-              class="h-5 shrink-0 px-1.5 text-[10px]"
-              onclick={(e: MouseEvent) => {
-                e.stopPropagation();
-                onResolve(finding.id);
-              }}
-            >
-              Resolve
-            </Button>
+                <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+                  {feedback.message}
+                </span>
+                {#if feedback.target.span}
+                  <span class="shrink-0 font-mono text-[10px] text-muted-foreground/50">
+                    :{feedback.target.span.start}
+                  </span>
+                {/if}
+              </button>
+              <Button
+                variant="ghost"
+                size="sm"
+                class="h-5 shrink-0 px-1.5 text-[10px]"
+                onclick={(e: MouseEvent) => {
+                  e.stopPropagation();
+                  onResolve(feedback.id);
+                }}
+              >
+                Resolve
+              </Button>
+            </div>
+
+            {#if isExpanded}
+              <div transition:slide={{ duration: 200 }} class="pb-2">
+                <!-- Code snippet -->
+                {#if feedback.target.span && diff}
+                  {@const snippetLines = getCodeSnippet(diff, file.path, feedback.target.span)}
+                  {#if snippetLines.length > 0}
+                    <div class="ml-9 mr-3 mt-1 rounded border border-border overflow-hidden">
+                      <div class="overflow-x-auto">
+                        {#each snippetLines as line}
+                          {@const lineNo = line.new_line_no ?? line.old_line_no}
+                          {@const isInSpan =
+                            lineNo !== null &&
+                            feedback.target.span !== null &&
+                            lineNo >= feedback.target.span.start &&
+                            lineNo <= feedback.target.span.end}
+                          {@const lineBg =
+                            isInSpan && line.kind === 'add'
+                              ? 'bg-green-500/20'
+                              : isInSpan && line.kind === 'delete'
+                                ? 'bg-red-500/20'
+                                : isInSpan
+                                  ? 'bg-accent/20'
+                                  : line.kind === 'add'
+                                    ? 'bg-green-500/10'
+                                    : line.kind === 'delete'
+                                      ? 'bg-red-500/10'
+                                      : ''}
+                          <div class="flex text-xs font-mono leading-5 {lineBg}">
+                            <span
+                              class="w-10 shrink-0 select-none text-right pr-2 text-muted-foreground/50 border-r border-border"
+                            >
+                              {lineNo ?? ''}
+                            </span>
+                            <span class="px-2 whitespace-pre">{line.content}</span>
+                          </div>
+                        {/each}
+                      </div>
+                    </div>
+                  {/if}
+                {/if}
+
+                <!-- Existing notes -->
+                {#if feedback.notes.length > 0}
+                  <div class="ml-9 mr-3 mt-2 space-y-1">
+                    {#each feedback.notes as note (note.id)}
+                      <p class="text-xs text-muted-foreground pl-2 border-l-2 border-border">
+                        {note.content}
+                      </p>
+                    {/each}
+                  </div>
+                {/if}
+
+                <!-- Add note input -->
+                <div class="ml-9 mr-3 mt-2">
+                  <form
+                    onsubmit={(e: SubmitEvent) => {
+                      e.preventDefault();
+                      const form = e.currentTarget as HTMLFormElement;
+                      const input = form.elements.namedItem('note') as HTMLInputElement;
+                      const value = input.value.trim();
+                      if (value) {
+                        onAddNote(feedback.id, value);
+                        input.value = '';
+                      }
+                    }}
+                    class="flex gap-1"
+                  >
+                    <input
+                      name="note"
+                      type="text"
+                      placeholder="Add a note..."
+                      class="flex-1 rounded border border-border bg-transparent px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                    />
+                    <Button variant="ghost" size="sm" class="h-6 px-2 text-xs" type="submit"
+                      >Add</Button
+                    >
+                  </form>
+                </div>
+              </div>
+            {/if}
           </div>
         {/each}
       {/each}

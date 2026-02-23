@@ -2,7 +2,7 @@ import { browser } from '$app/environment';
 import type {
   ActiveFilters,
   DiffViewMode,
-  FindingStatus,
+  FeedbackStatus,
   ReviewView,
   Severity,
   SidebarCollapseState,
@@ -14,14 +14,14 @@ export interface SessionState {
   base_branch: string | null;
   compare_branch: string | null;
   scroll_positions: Record<string, number>;
-  expanded_finding_ids: string[];
+  expanded_feedback_ids: string[];
   sidebar_width: number;
   sidebar_collapse_state: SidebarCollapseState;
   file_tree_collapsed_dirs: string[];
   active_filters: ActiveFilters;
   diff_view_mode: DiffViewMode;
   theme: ThemeMode;
-  findings_panel_collapsed: boolean;
+  feedback_panel_collapsed: boolean;
   active_view: ReviewView;
 }
 
@@ -33,18 +33,18 @@ function defaultSession(): SessionState {
     base_branch: null,
     compare_branch: null,
     scroll_positions: {},
-    expanded_finding_ids: [],
+    expanded_feedback_ids: [],
     sidebar_width: 280,
     sidebar_collapse_state: 'full',
     file_tree_collapsed_dirs: [],
     active_filters: {
-      status: 'all' as FindingStatus | 'all',
+      status: 'all' as FeedbackStatus | 'all',
       severity: 'all' as Severity | 'all',
       source: 'all',
     },
     diff_view_mode: 'split',
     theme: 'dark',
-    findings_panel_collapsed: false,
+    feedback_panel_collapsed: false,
     active_view: 'summary',
   };
 }

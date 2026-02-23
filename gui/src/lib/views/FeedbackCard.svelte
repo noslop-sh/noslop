@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Finding, DismissReason, Severity } from '$lib/types';
+  import type { Feedback, DismissReason, Severity } from '$lib/types';
   import { formatSource } from '$lib/helpers';
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
@@ -8,7 +8,7 @@
   import { cn } from '$lib/utils';
 
   interface Props {
-    finding: Finding;
+    feedback: Feedback;
     reviewId: string;
     expanded: boolean;
     focused: boolean;
@@ -17,7 +17,7 @@
     onDismiss: (reason: DismissReason) => void;
   }
 
-  let { finding, reviewId, expanded, focused, onToggleExpand, onResolve, onDismiss }: Props =
+  let { feedback, reviewId, expanded, focused, onToggleExpand, onResolve, onDismiss }: Props =
     $props();
 
   const dismissOptions: { label: string; reason: DismissReason }[] = [
@@ -29,13 +29,13 @@
 
   let dismissOpen = $state(false);
 
-  let severityIcon = $derived(getSeverityIcon(finding.severity, finding.source.kind));
-  let severityColor = $derived(getSeverityColor(finding.severity, finding.source.kind));
-  let sourceDisplay = $derived(formatSource(finding.source));
+  let severityIcon = $derived(getSeverityIcon(feedback.severity, feedback.source.kind));
+  let severityColor = $derived(getSeverityColor(feedback.severity, feedback.source.kind));
+  let sourceDisplay = $derived(formatSource(feedback.source));
 
-  let isOpen = $derived(finding.status === 'open');
-  let isResolved = $derived(finding.status === 'resolved');
-  let isDismissed = $derived(finding.status === 'dismissed');
+  let isOpen = $derived(feedback.status === 'open');
+  let isResolved = $derived(feedback.status === 'resolved');
+  let isDismissed = $derived(feedback.status === 'dismissed');
 
   let cardClasses = $derived(
     cn(
@@ -61,14 +61,14 @@
   }
 
   function getSeverityColor(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return 'text-[var(--finding-human)]';
+    if (sourceKind === 'human') return 'text-[var(--feedback-human)]';
     switch (severity) {
       case 'block':
-        return 'text-[var(--finding-block)]';
+        return 'text-[var(--feedback-block)]';
       case 'warn':
-        return 'text-[var(--finding-warn)]';
+        return 'text-[var(--feedback-warn)]';
       case 'info':
-        return 'text-[var(--finding-info)]';
+        return 'text-[var(--feedback-info)]';
     }
   }
 </script>
@@ -78,14 +78,14 @@
 <div class={cardClasses} onclick={onToggleExpand}>
   <!-- Header row (always visible) -->
   <div class="flex items-center gap-2">
-    <span class={cn('text-sm font-bold leading-none', severityColor)} aria-label={finding.severity}>
+    <span class={cn('text-sm font-bold leading-none', severityColor)} aria-label={feedback.severity}>
       {severityIcon}
     </span>
     <span class="text-xs font-semibold uppercase tracking-wide text-foreground">
-      {finding.severity}
+      {feedback.severity}
     </span>
     <span class={cn('flex-1 truncate text-sm', isDismissed && 'line-through')}>
-      {finding.message}
+      {feedback.message}
     </span>
     <span class="shrink-0 text-xs text-muted-foreground">
       {sourceDisplay}
@@ -149,39 +149,39 @@
       <hr class="mb-3 border-border" />
 
       <p class="whitespace-pre-wrap text-sm text-foreground">
-        {finding.message}
+        {feedback.message}
       </p>
 
-      {#if finding.suggestion}
+      {#if feedback.suggestion}
         <div class="mt-3">
           <p class="mb-1 text-xs font-medium text-muted-foreground">Suggestion:</p>
           <div class="rounded border border-border bg-muted/50 p-3">
-            <pre class="overflow-x-auto whitespace-pre text-xs font-mono text-foreground">{finding
+            <pre class="overflow-x-auto whitespace-pre text-xs font-mono text-foreground">{feedback
                 .suggestion.replacement}</pre>
           </div>
         </div>
       {/if}
 
-      {#if finding.notes.length > 0}
+      {#if feedback.notes.length > 0}
         <div class="mt-3">
           <p class="mb-1 text-xs font-medium text-muted-foreground">Notes:</p>
           <div class="space-y-1">
-            {#each finding.notes as note (note.id)}
+            {#each feedback.notes as note (note.id)}
               <p class="text-xs text-muted-foreground">{note.content}</p>
             {/each}
           </div>
         </div>
       {/if}
 
-      {#if isDismissed && finding.dismiss_reason}
+      {#if isDismissed && feedback.dismiss_reason}
         <div class="mt-2 text-xs italic text-muted-foreground">
-          Dismissed: {finding.dismiss_reason.replace(/_/g, ' ')}
+          Dismissed: {feedback.dismiss_reason.replace(/_/g, ' ')}
         </div>
       {/if}
 
-      {#if isResolved && finding.resolution_reason}
+      {#if isResolved && feedback.resolution_reason}
         <div class="mt-2 text-xs italic text-green-600 dark:text-green-400">
-          Resolved: {finding.resolution_reason.replace(/_/g, ' ')}
+          Resolved: {feedback.resolution_reason.replace(/_/g, ' ')}
         </div>
       {/if}
     </div>

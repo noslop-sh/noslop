@@ -2,7 +2,7 @@
 //!
 //! These types serialize noslop domain models for the frontend.
 
-use noslop::core::models::{Finding, FindingSource, Review};
+use noslop::core::models::{Feedback, FeedbackSource, Review};
 use serde::Serialize;
 
 /// Review data for frontend
@@ -12,16 +12,16 @@ pub struct ReviewDto {
     pub base: String,
     pub head: String,
     pub status: String,
-    pub findings: Vec<FindingDto>,
+    pub feedbacks: Vec<FeedbackDto>,
     pub branch: Option<String>,
     pub viewed_files: Vec<String>,
     pub created_at: String,
     pub closed_at: Option<String>,
 }
 
-/// Finding data for frontend
+/// Feedback data for frontend
 #[derive(Debug, Serialize)]
-pub struct FindingDto {
+pub struct FeedbackDto {
     pub id: String,
     pub target: TargetDto,
     pub severity: String,
@@ -32,7 +32,7 @@ pub struct FindingDto {
     pub dismiss_reason: Option<String>,
     pub resolution_reason: Option<String>,
     pub confidence: Option<f32>,
-    pub notes: Vec<FindingNoteDto>,
+    pub notes: Vec<FeedbackNoteDto>,
     pub created_at: String,
 }
 
@@ -51,7 +51,7 @@ pub struct SpanDto {
     pub end: u32,
 }
 
-/// Finding source for frontend
+/// Feedback source for frontend
 #[derive(Debug, Serialize)]
 pub struct SourceDto {
     pub kind: String,
@@ -66,9 +66,9 @@ pub struct SuggestionDto {
     pub edited: bool,
 }
 
-/// Finding note for frontend
+/// Feedback note for frontend
 #[derive(Debug, Clone, Serialize)]
-pub struct FindingNoteDto {
+pub struct FeedbackNoteDto {
     pub id: String,
     pub content: String,
     pub created_at: String,
@@ -81,7 +81,7 @@ impl From<Review> for ReviewDto {
             base: r.base,
             head: r.head,
             status: format!("{:?}", r.status).to_lowercase(),
-            findings: r.findings.into_iter().map(FindingDto::from).collect(),
+            feedbacks: r.feedbacks.into_iter().map(FeedbackDto::from).collect(),
             branch: r.branch,
             viewed_files: r.viewed_files,
             created_at: r.created_at,
@@ -90,8 +90,8 @@ impl From<Review> for ReviewDto {
     }
 }
 
-impl From<Finding> for FindingDto {
-    fn from(f: Finding) -> Self {
+impl From<Feedback> for FeedbackDto {
+    fn from(f: Feedback) -> Self {
         let target = TargetDto {
             path: f.target.path,
             span: f.target.span.map(|s| SpanDto {
@@ -102,19 +102,19 @@ impl From<Finding> for FindingDto {
         };
 
         let source = match &f.source {
-            FindingSource::Check(name) => SourceDto {
+            FeedbackSource::Check(name) => SourceDto {
                 kind: "check".to_string(),
                 name: Some(name.clone()),
             },
-            FindingSource::Script(name) => SourceDto {
+            FeedbackSource::Script(name) => SourceDto {
                 kind: "script".to_string(),
                 name: Some(name.clone()),
             },
-            FindingSource::Agent(name) => SourceDto {
+            FeedbackSource::Agent(name) => SourceDto {
                 kind: "agent".to_string(),
                 name: Some(name.clone()),
             },
-            FindingSource::Human => SourceDto {
+            FeedbackSource::Human => SourceDto {
                 kind: "human".to_string(),
                 name: None,
             },
@@ -131,7 +131,7 @@ impl From<Finding> for FindingDto {
         let notes = f
             .notes
             .into_iter()
-            .map(|n| FindingNoteDto {
+            .map(|n| FeedbackNoteDto {
                 id: n.id,
                 content: n.content,
                 created_at: n.created_at,

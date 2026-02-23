@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Review } from '$lib/types';
   import { Button } from '$lib/components/ui/button';
-  import { blockingFindings, openFindingCount } from '$lib/helpers';
+  import { blockingFeedbacks, openFeedbackCount } from '$lib/helpers';
   import { Check, AlertTriangle, ShieldCheck } from '@lucide/svelte';
 
   interface Props {
@@ -12,9 +12,9 @@
 
   let { review, onClose, onScrollToBlocker }: Props = $props();
 
-  let blockers = $derived(review ? blockingFindings(review.findings) : []);
+  let blockers = $derived(review ? blockingFeedbacks(review.feedbacks) : []);
   let blockerCount = $derived(blockers.length);
-  let remainingCount = $derived(review ? openFindingCount(review.findings) : 0);
+  let remainingCount = $derived(review ? openFeedbackCount(review.feedbacks) : 0);
   let isClosed = $derived(review?.status === 'closed');
 </script>
 
@@ -48,14 +48,14 @@
     <div class="flex items-center">
       {#if !isClosed && remainingCount > 0}
         <span class="text-xs text-muted-foreground">
-          {remainingCount} finding{remainingCount === 1 ? '' : 's'} remaining
+          {remainingCount} feedback item{remainingCount === 1 ? '' : 's'} remaining
         </span>
       {:else if isClosed}
         <span class="text-xs text-muted-foreground">
           Closed {review.closed_at ? new Date(review.closed_at).toLocaleString() : ''}
         </span>
       {:else}
-        <span class="text-xs text-muted-foreground"> No open findings </span>
+        <span class="text-xs text-muted-foreground"> No open feedback </span>
       {/if}
     </div>
   {:else}

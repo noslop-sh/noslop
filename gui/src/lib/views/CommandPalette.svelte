@@ -28,11 +28,11 @@
   const groupLabels: Record<string, string> = {
     actions: 'Actions',
     files: 'Files',
-    findings: 'Findings',
+    feedbacks: 'Feedback',
     navigation: 'Navigation',
   };
 
-  const groupOrder = ['actions', 'files', 'findings', 'navigation'];
+  const groupOrder = ['actions', 'files', 'feedbacks', 'navigation'];
 
   let orderedGroups = $derived(
     groupOrder

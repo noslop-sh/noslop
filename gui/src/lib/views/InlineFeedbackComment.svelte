@@ -1,18 +1,18 @@
 <script lang="ts">
-  import type { Finding, DismissReason, Severity } from '$lib/types';
+  import type { Feedback, DismissReason, Severity } from '$lib/types';
   import { formatSource } from '$lib/helpers';
   import { Button } from '$lib/components/ui/button';
   import * as DropdownMenu from '$lib/components/ui/dropdown-menu';
   import { Check, ChevronDown } from '@lucide/svelte';
 
   interface Props {
-    finding: Finding;
+    feedback: Feedback;
     onResolve: () => void;
     onDismiss: (reason: DismissReason) => void;
     onclick?: () => void;
   }
 
-  let { finding, onResolve, onDismiss, onclick }: Props = $props();
+  let { feedback, onResolve, onDismiss, onclick }: Props = $props();
 
   const dismissOptions: { label: string; reason: DismissReason }[] = [
     { label: 'False positive', reason: 'false_positive' },
@@ -23,55 +23,55 @@
   let dismissOpen = $state(false);
 
   function borderColor(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return 'border-l-[var(--finding-human)]';
+    if (sourceKind === 'human') return 'border-l-[var(--feedback-human)]';
     switch (severity) {
       case 'block':
-        return 'border-l-[var(--finding-block)]';
+        return 'border-l-[var(--feedback-block)]';
       case 'warn':
-        return 'border-l-[var(--finding-warn)]';
+        return 'border-l-[var(--feedback-warn)]';
       case 'info':
-        return 'border-l-[var(--finding-info)]';
+        return 'border-l-[var(--feedback-info)]';
     }
   }
 
   function severityColor(severity: Severity, sourceKind: string): string {
-    if (sourceKind === 'human') return 'text-[var(--finding-human)]';
+    if (sourceKind === 'human') return 'text-[var(--feedback-human)]';
     switch (severity) {
       case 'block':
-        return 'text-[var(--finding-block)]';
+        return 'text-[var(--feedback-block)]';
       case 'warn':
-        return 'text-[var(--finding-warn)]';
+        return 'text-[var(--feedback-warn)]';
       case 'info':
-        return 'text-[var(--finding-info)]';
+        return 'text-[var(--feedback-info)]';
     }
   }
 
-  let isOpen = $derived(finding.status === 'open');
-  let isResolved = $derived(finding.status === 'resolved');
-  let isDismissed = $derived(finding.status === 'dismissed');
+  let isOpen = $derived(feedback.status === 'open');
+  let isResolved = $derived(feedback.status === 'resolved');
+  let isDismissed = $derived(feedback.status === 'dismissed');
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events -->
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
   class="border-l-3 rounded-sm bg-card px-3 py-2 text-sm {borderColor(
-    finding.severity,
-    finding.source.kind
+    feedback.severity,
+    feedback.source.kind
   )}"
   class:opacity-50={isResolved || isDismissed}
   {onclick}
 >
   <div class="flex items-center gap-2">
     <span
-      class="text-xs font-bold uppercase {severityColor(finding.severity, finding.source.kind)}"
+      class="text-xs font-bold uppercase {severityColor(feedback.severity, feedback.source.kind)}"
     >
-      {finding.severity}
+      {feedback.severity}
     </span>
     <span class="flex-1 truncate" class:line-through={isDismissed}>
-      {finding.message}
+      {feedback.message}
     </span>
     <span class="shrink-0 text-xs text-muted-foreground">
-      {formatSource(finding.source)}
+      {formatSource(feedback.source)}
     </span>
 
     {#if isResolved}
