@@ -36,6 +36,7 @@ pub fn run() {
             commands::add_feedback_note,
             commands::mark_file_viewed,
             commands::apply_suggestion,
+            commands::run_agent_review,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

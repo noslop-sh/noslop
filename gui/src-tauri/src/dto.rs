@@ -15,6 +15,7 @@ pub struct ReviewDto {
     pub feedbacks: Vec<FeedbackDto>,
     pub branch: Option<String>,
     pub viewed_files: Vec<String>,
+    pub summary: Option<String>,
     pub created_at: String,
     pub closed_at: Option<String>,
 }
@@ -84,10 +85,26 @@ impl From<Review> for ReviewDto {
             feedbacks: r.feedbacks.into_iter().map(FeedbackDto::from).collect(),
             branch: r.branch,
             viewed_files: r.viewed_files,
+            summary: r.summary,
             created_at: r.created_at,
             closed_at: r.closed_at,
         }
     }
+}
+
+/// Result of an agent review invocation
+#[derive(Debug, Serialize)]
+pub struct AgentReviewResultDto {
+    /// Number of feedbacks in the review after agent completes
+    pub feedback_count: usize,
+    /// Agent exit code
+    pub exit_code: i32,
+    /// Wall-clock duration in seconds
+    pub duration_secs: f64,
+    /// Any errors encountered
+    pub errors: Vec<String>,
+    /// Agent stdout+stderr (truncated for display)
+    pub agent_output: String,
 }
 
 impl From<Feedback> for FeedbackDto {

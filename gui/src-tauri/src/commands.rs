@@ -2,16 +2,20 @@
 //!
 //! These commands expose noslop functionality to the frontend via Tauri's invoke API.
 
-use noslop::Review;
 use noslop::adapters::FileReviewStore;
+use noslop::adapters::agents::get_agent_runtime;
+use noslop::adapters::toml::load_file;
 use noslop::core::models::{
-    DismissReason, Feedback, FeedbackSource, ResolutionReason, Severity, Span, Target,
+    AgentKind, DismissReason, Feedback, FeedbackSource, ResolutionReason, Severity, Span, Target,
 };
 use noslop::core::ports::ReviewStore;
+use noslop::core::ports::agent::InvocationConfig;
+use noslop::core::services::build_review_prompt;
 use serde::Serialize;
+use std::path::PathBuf;
 use std::process::Command;
 
-use crate::dto::{FeedbackDto, FeedbackNoteDto, ReviewDto};
+use crate::dto::{AgentReviewResultDto, FeedbackDto, FeedbackNoteDto, ReviewDto};
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -79,7 +83,7 @@ pub fn start_review(
     branch: Option<String>,
 ) -> Result<ReviewDto, String> {
     let store = FileReviewStore::new();
-    let mut review = Review::new(base, head);
+    let mut review = store.create_review(base, head).map_err(|e| e.to_string())?;
     review.branch = branch;
     store.save(&review).map_err(|e| e.to_string())?;
     Ok(ReviewDto::from(review))
@@ -387,6 +391,99 @@ pub fn apply_suggestion(review_id: String, feedback_id: String) -> Result<(), St
 
     store.save(&review).map_err(|e| e.to_string())?;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Agent review
+// ---------------------------------------------------------------------------
+
+/// Resolve the agent kind from `.noslop.toml`, falling back to Claude.
+fn resolve_agent_kind() -> AgentKind {
+    let toml_path = PathBuf::from(".noslop.toml");
+    if let Ok(config) = load_file(&toml_path) {
+        if let Some(agent) = config.agent {
+            if let Ok(kind) = agent.agent_type.parse::<AgentKind>() {
+                return kind;
+            }
+        }
+    }
+    AgentKind::Claude
+}
+
+/// Run the configured AI agent to review the diff and write feedbacks via CLI.
+///
+/// The agent is invoked with a prompt that instructs it to use `noslop feedback add`
+/// commands. The frontend polls the review for live updates while this runs.
+#[tauri::command]
+pub async fn run_agent_review(review_id: String) -> Result<AgentReviewResultDto, String> {
+    // Validate review exists and is open
+    let store = FileReviewStore::new();
+    let review = store
+        .load(&review_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Review not found: {review_id}"))?;
+
+    if !review.is_open() {
+        return Err("Review is not open".to_string());
+    }
+
+    // Get the diff
+    let diff = run_git(&["diff", &format!("{}..{}", review.base, review.head)])?;
+
+    // Resolve agent kind and check availability
+    let kind = resolve_agent_kind();
+    let runtime = get_agent_runtime(kind);
+
+    if !runtime.is_available() {
+        return Err(format!(
+            "{} CLI not found. Install it or configure a different agent in .noslop.toml",
+            kind
+        ));
+    }
+
+    // Build prompt and invocation config
+    let prompt = build_review_prompt(&review_id, &diff);
+    let working_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+
+    let config = InvocationConfig {
+        prompt,
+        working_dir,
+        timeout_secs: Some(300),
+        bypass_permissions: true,
+        ..Default::default()
+    };
+
+    // Invoke the agent (blocking — runs on Tauri's async thread pool)
+    let result = tauri::async_runtime::spawn_blocking(move || runtime.invoke(&config))
+        .await
+        .map_err(|e| format!("Agent task panicked: {e}"))?
+        .map_err(|e| format!("Agent invocation failed: {e}"))?;
+
+    // Reload review to get final state (agent wrote feedbacks via CLI)
+    let final_review = store
+        .load(&review_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Review not found after agent run: {review_id}"))?;
+
+    let mut errors = Vec::new();
+    if result.exit_code != 0 {
+        errors.push(format!("Agent exited with code {}", result.exit_code));
+    }
+
+    // Truncate output for transport (keep last 2000 chars — most useful for debugging)
+    let agent_output = if result.output.len() > 2000 {
+        format!("...{}", &result.output[result.output.len() - 2000..])
+    } else {
+        result.output.clone()
+    };
+
+    Ok(AgentReviewResultDto {
+        feedback_count: final_review.feedbacks.len(),
+        exit_code: result.exit_code,
+        duration_secs: result.duration.as_secs_f64(),
+        errors,
+        agent_output,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -854,7 +951,7 @@ mod tests {
         let result = start_review("abc123".into(), "def456".into(), None);
         assert!(result.is_ok());
         let review = result.unwrap();
-        assert!(review.id.starts_with("REV-"));
+        assert_eq!(review.id, "1");
         assert_eq!(review.base, "abc123");
         assert_eq!(review.head, "def456");
     }

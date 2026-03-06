@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { Review, Feedback, FeedbackNote, StructuredDiff } from './types';
+import type { Review, Feedback, FeedbackNote, StructuredDiff, AgentReviewResult } from './types';
 
 export const api = {
   // Reviews
@@ -46,6 +46,9 @@ export const api = {
   // Files
   markFileViewed: (reviewId: string, path: string) =>
     invoke<void>('mark_file_viewed', { reviewId, path }),
+
+  // Agent
+  runAgentReview: (reviewId: string) => invoke<AgentReviewResult>('run_agent_review', { reviewId }),
 
   // Git
   getCurrentBranch: () => invoke<string>('get_current_branch'),

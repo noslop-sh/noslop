@@ -60,8 +60,18 @@ export interface Review {
   status: ReviewStatus;
   feedbacks: Feedback[];
   viewed_files: string[];
+  summary: string | null;
   created_at: string;
   closed_at: string | null;
+}
+
+// Agent review result
+export interface AgentReviewResult {
+  feedback_count: number;
+  exit_code: number;
+  duration_secs: number;
+  errors: string[];
+  agent_output: string;
 }
 
 // Diff types from structured diff computation

@@ -1,17 +1,37 @@
-//! Feedbacks management commands
+//! Feedback management commands
 
 use noslop::DismissReason;
 use noslop::adapters::FileReviewStore;
+use noslop::core::models::{Feedback, FeedbackSource, Severity, Span, Target};
 use noslop::core::ports::ReviewStore;
 use noslop::output::OutputMode;
 
 use crate::cli::app::FeedbacksAction;
 
-/// Handle feedbacks subcommands
+/// Handle feedback subcommands
 pub fn feedbacks(action: FeedbacksAction, mode: OutputMode) -> anyhow::Result<()> {
     let store = FileReviewStore::new();
 
     match action {
+        FeedbacksAction::Add {
+            review_id,
+            message,
+            file,
+            line,
+            end_line,
+            severity,
+            suggestion,
+        } => add_feedback(
+            &store,
+            &review_id,
+            &message,
+            &file,
+            line,
+            end_line,
+            &severity,
+            suggestion.as_deref(),
+            mode,
+        ),
         FeedbacksAction::List { id } => list_feedbacks(&store, &id, mode),
         FeedbacksAction::Resolve {
             review_id,
@@ -23,6 +43,58 @@ pub fn feedbacks(action: FeedbacksAction, mode: OutputMode) -> anyhow::Result<()
             reason,
         } => dismiss_feedback(&store, &review_id, &feedback_id, reason.as_deref(), mode),
     }
+}
+
+#[allow(clippy::too_many_arguments)]
+fn add_feedback(
+    store: &FileReviewStore,
+    review_id: &str,
+    message: &str,
+    file: &str,
+    line: Option<u32>,
+    end_line: Option<u32>,
+    severity: &str,
+    suggestion: Option<&str>,
+    mode: OutputMode,
+) -> anyhow::Result<()> {
+    let mut review = store
+        .load(review_id)?
+        .ok_or_else(|| anyhow::anyhow!("Review not found: {review_id}"))?;
+
+    let severity: Severity = severity.parse().map_err(|e: String| anyhow::anyhow!(e))?;
+
+    let mut target = Target::file(file);
+    if let Some(start) = line {
+        let span = match end_line {
+            Some(end) => Span::range(start, end),
+            None => Span::line(start),
+        };
+        target = target.with_span(span);
+    }
+
+    let mut feedback =
+        Feedback::new(target, severity, message, FeedbackSource::Agent("cli".into()));
+    if let Some(s) = suggestion {
+        feedback = feedback.with_suggestion(s);
+    }
+
+    let feedback_id = feedback.id.clone();
+    review.add_feedback(feedback);
+    store.save(&review)?;
+
+    if mode == OutputMode::Json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "success": true,
+                "review_id": review_id,
+                "feedback_id": feedback_id,
+            })
+        );
+    } else {
+        println!("{feedback_id}");
+    }
+    Ok(())
 }
 
 fn list_feedbacks(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::Result<()> {
