@@ -8,10 +8,8 @@ use noslop::adapters::git;
 use noslop::adapters::toml::generate_prefix_from_repo;
 use noslop::core::models::AgentKind;
 use noslop::core::ports::agent::AgentConfigBundle;
-use noslop::output::OutputMode;
-
 /// Initialize noslop in the current repository
-pub fn init(agent: Option<&str>, force: bool, _mode: OutputMode) -> anyhow::Result<()> {
+pub fn init(agent: Option<&str>, force: bool) -> anyhow::Result<()> {
     let noslop_path = Path::new(".noslop.toml");
 
     if noslop_path.exists() && !force {
@@ -67,7 +65,6 @@ pub fn init(agent: Option<&str>, force: bool, _mode: OutputMode) -> anyhow::Resu
     if !found.is_empty() {
         let found_str: Vec<&str> = found.into_iter().copied().collect();
         println!("\n  Found: {}", found_str.join(", "));
-        println!("  Run 'noslop check import' to extract checks");
     }
 
     println!("\nnoslop initialized!");

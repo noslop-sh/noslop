@@ -43,13 +43,6 @@ pub struct ReviewSection {
     /// Ordered list of analyzer names for the pipeline.
     pub analyzers: Vec<String>,
 
-    /// Co-change analyzer configuration.
-    #[serde(rename = "co-change")]
-    pub co_change: Option<CoChangeConfig>,
-
-    /// Formatting analyzer configuration.
-    pub formatting: Option<FormattingConfig>,
-
     /// Catch-all for `agent:*` and `custom:*` sub-tables.
     #[serde(flatten)]
     pub analyzer_configs: HashMap<String, toml::Value>,
@@ -59,41 +52,9 @@ impl Default for ReviewSection {
     fn default() -> Self {
         Self {
             analyzers: vec!["conventions".to_string()],
-            co_change: None,
-            formatting: None,
             analyzer_configs: HashMap::new(),
         }
     }
-}
-
-/// Co-change analyzer configuration (`[review.co-change]`)
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-#[serde(default)]
-pub struct CoChangeConfig {
-    /// Minimum co-change frequency (0.0-1.0)
-    pub min_correlation: f64,
-    /// Commits to scan for correlation
-    pub lookback: u32,
-    /// Minimum co-occurrences before flagging
-    pub min_commits: u32,
-}
-
-impl Default for CoChangeConfig {
-    fn default() -> Self {
-        Self {
-            min_correlation: 0.7,
-            lookback: 500,
-            min_commits: 10,
-        }
-    }
-}
-
-/// Formatting analyzer configuration (`[review.formatting]`)
-#[derive(Debug, Clone, Default, Deserialize, Serialize)]
-#[serde(default)]
-pub struct FormattingConfig {
-    /// Formatter commands to check
-    pub tools: Vec<String>,
 }
 
 /// Project-level configuration
@@ -281,15 +242,9 @@ severity = "block"
         let review = file.review.unwrap();
         assert_eq!(review.analyzers.len(), 5);
 
-        // Co-change
-        let cc = review.co_change.unwrap();
-        assert!((cc.min_correlation - 0.8).abs() < f64::EPSILON);
-        assert_eq!(cc.lookback, 300);
-        assert_eq!(cc.min_commits, 5);
-
-        // Formatting
-        let fmt = review.formatting.unwrap();
-        assert_eq!(fmt.tools, vec!["rustfmt", "prettier"]);
+        // Co-change and formatting fall into the flattened catch-all
+        assert!(review.analyzer_configs.contains_key("co-change"));
+        assert!(review.analyzer_configs.contains_key("formatting"));
 
         // Agent analyzer configs (flattened)
         assert!(review.analyzer_configs.contains_key("agent:security"));
@@ -320,19 +275,9 @@ severity = "warn"
     }
 
     #[test]
-    fn co_change_config_defaults() {
-        let cc = CoChangeConfig::default();
-        assert!((cc.min_correlation - 0.7).abs() < f64::EPSILON);
-        assert_eq!(cc.lookback, 500);
-        assert_eq!(cc.min_commits, 10);
-    }
-
-    #[test]
     fn review_section_default_analyzers() {
         let review = ReviewSection::default();
         assert_eq!(review.analyzers, vec!["conventions"]);
-        assert!(review.co_change.is_none());
-        assert!(review.formatting.is_none());
         assert!(review.analyzer_configs.is_empty());
     }
 

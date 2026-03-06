@@ -63,8 +63,6 @@ pub struct SourceDto {
 #[derive(Debug, Clone, Serialize)]
 pub struct SuggestionDto {
     pub replacement: String,
-    pub original: Option<String>,
-    pub edited: bool,
 }
 
 /// Feedback note for frontend
@@ -139,11 +137,7 @@ impl From<Feedback> for FeedbackDto {
 
         // Suggestion is still a plain string in the domain model;
         // wrap it into SuggestionDto for the frontend
-        let suggestion = f.suggestion.map(|s| SuggestionDto {
-            replacement: s,
-            original: None,
-            edited: false,
-        });
+        let suggestion = f.suggestion.map(|s| SuggestionDto { replacement: s });
 
         let notes = f
             .notes

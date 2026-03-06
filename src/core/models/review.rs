@@ -117,12 +117,6 @@ impl Review {
         self.closed_at = Some(Utc::now().to_rfc3339());
     }
 
-    /// Reopen a closed review.
-    pub fn reopen(&mut self) {
-        self.status = ReviewStatus::Open;
-        self.closed_at = None;
-    }
-
     /// Toggle a file path in the viewed files list.
     /// If already present, removes it; otherwise adds it.
     pub fn mark_file_viewed(&mut self, path: String) {

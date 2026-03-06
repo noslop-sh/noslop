@@ -288,8 +288,7 @@ fn test_init_with_existing_docs() {
         .current_dir(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Found: CLAUDE.md"))
-        .stdout(predicate::str::contains("noslop check import"));
+        .stdout(predicate::str::contains("Found: CLAUDE.md"));
 }
 
 #[test]

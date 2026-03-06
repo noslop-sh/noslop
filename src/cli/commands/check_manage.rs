@@ -4,10 +4,8 @@ use std::path::Path;
 
 use crate::cli::app::CheckAction;
 use noslop::adapters::toml::{find_noslop_files, load_file};
-use noslop::output::OutputMode;
-
 /// Handle check management subcommands
-pub fn check_manage(action: CheckAction, _mode: OutputMode) -> anyhow::Result<()> {
+pub fn check_manage(action: CheckAction) -> anyhow::Result<()> {
     match action {
         CheckAction::Add {
             target,

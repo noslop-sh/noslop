@@ -49,12 +49,6 @@ describe('api', () => {
     expect(invoke).toHaveBeenCalledWith('close_review', { id: 'REV-1234' });
   });
 
-  it('reopenReview calls invoke with id', async () => {
-    vi.mocked(invoke).mockResolvedValue(undefined);
-    await api.reopenReview('REV-1234');
-    expect(invoke).toHaveBeenCalledWith('reopen_review', { id: 'REV-1234' });
-  });
-
   // --- Diff ---
 
   it('getStructuredDiff calls invoke with base and head', async () => {
@@ -126,15 +120,6 @@ describe('api', () => {
     });
   });
 
-  it('applySuggestion calls invoke correctly', async () => {
-    vi.mocked(invoke).mockResolvedValue(undefined);
-    await api.applySuggestion('REV-1234', 'F-12345678');
-    expect(invoke).toHaveBeenCalledWith('apply_suggestion', {
-      reviewId: 'REV-1234',
-      feedbackId: 'F-12345678',
-    });
-  });
-
   it('addFeedbackNote calls invoke correctly', async () => {
     const mockNote = { id: 'N-1', content: 'test note', created_at: '2026-01-01' };
     vi.mocked(invoke).mockResolvedValue(mockNote);
@@ -172,12 +157,5 @@ describe('api', () => {
     const result = await api.getBranches();
     expect(invoke).toHaveBeenCalledWith('get_branches');
     expect(result).toEqual(['main', 'feature/auth']);
-  });
-
-  it('getMergeBase calls invoke with branch', async () => {
-    vi.mocked(invoke).mockResolvedValue('abc123');
-    const result = await api.getMergeBase('main');
-    expect(invoke).toHaveBeenCalledWith('get_merge_base', { branch: 'main' });
-    expect(result).toBe('abc123');
   });
 });

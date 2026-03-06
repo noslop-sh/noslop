@@ -2,7 +2,6 @@ import { describe, it, expect } from 'vitest';
 import {
   openFeedbackCount,
   blockingFeedbacks,
-  feedbacksForFile,
   feedbackCountsByFile,
   applyFeedbackFilters,
   sortFeedbacksBySeverity,
@@ -10,7 +9,6 @@ import {
   changeTypeLabel,
   changeTypeColor,
   formatDate,
-  formatRelativeDate,
   buildFileTree,
 } from './helpers';
 import type { Feedback, FileDiff } from './types';
@@ -74,19 +72,6 @@ describe('blockingFeedbacks', () => {
     const result = blockingFeedbacks(feedbacks);
     expect(result).toHaveLength(2);
     expect(result.map((f) => f.id)).toEqual(['F-1', 'F-4']);
-  });
-});
-
-describe('feedbacksForFile', () => {
-  it('filters feedbacks by file path', () => {
-    const feedbacks = [
-      makeFeedback({ id: 'F-1', target: { path: 'src/auth.rs', span: null, commit: null } }),
-      makeFeedback({ id: 'F-2', target: { path: 'src/main.rs', span: null, commit: null } }),
-      makeFeedback({ id: 'F-3', target: { path: 'src/auth.rs', span: null, commit: null } }),
-    ];
-    const result = feedbacksForFile(feedbacks, 'src/auth.rs');
-    expect(result).toHaveLength(2);
-    expect(result.map((f) => f.id)).toEqual(['F-1', 'F-3']);
   });
 });
 
@@ -228,13 +213,6 @@ describe('formatDate', () => {
     const result = formatDate('2026-01-15T10:30:00Z');
     expect(result).toBeTruthy();
     expect(typeof result).toBe('string');
-  });
-});
-
-describe('formatRelativeDate', () => {
-  it('returns "just now" for recent dates', () => {
-    const now = new Date().toISOString();
-    expect(formatRelativeDate(now)).toBe('just now');
   });
 });
 

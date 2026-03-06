@@ -239,14 +239,12 @@ pub fn run() -> anyhow::Result<()> {
     };
 
     match cli.command {
-        Some(Command::Init { agent, force }) => {
-            commands::init(agent.as_deref(), force, output_mode)
-        },
+        Some(Command::Init { agent, force }) => commands::init(agent.as_deref(), force),
         Some(Command::Check { action: None, ci }) => commands::check_validate(ci, output_mode),
         Some(Command::Check {
             action: Some(action),
             ..
-        }) => commands::check_manage(action, output_mode),
+        }) => commands::check_manage(action),
         Some(Command::Review { action }) => commands::review(action, output_mode),
         Some(Command::Feedback { action }) => commands::feedbacks(action, output_mode),
         Some(Command::Checkpoint { message }) => {
