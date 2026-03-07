@@ -26,9 +26,7 @@ export interface FeedbackSource {
 }
 
 export interface Suggestion {
-  original: string | null;
   replacement: string;
-  edited: boolean;
 }
 
 export interface FeedbackNote {
@@ -60,8 +58,18 @@ export interface Review {
   status: ReviewStatus;
   feedbacks: Feedback[];
   viewed_files: string[];
+  summary: string | null;
   created_at: string;
   closed_at: string | null;
+}
+
+// Agent review result
+export interface AgentReviewResult {
+  feedback_count: number;
+  exit_code: number;
+  duration_secs: number;
+  errors: string[];
+  agent_output: string;
 }
 
 // Diff types from structured diff computation
@@ -74,18 +82,11 @@ export interface DiffStats {
   deletions: number;
 }
 
-export interface CharChange {
-  start: number; // byte offset
-  end: number; // byte offset
-  kind: 'insert' | 'delete' | 'equal';
-}
-
 export interface DiffLine {
   kind: 'add' | 'delete' | 'context';
   old_line_no: number | null;
   new_line_no: number | null;
   content: string;
-  char_changes: CharChange[] | null;
 }
 
 export interface Hunk {
@@ -134,7 +135,6 @@ export type SidebarCollapseState = 'full' | 'mini' | 'hidden';
 export type DiffViewMode = 'split' | 'unified';
 export type ThemeMode = 'light' | 'dark' | 'system';
 export type ReviewView = 'summary' | 'files';
-export type FocusZone = 'tree' | 'diff' | 'feedback' | 'dialog';
 export type SortMode = 'feedbacks' | 'alphabetical';
 
 export interface ActiveFilters {

@@ -1,4 +1,0 @@
-export declare function setEnableAddWidget(props: {
-    diffViewAddWidget?: boolean;
-}): void;
-export declare function getEnableAddWidget(): () => boolean;

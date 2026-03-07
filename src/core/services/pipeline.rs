@@ -39,7 +39,7 @@ impl ReviewPipeline {
         let mut indices: Vec<usize> = (0..self.analyzers.len()).collect();
         indices.sort_by_key(|&i| self.analyzers[i].tier());
 
-        let mut review = Review::new(&context.base, &context.head);
+        let mut review = Review::new("0", &context.base, &context.head);
         let mut all_feedbacks = Vec::new();
 
         for &idx in &indices {

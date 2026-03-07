@@ -43,37 +43,6 @@ pub struct CheckMatch {
     pub severity: String,
 }
 
-/// Result of a check list operation
-#[derive(Debug, Serialize)]
-pub struct CheckListResult {
-    /// List of checks
-    pub checks: Vec<CheckInfo>,
-}
-
-/// Information about a check
-#[derive(Debug, Serialize)]
-pub struct CheckInfo {
-    /// Check ID (<file:index> format)
-    pub id: String,
-    /// Target pattern
-    pub target: String,
-    /// Check message
-    pub message: String,
-    /// Severity level
-    pub severity: String,
-    /// Source file containing this check
-    pub source_file: String,
-}
-
-/// Generic operation result for simple commands
-#[derive(Debug, Serialize)]
-pub struct OperationResult {
-    /// Whether the operation succeeded
-    pub success: bool,
-    /// Human-readable message
-    pub message: String,
-}
-
 impl CheckResult {
     /// Render the result based on output mode
     pub fn render(&self, mode: OutputMode) {
@@ -118,45 +87,5 @@ impl CheckResult {
 
     fn render_json(&self) {
         println!("{}", serde_json::to_string_pretty(self).unwrap_or_default());
-    }
-}
-
-impl CheckListResult {
-    /// Render the result based on output mode
-    pub fn render(&self, mode: OutputMode) {
-        match mode {
-            OutputMode::Human => self.render_human(),
-            OutputMode::Json => self.render_json(),
-        }
-    }
-
-    fn render_human(&self) {
-        if self.checks.is_empty() {
-            println!("No checks found.");
-            return;
-        }
-
-        println!("Checks:\n");
-        for c in &self.checks {
-            println!("  [{}] {}", c.severity.to_uppercase(), c.target);
-            println!("  ID: {}", c.id);
-            println!("  {}\n", c.message);
-        }
-    }
-
-    fn render_json(&self) {
-        println!("{}", serde_json::to_string_pretty(self).unwrap_or_default());
-    }
-}
-
-impl OperationResult {
-    /// Render the result based on output mode
-    pub fn render(&self, mode: OutputMode) {
-        match mode {
-            OutputMode::Human => println!("{}", self.message),
-            OutputMode::Json => {
-                println!("{}", serde_json::to_string_pretty(self).unwrap_or_default());
-            },
-        }
     }
 }

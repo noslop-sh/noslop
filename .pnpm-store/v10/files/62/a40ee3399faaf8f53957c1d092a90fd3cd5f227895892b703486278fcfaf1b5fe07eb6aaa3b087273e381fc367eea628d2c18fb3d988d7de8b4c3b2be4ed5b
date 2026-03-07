@@ -1,9 +1,0 @@
-import { type DiffFile } from '@git-diff-view/core';
-interface Props {
-    index: number;
-    diffFile: DiffFile;
-    lineNumber: number;
-}
-declare const DiffSplitExtendLineWrap: import("svelte").Component<Props, {}, "">;
-type DiffSplitExtendLineWrap = ReturnType<typeof DiffSplitExtendLineWrap>;
-export default DiffSplitExtendLineWrap;

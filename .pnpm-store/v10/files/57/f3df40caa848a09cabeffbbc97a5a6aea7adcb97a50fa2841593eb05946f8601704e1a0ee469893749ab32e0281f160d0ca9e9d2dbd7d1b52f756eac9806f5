@@ -1,1 +1,0 @@
-export declare const memoFunc: <T extends Function>(func: T) => T;

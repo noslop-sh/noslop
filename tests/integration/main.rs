@@ -566,12 +566,12 @@ fn test_review_close() {
         .assert()
         .success();
 
-    // Extract review ID from output
+    // Extract review ID from "Started review: 1"
     let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
     let review_id = stdout
         .lines()
-        .find(|l| l.contains("REV-"))
-        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
+        .find(|l| l.contains("Started review:"))
+        .and_then(|l| l.split(':').nth(1).map(|s| s.trim()))
         .expect("Should find review ID in output");
 
     // Close the review (no feedbacks, so it should succeed)
@@ -689,7 +689,7 @@ severity = "block"
         .current_dir(repo_path)
         .assert()
         .success()
-        .stdout(predicate::str::contains("Review: REV-"))
+        .stdout(predicate::str::contains("Review: "))
         .stdout(predicate::str::contains("Feedbacks: 1"))
         .stdout(predicate::str::contains("Blocking: 1"));
 }
@@ -841,12 +841,12 @@ severity = "block"
         .assert()
         .success();
 
-    // Extract review ID
+    // Extract review ID from "Review: 1"
     let stdout = String::from_utf8_lossy(&review_output.get_output().stdout);
     let review_id = stdout
         .lines()
-        .find(|l| l.contains("REV-"))
-        .and_then(|l| l.split_whitespace().find(|w| w.starts_with("REV-")))
+        .find(|l| l.starts_with("Review: "))
+        .and_then(|l| l.strip_prefix("Review: "))
         .expect("Should find review ID in output");
 
     // List feedbacks
@@ -1244,7 +1244,7 @@ severity = "block"
 
     // Verify JSON structure
     assert!(json["success"].as_bool().unwrap());
-    assert!(json["review_id"].as_str().unwrap().starts_with("REV-"));
+    assert!(!json["review_id"].as_str().unwrap().is_empty());
     assert!(json["feedbacks"].is_number());
     assert!(json["blocking"].is_number());
     assert!(json["blocked"].is_boolean());
@@ -1291,7 +1291,7 @@ fn test_review_list_json_output() {
     // Should be an array with at least one review
     assert!(json.is_array());
     assert!(!json.as_array().unwrap().is_empty());
-    assert!(json[0]["id"].as_str().unwrap().starts_with("REV-"));
+    assert!(!json[0]["id"].as_str().unwrap().is_empty());
     assert_eq!(json[0]["status"].as_str().unwrap(), "open");
 }
 

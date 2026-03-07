@@ -12,10 +12,6 @@ use crate::core::models::Feedback;
 pub enum ContextKind {
     /// List of changed file paths
     ChangedFiles,
-    /// Unified diff text
-    Diff,
-    /// Full file contents at HEAD
-    FileContents,
 }
 
 /// Execution tier for ordering analyzers in the pipeline.

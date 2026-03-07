@@ -14,7 +14,7 @@ use super::feedback::Feedback;
 /// that ran. The pre-push hook checks `is_blocked()` to gate push.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Review {
-    /// Unique identifier (e.g., "REV-a1b2c3d4").
+    /// Unique identifier (incremental integer stored as string, e.g. "1", "2", "3").
     pub id: String,
     /// Base commit SHA (typically merge-base with main).
     pub base: String,
@@ -31,6 +31,9 @@ pub struct Review {
     /// File paths that have been viewed/reviewed.
     #[serde(default)]
     pub viewed_files: Vec<String>,
+    /// Agent-generated summary of the review.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary: Option<String>,
     /// ISO 8601 timestamp of creation.
     pub created_at: String,
     /// ISO 8601 timestamp when closed (if closed).
@@ -50,20 +53,26 @@ pub enum ReviewStatus {
 }
 
 impl Review {
-    /// Create a new open review for a commit range.
+    /// Create a new open review with the given ID and commit range.
     #[must_use]
-    pub fn new(base: impl Into<String>, head: impl Into<String>) -> Self {
+    pub fn new(id: impl Into<String>, base: impl Into<String>, head: impl Into<String>) -> Self {
         Self {
-            id: generate_review_id(),
+            id: id.into(),
             base: base.into(),
             head: head.into(),
             status: ReviewStatus::Open,
             feedbacks: Vec::new(),
             branch: None,
             viewed_files: Vec::new(),
+            summary: None,
             created_at: Utc::now().to_rfc3339(),
             closed_at: None,
         }
+    }
+
+    /// Set the agent-generated summary text.
+    pub fn set_summary(&mut self, text: impl Into<String>) {
+        self.summary = Some(text.into());
     }
 
     /// Add a feedback to this review.
@@ -108,12 +117,6 @@ impl Review {
         self.closed_at = Some(Utc::now().to_rfc3339());
     }
 
-    /// Reopen a closed review.
-    pub fn reopen(&mut self) {
-        self.status = ReviewStatus::Open;
-        self.closed_at = None;
-    }
-
     /// Toggle a file path in the viewed files list.
     /// If already present, removes it; otherwise adds it.
     pub fn mark_file_viewed(&mut self, path: String) {
@@ -131,11 +134,6 @@ impl Review {
     }
 }
 
-fn generate_review_id() -> String {
-    use uuid::Uuid;
-    format!("REV-{}", &Uuid::new_v4().to_string()[..8])
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,17 +141,18 @@ mod tests {
 
     #[test]
     fn new_review() {
-        let review = Review::new("abc123", "def456");
-        assert!(review.id.starts_with("REV-"));
+        let review = Review::new("1", "abc123", "def456");
+        assert_eq!(review.id, "1");
         assert_eq!(review.base, "abc123");
         assert_eq!(review.head, "def456");
         assert!(review.is_open());
         assert!(review.feedbacks.is_empty());
+        assert!(review.summary.is_none());
     }
 
     #[test]
     fn add_feedback() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         let feedback = Feedback::new(
             Target::file("src/auth.rs").with_span(Span::line(42)),
             Severity::Block,
@@ -167,7 +166,7 @@ mod tests {
 
     #[test]
     fn blocking_feedbacks() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Block,
@@ -186,7 +185,7 @@ mod tests {
 
     #[test]
     fn resolve_removes_block() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Block,
@@ -201,7 +200,7 @@ mod tests {
 
     #[test]
     fn feedbacks_for_file() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Block,
@@ -221,7 +220,7 @@ mod tests {
 
     #[test]
     fn close_review() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         assert!(review.is_open());
 
         review.close();
@@ -232,7 +231,7 @@ mod tests {
 
     #[test]
     fn open_feedbacks() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         review.add_feedback(Feedback::new(
             Target::file("a.rs"),
             Severity::Block,
@@ -251,7 +250,7 @@ mod tests {
 
     #[test]
     fn review_serde_roundtrip() {
-        let mut review = Review::new("abc", "def");
+        let mut review = Review::new("1", "abc", "def");
         review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Block,
@@ -268,14 +267,13 @@ mod tests {
 
     #[test]
     fn review_id_format() {
-        let review = Review::new("base", "head");
-        assert!(review.id.starts_with("REV-"));
-        assert_eq!(review.id.len(), 12); // "REV-" + 8 hex chars
+        let review = Review::new("42", "base", "head");
+        assert_eq!(review.id, "42");
     }
 
     #[test]
     fn review_add_feedbacks_batch() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         let feedbacks = vec![
             Feedback::new(Target::file("a.rs"), Severity::Block, "A", FeedbackSource::Human),
             Feedback::new(Target::file("b.rs"), Severity::Warn, "B", FeedbackSource::Human),
@@ -287,7 +285,7 @@ mod tests {
 
     #[test]
     fn review_not_blocked_by_warnings_only() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         review.add_feedback(Feedback::new(
             Target::file("src/auth.rs"),
             Severity::Warn,
@@ -307,7 +305,7 @@ mod tests {
 
     #[test]
     fn review_close_sets_timestamp() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         assert!(review.closed_at.is_none());
         review.close();
         let ts = review.closed_at.as_ref().unwrap();
@@ -316,20 +314,20 @@ mod tests {
 
     #[test]
     fn review_created_at_is_rfc3339() {
-        let review = Review::new("base", "head");
+        let review = Review::new("1", "base", "head");
         chrono::DateTime::parse_from_rfc3339(&review.created_at)
             .expect("created_at should be valid RFC 3339");
     }
 
     #[test]
     fn review_feedbacks_for_file_empty_review() {
-        let review = Review::new("base", "head");
+        let review = Review::new("1", "base", "head");
         assert!(review.feedbacks_for_file("any.rs").is_empty());
     }
 
     #[test]
     fn review_open_feedbacks_all_resolved() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         review.add_feedback(Feedback::new(
             Target::file("a.rs"),
             Severity::Block,
@@ -343,14 +341,14 @@ mod tests {
 
     #[test]
     fn review_serde_closed_at_skipped_when_none() {
-        let review = Review::new("base", "head");
+        let review = Review::new("1", "base", "head");
         let json = serde_json::to_string(&review).unwrap();
         assert!(!json.contains("closed_at"));
     }
 
     #[test]
     fn review_serde_closed_at_present_when_closed() {
-        let mut review = Review::new("base", "head");
+        let mut review = Review::new("1", "base", "head");
         review.close();
         let json = serde_json::to_string(&review).unwrap();
         assert!(json.contains("closed_at"));

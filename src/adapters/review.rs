@@ -45,6 +45,35 @@ impl FileReviewStore {
         fs::create_dir_all(&self.base_path)?;
         Ok(())
     }
+
+    /// Compute the next incremental review ID by scanning existing files.
+    pub fn next_id(&self) -> anyhow::Result<String> {
+        self.ensure_dir()?;
+        let mut max_id: u64 = 0;
+        if self.base_path.exists() {
+            for entry in fs::read_dir(&self.base_path)? {
+                let entry = entry?;
+                if let Some(stem) = entry.path().file_stem().and_then(|s| s.to_str())
+                    && let Ok(n) = stem.parse::<u64>()
+                {
+                    max_id = max_id.max(n);
+                }
+            }
+        }
+        Ok((max_id + 1).to_string())
+    }
+
+    /// Create a new review with an auto-assigned incremental ID.
+    pub fn create_review(
+        &self,
+        base: impl Into<String>,
+        head: impl Into<String>,
+    ) -> anyhow::Result<Review> {
+        let id = self.next_id()?;
+        let review = Review::new(id, base, head);
+        self.save(&review)?;
+        Ok(review)
+    }
 }
 
 impl ReviewStore for FileReviewStore {
@@ -143,15 +172,14 @@ mod tests {
     fn test_save_and_load() {
         let (store, _dir) = test_store();
 
-        let review = Review::new("abc123", "def456");
-        let id = review.id.clone();
+        let review = Review::new("1", "abc123", "def456");
 
         store.save(&review).unwrap();
 
-        let loaded = store.load(&id).unwrap();
+        let loaded = store.load("1").unwrap();
         assert!(loaded.is_some());
         let loaded = loaded.unwrap();
-        assert_eq!(loaded.id, id);
+        assert_eq!(loaded.id, "1");
         assert_eq!(loaded.base, "abc123");
     }
 
@@ -166,8 +194,8 @@ mod tests {
     fn test_list_all() {
         let (store, _dir) = test_store();
 
-        let r1 = Review::new("a", "b");
-        let r2 = Review::new("c", "d");
+        let r1 = Review::new("1", "a", "b");
+        let r2 = Review::new("2", "c", "d");
 
         store.save(&r1).unwrap();
         store.save(&r2).unwrap();
@@ -180,8 +208,8 @@ mod tests {
     fn test_list_open() {
         let (store, _dir) = test_store();
 
-        let r1 = Review::new("a", "b");
-        let mut r2 = Review::new("c", "d");
+        let r1 = Review::new("1", "a", "b");
+        let mut r2 = Review::new("2", "c", "d");
         r2.close();
 
         store.save(&r1).unwrap();
@@ -196,22 +224,20 @@ mod tests {
     fn test_delete() {
         let (store, _dir) = test_store();
 
-        let review = Review::new("a", "b");
-        let id = review.id.clone();
-
+        let review = Review::new("1", "a", "b");
         store.save(&review).unwrap();
-        assert!(store.load(&id).unwrap().is_some());
+        assert!(store.load("1").unwrap().is_some());
 
-        let deleted = store.delete(&id).unwrap();
+        let deleted = store.delete("1").unwrap();
         assert!(deleted);
-        assert!(store.load(&id).unwrap().is_none());
+        assert!(store.load("1").unwrap().is_none());
     }
 
     #[test]
     fn test_find_blocking_for_file() {
         let (store, _dir) = test_store();
 
-        let mut r1 = Review::new("a", "b");
+        let mut r1 = Review::new("1", "a", "b");
         r1.add_feedback(Feedback::new(
             Target::file("src/main.rs"),
             Severity::Block,
@@ -219,7 +245,7 @@ mod tests {
             FeedbackSource::Human,
         ));
 
-        let mut r2 = Review::new("c", "d");
+        let mut r2 = Review::new("2", "c", "d");
         r2.add_feedback(Feedback::new(
             Target::file("src/lib.rs"),
             Severity::Block,
@@ -233,5 +259,29 @@ mod tests {
         let blocking = store.find_blocking_for_file("src/main.rs").unwrap();
         assert_eq!(blocking.len(), 1);
         assert_eq!(blocking[0].feedbacks[0].target.path, "src/main.rs");
+    }
+
+    #[test]
+    fn test_next_id_empty_store() {
+        let (store, _dir) = test_store();
+        assert_eq!(store.next_id().unwrap(), "1");
+    }
+
+    #[test]
+    fn test_next_id_increments() {
+        let (store, _dir) = test_store();
+        store.save(&Review::new("1", "a", "b")).unwrap();
+        store.save(&Review::new("3", "c", "d")).unwrap();
+        // Next should be max(1,3) + 1 = 4
+        assert_eq!(store.next_id().unwrap(), "4");
+    }
+
+    #[test]
+    fn test_create_review() {
+        let (store, _dir) = test_store();
+        let r1 = store.create_review("base1", "head1").unwrap();
+        assert_eq!(r1.id, "1");
+        let r2 = store.create_review("base2", "head2").unwrap();
+        assert_eq!(r2.id, "2");
     }
 }

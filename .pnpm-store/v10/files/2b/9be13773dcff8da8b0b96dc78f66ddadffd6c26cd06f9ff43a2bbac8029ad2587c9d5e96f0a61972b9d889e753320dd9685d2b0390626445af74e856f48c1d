@@ -1,7 +1,0 @@
-import type { DiffFile } from '@git-diff-view/core';
-interface Props {
-    diffFile: DiffFile;
-}
-declare const DiffSplitView: import("svelte").Component<Props, {}, "">;
-type DiffSplitView = ReturnType<typeof DiffSplitView>;
-export default DiffSplitView;

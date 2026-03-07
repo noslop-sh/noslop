@@ -1,8 +1,0 @@
-import { setContext, getContext } from 'svelte';
-const key = Symbol('id');
-export function setId(getId) {
-    setContext(key, getId);
-}
-export function getId() {
-    return getContext(key);
-}

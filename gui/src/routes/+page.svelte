@@ -23,6 +23,7 @@
     useMarkFileViewed,
     useAddFeedback,
     useAddFeedbackNote,
+    useRunAgentReview,
     useCurrentBranch,
     useBranches,
     useDefaultBranch,
@@ -100,6 +101,7 @@
   const markFileViewed = useMarkFileViewed();
   const addFeedback = useAddFeedback();
   const addFeedbackNote = useAddFeedbackNote();
+  const runAgentReview = useRunAgentReview();
 
   const allBranches = $derived($branchesQuery.data ?? []);
 
@@ -209,6 +211,60 @@
   async function refetchReview(): Promise<void> {
     if (selectedReviewId) {
       review = await api.getReview(selectedReviewId);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Agent review
+  // ---------------------------------------------------------------------------
+
+  let agentRunning = $state(false);
+  let agentError = $state<string | null>(null);
+  let agentResult = $state<{
+    feedback_count: number;
+    duration_secs: number;
+    agent_output: string;
+  } | null>(null);
+  let agentPollTimer = $state<ReturnType<typeof setInterval> | null>(null);
+
+  function stopAgentPolling(): void {
+    if (agentPollTimer) {
+      clearInterval(agentPollTimer);
+      agentPollTimer = null;
+    }
+  }
+
+  async function handleRunAgent(): Promise<void> {
+    if (!selectedReviewId || agentRunning) return;
+    const reviewId = selectedReviewId;
+
+    agentRunning = true;
+    agentError = null;
+    agentResult = null;
+
+    // Poll for live updates every 3s while agent runs
+    agentPollTimer = setInterval(async () => {
+      if (selectedReviewId === reviewId) {
+        await refetchReview();
+      }
+    }, 3000);
+
+    try {
+      const result = await $runAgentReview.mutateAsync(reviewId);
+      agentResult = {
+        feedback_count: result.feedback_count,
+        duration_secs: result.duration_secs,
+        agent_output: result.agent_output,
+      };
+      if (result.errors.length > 0) {
+        agentError = result.errors.join('; ');
+      }
+    } catch (e) {
+      agentError = e instanceof Error ? e.message : String(e);
+    } finally {
+      stopAgentPolling();
+      agentRunning = false;
+      await refetchReview();
     }
   }
 
@@ -579,6 +635,10 @@
         onResolve={handleResolve}
         onDismiss={handleDismiss}
         onAddNote={handleAddNote}
+        onRunAgent={handleRunAgent}
+        {agentRunning}
+        {agentError}
+        {agentResult}
       />
     {:else if diff}
       <DiffView

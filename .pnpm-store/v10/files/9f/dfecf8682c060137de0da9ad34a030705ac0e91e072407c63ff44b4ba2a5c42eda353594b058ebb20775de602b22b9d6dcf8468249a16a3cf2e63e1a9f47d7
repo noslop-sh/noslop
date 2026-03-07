@@ -1,6 +1,0 @@
-export declare const useSyncHeight: ({ selector, wrapper, side, enable }: {
-    selector: () => string;
-    wrapper: () => string;
-    side: () => string;
-    enable: () => boolean;
-}) => void;

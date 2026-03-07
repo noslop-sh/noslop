@@ -28,3 +28,4 @@ tarpaulin-report.html
 *.pdb
 .noslop/
 node_modules/
+.pnpm-store/

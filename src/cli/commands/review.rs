@@ -5,7 +5,6 @@ use std::path::PathBuf;
 use noslop::adapters::{
     ConventionAnalyzer, FileReviewStore, GitVersionControl, TomlCheckRepository,
 };
-use noslop::core::models::Review;
 use noslop::core::ports::{
     CheckRepository, ReviewAnalyzer, ReviewContext, ReviewStore, VersionControl,
 };
@@ -25,6 +24,7 @@ pub fn review(action: ReviewAction, mode: OutputMode) -> anyhow::Result<()> {
         ReviewAction::List { open } => list_reviews(&store, open, mode),
         ReviewAction::Show { id } => show_review(&store, &id, mode),
         ReviewAction::Close { id } => close_review(&store, &id, mode),
+        ReviewAction::Summary { id, text } => set_summary(&store, &id, &text, mode),
     }
 }
 
@@ -91,9 +91,10 @@ fn run_review(base: &str, head: &str, check: bool, mode: OutputMode) -> anyhow::
 
     // Run pipeline
     let pipeline = ReviewPipeline::new(analyzers);
-    let review = pipeline.run(&context)?;
+    let mut review = pipeline.run(&context)?;
 
-    // Save
+    // Assign incremental ID and save
+    review.id = store.next_id()?;
     let id = review.id.clone();
     let total_feedbacks = review.feedbacks.len();
     let blocking_count = review.blocking_feedbacks().len();
@@ -139,9 +140,8 @@ fn start_review(
     head: &str,
     mode: OutputMode,
 ) -> anyhow::Result<()> {
-    let review = Review::new(base, head);
+    let review = store.create_review(base, head)?;
     let id = review.id.clone();
-    store.save(&review)?;
 
     if mode == OutputMode::Json {
         println!(
@@ -266,6 +266,31 @@ fn close_review(store: &FileReviewStore, id: &str, mode: OutputMode) -> anyhow::
         );
     } else {
         println!("Closed review: {id}");
+    }
+    Ok(())
+}
+
+fn set_summary(
+    store: &FileReviewStore,
+    id: &str,
+    text: &str,
+    mode: OutputMode,
+) -> anyhow::Result<()> {
+    let mut review = store.load(id)?.ok_or_else(|| anyhow::anyhow!("Review not found: {id}"))?;
+
+    review.set_summary(text);
+    store.save(&review)?;
+
+    if mode == OutputMode::Json {
+        println!(
+            "{}",
+            serde_json::json!({
+                "success": true,
+                "review_id": id,
+            })
+        );
+    } else {
+        println!("Updated summary for review {id}.");
     }
     Ok(())
 }

@@ -3,9 +3,7 @@
 //! Output provides structured result types that can be rendered as either
 //! human-readable text or machine-parseable JSON.
 
-use noslop::output::{
-    CheckInfo, CheckListResult, CheckMatch, CheckResult, OperationResult, OutputMode,
-};
+use noslop::output::{CheckMatch, CheckResult, OutputMode};
 
 // =============================================================================
 // OutputMode Tests
@@ -91,60 +89,4 @@ fn check_match_serialization() {
     let json = serde_json::to_string(&m).unwrap();
     assert!(json.contains("\"file\":\"test.rs\""));
     assert!(json.contains("\"severity\":\"warn\""));
-}
-
-// =============================================================================
-// CheckListResult Serialization Tests
-// =============================================================================
-
-#[test]
-fn check_list_result_serialization() {
-    let result = CheckListResult {
-        checks: vec![CheckInfo {
-            id: ".noslop.toml:0".to_string(),
-            target: "src/**/*.rs".to_string(),
-            message: "Check Rust files".to_string(),
-            severity: "block".to_string(),
-            source_file: ".noslop.toml".to_string(),
-        }],
-    };
-
-    let json = serde_json::to_string(&result).unwrap();
-    assert!(json.contains(".noslop.toml:0"));
-    assert!(json.contains("src/**/*.rs"));
-}
-
-#[test]
-fn check_list_empty() {
-    let result = CheckListResult { checks: vec![] };
-
-    let json = serde_json::to_string(&result).unwrap();
-    assert!(json.contains("\"checks\":[]"));
-}
-
-// =============================================================================
-// OperationResult Serialization Tests
-// =============================================================================
-
-#[test]
-fn operation_result_serialization() {
-    let result = OperationResult {
-        success: false,
-        message: "Already initialized".to_string(),
-    };
-
-    let json = serde_json::to_string(&result).unwrap();
-    assert!(json.contains("\"success\":false"));
-    assert!(json.contains("Already initialized"));
-}
-
-#[test]
-fn operation_result_success() {
-    let result = OperationResult {
-        success: true,
-        message: "Initialized successfully".to_string(),
-    };
-
-    let json = serde_json::to_string(&result).unwrap();
-    assert!(json.contains("\"success\":true"));
 }

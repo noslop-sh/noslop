@@ -1,9 +1,0 @@
-import { type DiffFile } from '@git-diff-view/core';
-interface Props {
-    index: number;
-    diffFile: DiffFile;
-    lineNumber: number;
-}
-declare const DiffUnifiedExtendLine: import("svelte").Component<Props, {}, "">;
-type DiffUnifiedExtendLine = ReturnType<typeof DiffUnifiedExtendLine>;
-export default DiffUnifiedExtendLine;

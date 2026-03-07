@@ -15,10 +15,13 @@
   import {
     ShieldAlert,
     AlertTriangle,
+    AlertCircle,
     CheckCircle,
     Check,
     ChevronRight,
     ChevronDown,
+    Sparkles,
+    Loader2,
   } from '@lucide/svelte';
 
   interface Props {
@@ -32,6 +35,10 @@
     onResolve: (feedbackId: string) => void;
     onDismiss: (feedbackId: string, reason: DismissReason) => void;
     onAddNote: (feedbackId: string, content: string) => void;
+    onRunAgent: () => void;
+    agentRunning: boolean;
+    agentError: string | null;
+    agentResult: { feedback_count: number; duration_secs: number; agent_output: string } | null;
   }
 
   let {
@@ -45,6 +52,10 @@
     onResolve,
     onDismiss,
     onAddNote,
+    onRunAgent,
+    agentRunning,
+    agentError,
+    agentResult,
   }: Props = $props();
 
   // Expanded feedback IDs (local to summary view)
@@ -101,7 +112,12 @@
     totalFeedbacks > 0 ? Math.round((resolvedCount / totalFeedbacks) * 100) : 0
   );
 
+  // Agent output toggle
+  let showAgentOutput = $state(false);
+
   // File rows with feedback
+  let diffPaths = $derived(new Set(diff?.files.map((f) => f.path) ?? []));
+
   let fileRows = $derived.by(() => {
     if (!diff) return [];
     return diff.files
@@ -124,6 +140,12 @@
       });
   });
 
+  // Feedbacks targeting files not in the diff
+  let orphanFeedbacks = $derived(
+    sortFeedbacksBySeverity(
+      review.feedbacks.filter((f) => f.status === 'open' && !diffPaths.has(f.target.path))
+    )
+  );
 </script>
 
 <div class="mx-auto max-w-4xl space-y-5 px-6 py-5">
@@ -140,11 +162,71 @@
         {/if}
         <span class="text-sm font-semibold {verdictTextClass}">{verdictLabel}</span>
       </div>
-      <span class="font-mono text-xs text-muted-foreground">
-        {review.branch ?? ''}
-        <span class="opacity-50">{review.base.slice(0, 7)}..{review.head.slice(0, 7)}</span>
-      </span>
+      <div class="flex items-center gap-3">
+        <span class="font-mono text-xs text-muted-foreground">
+          {review.branch ?? ''}
+          <span class="opacity-50">{review.base.slice(0, 7)}..{review.head.slice(0, 7)}</span>
+        </span>
+        <Button
+          variant="outline"
+          size="sm"
+          class="h-7 gap-1.5 px-2.5 text-xs"
+          disabled={agentRunning}
+          onclick={onRunAgent}
+        >
+          {#if agentRunning}
+            <Loader2 class="size-3.5 animate-spin" />
+            Analyzing...
+          {:else}
+            <Sparkles class="size-3.5" />
+            Run Agent
+          {/if}
+        </Button>
+      </div>
     </div>
+
+    {#if agentError}
+      <div class="space-y-2 rounded-md border border-destructive/30 bg-destructive/5 px-3 py-2">
+        <div class="flex items-start gap-2">
+          <AlertCircle class="mt-0.5 size-3.5 shrink-0 text-destructive" />
+          <p class="text-xs text-destructive">{agentError}</p>
+        </div>
+        {#if agentResult?.agent_output}
+          <button
+            type="button"
+            class="text-[10px] text-destructive/60 hover:text-destructive"
+            onclick={() => (showAgentOutput = !showAgentOutput)}
+          >
+            {showAgentOutput ? 'Hide' : 'Show'} agent output
+          </button>
+          {#if showAgentOutput}
+            <pre class="max-h-40 overflow-auto rounded bg-background/50 p-2 text-[10px] text-muted-foreground">{agentResult.agent_output}</pre>
+          {/if}
+        {/if}
+      </div>
+    {:else if agentResult}
+      <div class="space-y-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+        <div class="flex items-center gap-2">
+          <CheckCircle class="size-3.5 shrink-0 text-success" />
+          <p class="text-xs text-muted-foreground">
+            Agent finished in {agentResult.duration_secs.toFixed(1)}s
+            — {agentResult.feedback_count} feedback{agentResult.feedback_count !== 1 ? 's' : ''} added
+          </p>
+        </div>
+        {#if agentResult.agent_output}
+          <button
+            type="button"
+            class="text-[10px] text-muted-foreground/50 hover:text-muted-foreground"
+            onclick={() => (showAgentOutput = !showAgentOutput)}
+          >
+            {showAgentOutput ? 'Hide' : 'Show'} agent output
+          </button>
+          {#if showAgentOutput}
+            <pre class="max-h-40 overflow-auto rounded bg-background/50 p-2 text-[10px] text-muted-foreground">{agentResult.agent_output}</pre>
+          {/if}
+        {/if}
+      </div>
+    {/if}
 
     <div class="flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
       <span>
@@ -180,6 +262,13 @@
       {/if}
     </div>
   </div>
+
+  <!-- Summary (from agent) -->
+  {#if review.summary}
+    <div class="rounded-lg border border-border bg-muted/30 px-4 py-3">
+      <p class="whitespace-pre-wrap text-sm text-foreground/80">{review.summary}</p>
+    </div>
+  {/if}
 
   <!-- File list with nested feedback -->
   {#if fileRows.length > 0}
@@ -355,6 +444,50 @@
             {/if}
           </div>
         {/each}
+      {/each}
+    </div>
+  {/if}
+
+  <!-- Orphan feedbacks (targeting files not in the diff) -->
+  {#if orphanFeedbacks.length > 0}
+    <div class="space-y-0.5">
+      <p class="px-3 text-[10px] font-medium uppercase tracking-wider text-muted-foreground/50">
+        Other feedbacks
+      </p>
+      {#each orphanFeedbacks as feedback (feedback.id)}
+        <div class="flex items-center gap-2 py-1 pl-3 pr-3">
+          <button
+            type="button"
+            class="flex min-w-0 flex-1 items-center gap-1.5 rounded px-1.5 py-0.5 text-left transition-colors hover:bg-accent/50"
+            onclick={() => toggleFeedbackExpanded(feedback.id)}
+          >
+            <span
+              class="shrink-0 text-xs font-bold leading-none {severityColor(
+                feedback.severity,
+                feedback.source.kind
+              )}"
+            >
+              {severityIcon(feedback.severity, feedback.source.kind)}
+            </span>
+            <span class="shrink-0 font-mono text-[10px] text-muted-foreground/50">
+              {feedback.target.path}
+            </span>
+            <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">
+              {feedback.message}
+            </span>
+          </button>
+          <Button
+            variant="ghost"
+            size="sm"
+            class="h-5 shrink-0 px-1.5 text-[10px]"
+            onclick={(e: MouseEvent) => {
+              e.stopPropagation();
+              onResolve(feedback.id);
+            }}
+          >
+            Resolve
+          </Button>
+        </div>
       {/each}
     </div>
   {/if}

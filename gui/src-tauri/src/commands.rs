@@ -2,16 +2,20 @@
 //!
 //! These commands expose noslop functionality to the frontend via Tauri's invoke API.
 
-use noslop::Review;
 use noslop::adapters::FileReviewStore;
+use noslop::adapters::agents::get_agent_runtime;
+use noslop::adapters::toml::load_file;
 use noslop::core::models::{
-    DismissReason, Feedback, FeedbackSource, ResolutionReason, Severity, Span, Target,
+    AgentKind, DismissReason, Feedback, FeedbackSource, ResolutionReason, Severity, Span, Target,
 };
 use noslop::core::ports::ReviewStore;
+use noslop::core::ports::agent::InvocationConfig;
+use noslop::core::services::build_review_prompt;
 use serde::Serialize;
+use std::path::PathBuf;
 use std::process::Command;
 
-use crate::dto::{FeedbackDto, FeedbackNoteDto, ReviewDto};
+use crate::dto::{AgentReviewResultDto, FeedbackDto, FeedbackNoteDto, ReviewDto};
 
 // ---------------------------------------------------------------------------
 // Shared helpers
@@ -79,7 +83,7 @@ pub fn start_review(
     branch: Option<String>,
 ) -> Result<ReviewDto, String> {
     let store = FileReviewStore::new();
-    let mut review = Review::new(base, head);
+    let mut review = store.create_review(base, head).map_err(|e| e.to_string())?;
     review.branch = branch;
     store.save(&review).map_err(|e| e.to_string())?;
     Ok(ReviewDto::from(review))
@@ -209,20 +213,6 @@ pub fn dismiss_feedback(
     Ok(())
 }
 
-/// Reopen a closed review
-#[tauri::command]
-pub fn reopen_review(id: String) -> Result<(), String> {
-    let store = FileReviewStore::new();
-    let mut review = store
-        .load(&id)
-        .map_err(|e| e.to_string())?
-        .ok_or_else(|| format!("Review not found: {id}"))?;
-
-    review.reopen();
-    store.save(&review).map_err(|e| e.to_string())?;
-    Ok(())
-}
-
 /// Get the current git branch name
 #[tauri::command]
 pub fn get_current_branch() -> Result<String, String> {
@@ -234,12 +224,6 @@ pub fn get_current_branch() -> Result<String, String> {
 pub fn get_branches() -> Result<Vec<String>, String> {
     let stdout = run_git(&["branch", "--format=%(refname:short)"])?;
     Ok(stdout.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect())
-}
-
-/// Get the merge base between HEAD and a branch
-#[tauri::command]
-pub fn get_merge_base(branch: String) -> Result<String, String> {
-    Ok(run_git(&["merge-base", "HEAD", &branch])?.trim().to_string())
 }
 
 /// Get file content at a specific commit, optionally limited to a line range
@@ -390,6 +374,99 @@ pub fn apply_suggestion(review_id: String, feedback_id: String) -> Result<(), St
 }
 
 // ---------------------------------------------------------------------------
+// Agent review
+// ---------------------------------------------------------------------------
+
+/// Resolve the agent kind from `.noslop.toml`, falling back to Claude.
+fn resolve_agent_kind() -> AgentKind {
+    let toml_path = PathBuf::from(".noslop.toml");
+    if let Ok(config) = load_file(&toml_path) {
+        if let Some(agent) = config.agent {
+            if let Ok(kind) = agent.agent_type.parse::<AgentKind>() {
+                return kind;
+            }
+        }
+    }
+    AgentKind::Claude
+}
+
+/// Run the configured AI agent to review the diff and write feedbacks via CLI.
+///
+/// The agent is invoked with a prompt that instructs it to use `noslop feedback add`
+/// commands. The frontend polls the review for live updates while this runs.
+#[tauri::command]
+pub async fn run_agent_review(review_id: String) -> Result<AgentReviewResultDto, String> {
+    // Validate review exists and is open
+    let store = FileReviewStore::new();
+    let review = store
+        .load(&review_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Review not found: {review_id}"))?;
+
+    if !review.is_open() {
+        return Err("Review is not open".to_string());
+    }
+
+    // Get the diff
+    let diff = run_git(&["diff", &format!("{}..{}", review.base, review.head)])?;
+
+    // Resolve agent kind and check availability
+    let kind = resolve_agent_kind();
+    let runtime = get_agent_runtime(kind);
+
+    if !runtime.is_available() {
+        return Err(format!(
+            "{} CLI not found. Install it or configure a different agent in .noslop.toml",
+            kind
+        ));
+    }
+
+    // Build prompt and invocation config
+    let prompt = build_review_prompt(&review_id, &diff);
+    let working_dir = std::env::current_dir().map_err(|e| e.to_string())?;
+
+    let config = InvocationConfig {
+        prompt,
+        working_dir,
+        timeout_secs: Some(300),
+        bypass_permissions: true,
+        ..Default::default()
+    };
+
+    // Invoke the agent (blocking — runs on Tauri's async thread pool)
+    let result = tauri::async_runtime::spawn_blocking(move || runtime.invoke(&config))
+        .await
+        .map_err(|e| format!("Agent task panicked: {e}"))?
+        .map_err(|e| format!("Agent invocation failed: {e}"))?;
+
+    // Reload review to get final state (agent wrote feedbacks via CLI)
+    let final_review = store
+        .load(&review_id)
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| format!("Review not found after agent run: {review_id}"))?;
+
+    let mut errors = Vec::new();
+    if result.exit_code != 0 {
+        errors.push(format!("Agent exited with code {}", result.exit_code));
+    }
+
+    // Truncate output for transport (keep last 2000 chars — most useful for debugging)
+    let agent_output = if result.output.len() > 2000 {
+        format!("...{}", &result.output[result.output.len() - 2000..])
+    } else {
+        result.output.clone()
+    };
+
+    Ok(AgentReviewResultDto {
+        feedback_count: final_review.feedbacks.len(),
+        exit_code: result.exit_code,
+        duration_secs: result.duration.as_secs_f64(),
+        errors,
+        agent_output,
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Structured diff types and command
 // ---------------------------------------------------------------------------
 
@@ -449,15 +526,6 @@ pub struct DiffLineEntry {
     pub old_line_no: Option<u32>,
     pub new_line_no: Option<u32>,
     pub content: String,
-    pub char_changes: Option<Vec<CharChangeEntry>>,
-}
-
-/// Character-level change within a line
-#[derive(Debug, Clone, Serialize)]
-pub struct CharChangeEntry {
-    pub start: usize,
-    pub end: usize,
-    pub kind: String,
 }
 
 /// Detect language from file extension
@@ -570,13 +638,6 @@ fn parse_unified_diff(raw: &str) -> StructuredDiff {
         }
     }
 
-    // Compute character-level diffs for add/delete pairs
-    for file in &mut files {
-        for hunk in &mut file.hunks {
-            compute_char_changes(&mut hunk.lines);
-        }
-    }
-
     StructuredDiff {
         stats: DiffStats {
             files_changed: files.len(),
@@ -643,7 +704,6 @@ fn parse_hunk(lines: &[&str]) -> (DiffHunk, usize) {
                 old_line_no: None,
                 new_line_no: Some(new_line),
                 content: content.to_string(),
-                char_changes: None,
             });
             new_line += 1;
         } else if let Some(content) = line.strip_prefix('-') {
@@ -652,7 +712,6 @@ fn parse_hunk(lines: &[&str]) -> (DiffHunk, usize) {
                 old_line_no: Some(old_line),
                 new_line_no: None,
                 content: content.to_string(),
-                char_changes: None,
             });
             old_line += 1;
         } else if let Some(content) = line.strip_prefix(' ') {
@@ -661,7 +720,6 @@ fn parse_hunk(lines: &[&str]) -> (DiffHunk, usize) {
                 old_line_no: Some(old_line),
                 new_line_no: Some(new_line),
                 content: content.to_string(),
-                char_changes: None,
             });
             old_line += 1;
             new_line += 1;
@@ -674,7 +732,6 @@ fn parse_hunk(lines: &[&str]) -> (DiffHunk, usize) {
                 old_line_no: Some(old_line),
                 new_line_no: Some(new_line),
                 content: line.to_string(),
-                char_changes: None,
             });
             old_line += 1;
             new_line += 1;
@@ -704,109 +761,6 @@ fn parse_range(s: &str) -> (u32, u32) {
         (start.parse().unwrap_or(0), count.parse().unwrap_or(0))
     } else {
         (s.parse().unwrap_or(0), 1)
-    }
-}
-
-/// Compute character-level changes for consecutive delete+add pairs
-fn compute_char_changes(lines: &mut [DiffLineEntry]) {
-    let mut i = 0;
-    while i < lines.len() {
-        // Find consecutive delete lines followed by consecutive add lines
-        if lines[i].kind == "delete" {
-            let del_start = i;
-            while i < lines.len() && lines[i].kind == "delete" {
-                i += 1;
-            }
-            let del_end = i;
-
-            let add_start = i;
-            while i < lines.len() && lines[i].kind == "add" {
-                i += 1;
-            }
-            let add_end = i;
-
-            // Pair up delete and add lines for character-level diffing
-            let pairs = (del_end - del_start).min(add_end - add_start);
-            for p in 0..pairs {
-                let del_idx = del_start + p;
-                let add_idx = add_start + p;
-
-                let old_text = &lines[del_idx].content;
-                let new_text = &lines[add_idx].content;
-
-                let text_diff = similar::TextDiff::from_chars(old_text, new_text);
-
-                let mut del_changes: Vec<CharChangeEntry> = Vec::new();
-                let mut add_changes: Vec<CharChangeEntry> = Vec::new();
-                let mut old_pos: usize = 0;
-                let mut new_pos: usize = 0;
-
-                for op in text_diff.ops() {
-                    match op {
-                        similar::DiffOp::Equal {
-                            old_index: _,
-                            new_index: _,
-                            len,
-                        } => {
-                            old_pos += len;
-                            new_pos += len;
-                        },
-                        similar::DiffOp::Delete {
-                            old_index: _,
-                            old_len,
-                            new_index: _,
-                        } => {
-                            del_changes.push(CharChangeEntry {
-                                start: old_pos,
-                                end: old_pos + old_len,
-                                kind: "delete".to_string(),
-                            });
-                            old_pos += old_len;
-                        },
-                        similar::DiffOp::Insert {
-                            old_index: _,
-                            new_index: _,
-                            new_len,
-                        } => {
-                            add_changes.push(CharChangeEntry {
-                                start: new_pos,
-                                end: new_pos + new_len,
-                                kind: "add".to_string(),
-                            });
-                            new_pos += new_len;
-                        },
-                        similar::DiffOp::Replace {
-                            old_index: _,
-                            old_len,
-                            new_index: _,
-                            new_len,
-                        } => {
-                            del_changes.push(CharChangeEntry {
-                                start: old_pos,
-                                end: old_pos + old_len,
-                                kind: "delete".to_string(),
-                            });
-                            add_changes.push(CharChangeEntry {
-                                start: new_pos,
-                                end: new_pos + new_len,
-                                kind: "add".to_string(),
-                            });
-                            old_pos += old_len;
-                            new_pos += new_len;
-                        },
-                    }
-                }
-
-                if !del_changes.is_empty() {
-                    lines[del_idx].char_changes = Some(del_changes);
-                }
-                if !add_changes.is_empty() {
-                    lines[add_idx].char_changes = Some(add_changes);
-                }
-            }
-        } else {
-            i += 1;
-        }
     }
 }
 
@@ -854,7 +808,7 @@ mod tests {
         let result = start_review("abc123".into(), "def456".into(), None);
         assert!(result.is_ok());
         let review = result.unwrap();
-        assert!(review.id.starts_with("REV-"));
+        assert_eq!(review.id, "1");
         assert_eq!(review.base, "abc123");
         assert_eq!(review.head, "def456");
     }
@@ -947,22 +901,6 @@ mod tests {
         let result = dismiss_feedback(review.id, feedback.id, "bad_reason".into());
         assert!(result.is_err());
         assert!(result.unwrap_err().contains("Invalid dismiss reason"));
-    }
-
-    #[test]
-    fn test_reopen_review() {
-        let _temp = setup_test_repo();
-        let review = start_review("base".into(), "head".into(), None).unwrap();
-
-        // Close it first (no blocking feedbacks)
-        close_review(review.id.clone()).unwrap();
-        let closed = get_review(review.id.clone()).unwrap();
-        assert_eq!(closed.status, "closed");
-
-        // Reopen
-        reopen_review(review.id.clone()).unwrap();
-        let reopened = get_review(review.id).unwrap();
-        assert_eq!(reopened.status, "open");
     }
 
     #[test]
@@ -1071,25 +1009,6 @@ index abc1234..0000000
         assert_eq!(parse_hunk_header("@@ -1,3 +1,4 @@ fn main"), (1, 3, 1, 4));
         assert_eq!(parse_hunk_header("@@ -10 +10 @@"), (10, 1, 10, 1));
         assert_eq!(parse_hunk_header("@@ -0,0 +1,5 @@"), (0, 0, 1, 5));
-    }
-
-    #[test]
-    fn test_char_changes_computed() {
-        let diff = "\
-diff --git a/test.rs b/test.rs
-index abc..def 100644
---- a/test.rs
-+++ b/test.rs
-@@ -1,1 +1,1 @@
--let x = 1;
-+let x = 2;
-";
-        let result = parse_unified_diff(diff);
-        let hunk = &result.files[0].hunks[0];
-        // delete line should have char_changes
-        assert!(hunk.lines[0].char_changes.is_some());
-        // add line should have char_changes
-        assert!(hunk.lines[1].char_changes.is_some());
     }
 
     #[test]

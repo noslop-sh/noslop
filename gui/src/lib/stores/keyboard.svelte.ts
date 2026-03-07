@@ -1,5 +1,3 @@
-import type { FocusZone } from '$lib/types';
-
 export interface KeyboardActions {
   nextFile: () => void;
   prevFile: () => void;
@@ -31,12 +29,6 @@ function isTextInput(): boolean {
 }
 
 export function createKeyboardManager(actions: KeyboardActions) {
-  let focusZone = $state<FocusZone>('tree');
-
-  function setFocusZone(zone: FocusZone): void {
-    focusZone = zone;
-  }
-
   function handleKeydown(e: KeyboardEvent): void {
     // Modifier shortcuts always work
     if (e.metaKey || e.ctrlKey) {
@@ -85,10 +77,6 @@ export function createKeyboardManager(actions: KeyboardActions) {
   }
 
   return {
-    get focusZone() {
-      return focusZone;
-    },
-    setFocusZone,
     handleKeydown,
   };
 }

@@ -116,6 +116,16 @@ export function useAddFeedbackNote() {
   });
 }
 
+export function useRunAgentReview() {
+  const client = useQueryClient();
+  return createMutation({
+    mutationFn: (reviewId: string) => api.runAgentReview(reviewId),
+    onSuccess: () => {
+      client.invalidateQueries({ queryKey: ['reviews'] });
+    },
+  });
+}
+
 export function useMarkFileViewed() {
   const client = useQueryClient();
   return createMutation({

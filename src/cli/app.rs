@@ -58,7 +58,8 @@ pub enum Command {
     },
 
     /// Manage feedbacks within reviews
-    Feedbacks {
+    #[command(name = "feedback", alias = "feedbacks")]
+    Feedback {
         #[command(subcommand)]
         action: FeedbacksAction,
     },
@@ -149,11 +150,49 @@ pub enum ReviewAction {
         /// Review ID
         id: String,
     },
+
+    /// Set or update the review summary
+    Summary {
+        /// Review ID
+        id: String,
+
+        /// Summary text
+        text: String,
+    },
 }
 
-/// Feedbacks management subcommands
+/// Feedback management subcommands
 #[derive(Subcommand, Debug)]
 pub enum FeedbacksAction {
+    /// Add a feedback to a review
+    Add {
+        /// Review ID
+        review_id: String,
+
+        /// Feedback message
+        message: String,
+
+        /// Target file path
+        #[arg(long)]
+        file: String,
+
+        /// Target line number
+        #[arg(long)]
+        line: Option<u32>,
+
+        /// End line (for multi-line spans)
+        #[arg(long)]
+        end_line: Option<u32>,
+
+        /// Severity: info, warn, block
+        #[arg(long, default_value = "warn")]
+        severity: String,
+
+        /// Suggested fix
+        #[arg(long)]
+        suggestion: Option<String>,
+    },
+
     /// List feedbacks for a review
     List {
         /// Review ID
@@ -200,16 +239,14 @@ pub fn run() -> anyhow::Result<()> {
     };
 
     match cli.command {
-        Some(Command::Init { agent, force }) => {
-            commands::init(agent.as_deref(), force, output_mode)
-        },
+        Some(Command::Init { agent, force }) => commands::init(agent.as_deref(), force),
         Some(Command::Check { action: None, ci }) => commands::check_validate(ci, output_mode),
         Some(Command::Check {
             action: Some(action),
             ..
-        }) => commands::check_manage(action, output_mode),
+        }) => commands::check_manage(action),
         Some(Command::Review { action }) => commands::review(action, output_mode),
-        Some(Command::Feedbacks { action }) => commands::feedbacks(action, output_mode),
+        Some(Command::Feedback { action }) => commands::feedbacks(action, output_mode),
         Some(Command::Checkpoint { message }) => {
             commands::checkpoint(message.as_deref(), output_mode)
         },

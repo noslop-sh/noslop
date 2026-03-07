@@ -83,31 +83,6 @@ impl Span {
     pub const fn range(start: u32, end: u32) -> Self {
         Self { start, end }
     }
-
-    /// Number of lines in this span.
-    #[must_use]
-    pub const fn len(&self) -> u32 {
-        self.end - self.start + 1
-    }
-
-    /// Whether this span is empty (always false for valid spans).
-    #[must_use]
-    pub const fn is_empty(&self) -> bool {
-        // A valid span always has at least one line
-        self.end < self.start
-    }
-
-    /// Whether this span contains a given line number.
-    #[must_use]
-    pub const fn contains(&self, line: u32) -> bool {
-        line >= self.start && line <= self.end
-    }
-
-    /// Whether two spans overlap.
-    #[must_use]
-    pub const fn overlaps(&self, other: &Self) -> bool {
-        self.start <= other.end && other.start <= self.end
-    }
 }
 
 impl fmt::Display for Span {
@@ -289,29 +264,13 @@ mod tests {
         let s = Span::line(42);
         assert_eq!(s.start, 42);
         assert_eq!(s.end, 42);
-        assert_eq!(s.len(), 1);
-        assert!(s.contains(42));
-        assert!(!s.contains(41));
     }
 
     #[test]
     fn span_range() {
         let s = Span::range(10, 20);
-        assert_eq!(s.len(), 11);
-        assert!(s.contains(10));
-        assert!(s.contains(15));
-        assert!(s.contains(20));
-        assert!(!s.contains(9));
-        assert!(!s.contains(21));
-    }
-
-    #[test]
-    fn span_overlaps() {
-        let a = Span::range(10, 20);
-        let b = Span::range(15, 25);
-        let c = Span::range(21, 30);
-        assert!(a.overlaps(&b));
-        assert!(!a.overlaps(&c));
+        assert_eq!(s.start, 10);
+        assert_eq!(s.end, 20);
     }
 
     #[test]
@@ -412,38 +371,6 @@ mod tests {
     fn severity_parse_error_contains_input() {
         let err = "invalid".parse::<Severity>().unwrap_err();
         assert!(err.contains("invalid"));
-    }
-
-    #[test]
-    fn span_is_empty_valid_span() {
-        assert!(!Span::line(1).is_empty());
-        assert!(!Span::range(5, 10).is_empty());
-    }
-
-    #[test]
-    fn span_is_empty_inverted_range() {
-        let s = Span { start: 10, end: 5 };
-        assert!(s.is_empty());
-    }
-
-    #[test]
-    fn span_overlaps_same_span() {
-        let s = Span::range(10, 20);
-        assert!(s.overlaps(&s));
-    }
-
-    #[test]
-    fn span_overlaps_adjacent_not_overlapping() {
-        let a = Span::range(10, 20);
-        let b = Span::range(21, 30);
-        assert!(!a.overlaps(&b));
-    }
-
-    #[test]
-    fn span_overlaps_touching() {
-        let a = Span::range(10, 20);
-        let b = Span::range(20, 30);
-        assert!(a.overlaps(&b));
     }
 
     #[test]
