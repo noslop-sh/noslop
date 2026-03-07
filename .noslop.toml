@@ -1,23 +1,22 @@
-# noslop assertions
+# noslop checks
 
 [project]
 prefix = "NOS"
 
-[[assert]]
+[[check]]
 id = "NOS-1"
-target = "src/git/hooks.rs"
+target = "src/adapters/git/hooks.rs"
 message = "Verify hook installation preserves permissions"
 severity = "block"
 
-[[assert]]
+[[check]]
 id = "NOS-2"
-target = "src/commands/check.rs"
-message = "Verify attestation matching logic correctness"
+target = "src/core/services/checker.rs"
+message = "Verify acknowledgment matching logic correctness"
 severity = "block"
 
-[[assert]]
+[[check]]
 id = "NOS-3"
 target = ".github/workflows/"
 message = "When modifying GitHub Actions workflows, ensure docs/CI_CD.md is updated to reflect any changes"
 severity = "warn"
-

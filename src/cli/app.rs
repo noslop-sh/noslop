@@ -5,15 +5,15 @@ use clap::{Parser, Subcommand};
 use super::commands;
 use noslop::output::OutputMode;
 
-/// noslop - Pre-commit assertions with attestation tracking
+/// noslop - Local code review for agent-generated code
 #[derive(Parser, Debug)]
 #[command(
     name = "noslop",
     version,
-    about = "Pre-commit assertions with attestation tracking",
+    about = "Local code review for agent-generated code",
     long_about = "Enforce code review considerations via pre-commit hooks.\n\n\
-                  Assertions declare what must be reviewed when files change.\n\
-                  Attestations prove the review happened before committing."
+                  Checks declare what must be reviewed when files change.\n\
+                  Feedbacks track review status before pushing."
 )]
 pub struct Cli {
     /// Enable verbose output
@@ -28,61 +28,61 @@ pub struct Cli {
     pub command: Option<Command>,
 }
 
+/// Top-level CLI commands
 #[derive(Subcommand, Debug)]
 pub enum Command {
     /// Initialize noslop in the current repository
     Init {
+        /// Agent to configure (e.g., claude, codex)
+        agent: Option<String>,
+
         /// Force re-initialization
         #[arg(short, long)]
         force: bool,
     },
 
-    /// Check assertions for staged changes (used by pre-commit hook)
+    /// Check for unresolved feedbacks in staged changes, or manage checks
     Check {
         /// Run in CI mode (stricter, non-interactive)
         #[arg(long)]
         ci: bool,
-    },
 
-    /// Manage assertions (declare what must be considered when code changes)
-    Assert {
         #[command(subcommand)]
-        action: AssertAction,
+        action: Option<CheckAction>,
     },
 
-    /// Attest to assertions (prove something was considered)
-    Attest {
-        /// Assertion ID to attest to
-        id: String,
-
-        /// Attestation message
-        #[arg(short, long)]
-        message: String,
+    /// Manage code reviews
+    Review {
+        #[command(subcommand)]
+        action: ReviewAction,
     },
 
-    /// Add attestation trailers to commit message (used by prepare-commit-msg hook)
-    #[command(hide = true)]
-    AddTrailers {
-        /// Path to commit message file
-        commit_msg_file: String,
+    /// Manage feedbacks within reviews
+    #[command(name = "feedback", alias = "feedbacks")]
+    Feedback {
+        #[command(subcommand)]
+        action: FeedbacksAction,
     },
 
-    /// Clear staged attestations (used by post-commit hook)
-    #[command(hide = true)]
-    ClearStaged,
+    /// Safety commit: stage all changes and commit bypassing hooks
+    Checkpoint {
+        /// Commit message (default: timestamp-based)
+        message: Option<String>,
+    },
 
     /// Show version
     Version,
 }
 
+/// Check management subcommands
 #[derive(Subcommand, Debug)]
-pub enum AssertAction {
-    /// Add an assertion
+pub enum CheckAction {
+    /// Add a check
     Add {
-        /// File or pattern this assertion applies to
+        /// File or pattern this check applies to
         target: String,
 
-        /// The assertion message
+        /// The check message
         #[arg(short, long)]
         message: String,
 
@@ -91,17 +91,134 @@ pub enum AssertAction {
         severity: String,
     },
 
-    /// List assertions
+    /// List checks
     List {
         /// Filter by file
         #[arg(short, long)]
         target: Option<String>,
     },
 
-    /// Remove an assertion
+    /// Remove a check
     Remove {
-        /// Assertion ID
+        /// Check ID
         id: String,
+    },
+}
+
+/// Review management subcommands
+#[derive(Subcommand, Debug)]
+pub enum ReviewAction {
+    /// Run the review pipeline on a commit range
+    Run {
+        /// Base ref (default: main)
+        #[arg(long, default_value = "main")]
+        base: String,
+
+        /// Head ref (default: HEAD)
+        #[arg(long, default_value = "HEAD")]
+        head: String,
+
+        /// Exit with code 1 if unresolved blocking feedbacks exist
+        #[arg(long)]
+        check: bool,
+    },
+
+    /// Start a new review for a commit range
+    Start {
+        /// Base commit SHA (start of diff)
+        base: String,
+
+        /// Head commit SHA (end of diff)
+        head: String,
+    },
+
+    /// List reviews
+    List {
+        /// Show only open reviews
+        #[arg(long)]
+        open: bool,
+    },
+
+    /// Show review details
+    Show {
+        /// Review ID
+        id: String,
+    },
+
+    /// Close a review
+    Close {
+        /// Review ID
+        id: String,
+    },
+
+    /// Set or update the review summary
+    Summary {
+        /// Review ID
+        id: String,
+
+        /// Summary text
+        text: String,
+    },
+}
+
+/// Feedback management subcommands
+#[derive(Subcommand, Debug)]
+pub enum FeedbacksAction {
+    /// Add a feedback to a review
+    Add {
+        /// Review ID
+        review_id: String,
+
+        /// Feedback message
+        message: String,
+
+        /// Target file path
+        #[arg(long)]
+        file: String,
+
+        /// Target line number
+        #[arg(long)]
+        line: Option<u32>,
+
+        /// End line (for multi-line spans)
+        #[arg(long)]
+        end_line: Option<u32>,
+
+        /// Severity: info, warn, block
+        #[arg(long, default_value = "warn")]
+        severity: String,
+
+        /// Suggested fix
+        #[arg(long)]
+        suggestion: Option<String>,
+    },
+
+    /// List feedbacks for a review
+    List {
+        /// Review ID
+        id: String,
+    },
+
+    /// Resolve a feedback
+    Resolve {
+        /// Review ID
+        review_id: String,
+
+        /// Feedback ID
+        feedback_id: String,
+    },
+
+    /// Dismiss a feedback
+    Dismiss {
+        /// Review ID
+        review_id: String,
+
+        /// Feedback ID
+        feedback_id: String,
+
+        /// Reason for dismissal
+        #[arg(long)]
+        reason: Option<String>,
     },
 }
 
@@ -122,12 +239,17 @@ pub fn run() -> anyhow::Result<()> {
     };
 
     match cli.command {
-        Some(Command::Init { force }) => commands::init(force, output_mode),
-        Some(Command::Check { ci }) => commands::check(ci, output_mode),
-        Some(Command::Assert { action }) => commands::assert_cmd(action, output_mode),
-        Some(Command::Attest { id, message }) => commands::attest(&id, &message, output_mode),
-        Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
-        Some(Command::ClearStaged) => commands::clear_staged(),
+        Some(Command::Init { agent, force }) => commands::init(agent.as_deref(), force),
+        Some(Command::Check { action: None, ci }) => commands::check_validate(ci, output_mode),
+        Some(Command::Check {
+            action: Some(action),
+            ..
+        }) => commands::check_manage(action),
+        Some(Command::Review { action }) => commands::review(action, output_mode),
+        Some(Command::Feedback { action }) => commands::feedbacks(action, output_mode),
+        Some(Command::Checkpoint { message }) => {
+            commands::checkpoint(message.as_deref(), output_mode)
+        },
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {
                 println!(

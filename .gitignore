@@ -27,3 +27,5 @@ tarpaulin-report.html
 # Debug
 *.pdb
 .noslop/
+node_modules/
+.pnpm-store/

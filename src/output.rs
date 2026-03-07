@@ -22,71 +22,25 @@ pub struct CheckResult {
     pub passed: bool,
     /// Number of files checked
     pub files_checked: usize,
-    /// Assertions that are blocking (need attestation)
-    pub blocking: Vec<AssertionMatch>,
-    /// Assertions that are warnings
-    pub warnings: Vec<AssertionMatch>,
-    /// Assertions that were attested
-    pub attested: Vec<AssertionMatch>,
+    /// Checks that are blocking
+    pub blocking: Vec<CheckMatch>,
+    /// Checks that are warnings
+    pub warnings: Vec<CheckMatch>,
 }
 
-/// An assertion matched to a file
+/// A check matched to a file
 #[derive(Debug, Serialize)]
-pub struct AssertionMatch {
-    /// The assertion ID (e.g., "NSL-1")
+pub struct CheckMatch {
+    /// The check ID (e.g., "NSL-1")
     pub id: String,
     /// The file that matched
     pub file: String,
-    /// The assertion target pattern
+    /// The check target pattern
     pub target: String,
-    /// The assertion message
+    /// The check message
     pub message: String,
     /// Severity level
     pub severity: String,
-    /// Whether this assertion was attested
-    pub attested: bool,
-}
-
-/// Result of an assert list operation
-#[derive(Debug, Serialize)]
-pub struct AssertListResult {
-    /// List of assertions
-    pub assertions: Vec<AssertionInfo>,
-}
-
-/// Information about an assertion
-#[derive(Debug, Serialize)]
-pub struct AssertionInfo {
-    /// Assertion ID (<file:index> format)
-    pub id: String,
-    /// Target pattern
-    pub target: String,
-    /// Assertion message
-    pub message: String,
-    /// Severity level
-    pub severity: String,
-    /// Source file containing this assertion
-    pub source_file: String,
-}
-
-/// Result of an attest operation
-#[derive(Debug, Serialize)]
-pub struct AttestResult {
-    /// Whether the attestation was successful
-    pub success: bool,
-    /// The assertion ID that was attested
-    pub assertion_id: String,
-    /// The attestation message
-    pub message: String,
-}
-
-/// Generic operation result for simple commands
-#[derive(Debug, Serialize)]
-pub struct OperationResult {
-    /// Whether the operation succeeded
-    pub success: bool,
-    /// Human-readable message
-    pub message: String,
 }
 
 impl CheckResult {
@@ -106,8 +60,8 @@ impl CheckResult {
 
         println!("Checking {} staged file(s)...\n", self.files_checked);
 
-        if self.blocking.is_empty() && self.warnings.is_empty() && self.attested.is_empty() {
-            println!("No assertions apply. Commit may proceed.");
+        if self.blocking.is_empty() && self.warnings.is_empty() {
+            println!("No checks apply. Commit may proceed.");
             return;
         }
 
@@ -120,86 +74,18 @@ impl CheckResult {
         }
 
         if self.blocking.is_empty() {
-            println!("All assertions attested. Commit may proceed.");
+            println!("All checks passed. Commit may proceed.");
         } else {
             println!("Blocking:");
             for m in &self.blocking {
                 println!("  [{}] {}", m.id, m.file);
                 println!("          {}\n", m.message);
             }
-            println!("BLOCKED: {} unattested assertion(s)\n", self.blocking.len());
-            println!("To attest: noslop attest <assertion-id> -m \"your attestation\"");
-            println!(
-                "Example:   noslop attest {} -m \"reviewed and verified\"",
-                self.blocking.first().map_or("NSL-1", |b| b.id.as_str())
-            );
+            println!("BLOCKED: {} unresolved check(s)\n", self.blocking.len());
         }
     }
 
     fn render_json(&self) {
         println!("{}", serde_json::to_string_pretty(self).unwrap_or_default());
-    }
-}
-
-impl AssertListResult {
-    /// Render the result based on output mode
-    pub fn render(&self, mode: OutputMode) {
-        match mode {
-            OutputMode::Human => self.render_human(),
-            OutputMode::Json => self.render_json(),
-        }
-    }
-
-    fn render_human(&self) {
-        if self.assertions.is_empty() {
-            println!("No assertions found.");
-            return;
-        }
-
-        println!("Assertions:\n");
-        for a in &self.assertions {
-            println!("  [{}] {}", a.severity.to_uppercase(), a.target);
-            println!("  ID: {}", a.id);
-            println!("  {}\n", a.message);
-        }
-    }
-
-    fn render_json(&self) {
-        println!("{}", serde_json::to_string_pretty(self).unwrap_or_default());
-    }
-}
-
-impl AttestResult {
-    /// Render the result based on output mode
-    pub fn render(&self, mode: OutputMode) {
-        match mode {
-            OutputMode::Human => self.render_human(),
-            OutputMode::Json => self.render_json(),
-        }
-    }
-
-    fn render_human(&self) {
-        if self.success {
-            println!("Attested: {}", self.assertion_id);
-            println!("Message: {}", self.message);
-        } else {
-            println!("Failed to attest: {}", self.message);
-        }
-    }
-
-    fn render_json(&self) {
-        println!("{}", serde_json::to_string_pretty(self).unwrap_or_default());
-    }
-}
-
-impl OperationResult {
-    /// Render the result based on output mode
-    pub fn render(&self, mode: OutputMode) {
-        match mode {
-            OutputMode::Human => println!("{}", self.message),
-            OutputMode::Json => {
-                println!("{}", serde_json::to_string_pretty(self).unwrap_or_default());
-            },
-        }
     }
 }

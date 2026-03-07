@@ -1,18 +1,15 @@
 //! Domain models for noslop
 //!
 //! Pure data structures with no I/O dependencies.
-//!
-//! - [`Assertion`] - "When this code changes, verify this"
-//! - [`Attestation`] - "I verified this because..."
-//! - [`Severity`] - How strictly an assertion is enforced
-//! - [`Target`] - A reference to code (path, glob, or fragment)
 
-mod assertion;
-mod attestation;
-mod severity;
-mod target;
+mod agent;
+mod check;
+mod feedback;
+mod primitives;
+mod review;
 
-pub use assertion::Assertion;
-pub use attestation::Attestation;
-pub use severity::Severity;
-pub use target::{Fragment, GlobPattern, ParseError, PathSpec, Target};
+pub use agent::AgentKind;
+pub use check::Check;
+pub use feedback::{DismissReason, Feedback, FeedbackNote, FeedbackStatus, ResolutionReason};
+pub use primitives::{FeedbackSource, Severity, Span, Target};
+pub use review::{Review, ReviewStatus};

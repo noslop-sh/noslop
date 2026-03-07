@@ -1,15 +1,15 @@
 //! Command implementations
 
-mod add_trailers;
-mod assert_cmd;
-mod attest;
-mod check;
-mod clear_staged;
+mod check_manage;
+mod check_validate;
+mod checkpoint;
+mod feedbacks;
 mod init;
+mod review;
 
-pub use add_trailers::add_trailers;
-pub use assert_cmd::assert_cmd;
-pub use attest::attest;
-pub use check::check;
-pub use clear_staged::clear_staged;
+pub use check_manage::check_manage;
+pub use check_validate::check_validate;
+pub use checkpoint::checkpoint;
+pub use feedbacks::feedbacks;
 pub use init::init;
+pub use review::review;

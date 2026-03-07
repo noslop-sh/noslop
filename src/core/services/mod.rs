@@ -1,14 +1,9 @@
 //! Business logic services
-//!
-//! Pure orchestration logic that operates on domain models.
-//! These services have no I/O dependencies - they operate on
-//! data passed in and return results.
-//!
-//! - [`checker`] - Check assertions against attestations
-//! - [`matcher`] - Match target patterns to file paths
 
-pub mod checker;
-pub mod matcher;
+/// Review pipeline orchestrator.
+pub mod pipeline;
+/// Centralized prompt builder for agent invocations.
+pub mod prompt;
 
-pub use checker::{AssertionCheckResult, CheckResult, check_assertions};
-pub use matcher::matches_target;
+pub use pipeline::ReviewPipeline;
+pub use prompt::build_review_prompt;

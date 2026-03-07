@@ -1,8 +1,8 @@
-//! noslop - Pre-commit assertions with attestation tracking
+//! noslop - Local code review for agent-generated code
 //!
 //! This library provides the core functionality for:
-//! - Defining assertions that must be reviewed when code changes
-//! - Tracking attestations that prove review happened
+//! - Defining checks that must be reviewed when code changes
+//! - Tracking feedbacks from checks, scripts, agents, and humans
 //! - Integrating with git hooks for enforcement
 //!
 //! # Architecture
@@ -10,33 +10,16 @@
 //! The library follows a hexagonal (ports & adapters) architecture:
 //!
 //! - [`core`] - Pure domain logic with no I/O dependencies
-//!   - [`core::models`] - Domain types (Assertion, Attestation, Severity)
+//!   - [`core::models`] - Domain types (Check, Feedback, Review, Severity, Target)
 //!   - [`core::ports`] - Trait interfaces for I/O operations
-//!   - [`core::services`] - Pure business logic (matching, checking)
+//!   - [`core::services`] - Pure business logic
 //!
 //! - [`adapters`] - I/O implementations of port traits
-//!   - [`adapters::toml`] - TOML file handling for assertions
-//!   - [`adapters::git`] - Git integration (hooks, staging)
-//!   - [`adapters::trailer`] - Commit trailer storage for attestations
-//!   - [`adapters::file`] - JSON file storage for staging
-//!
-//! - [`shared`] - Cross-cutting utilities
-//!   - [`shared::parser`] - Code parsing utilities
-//!   - [`shared::resolver`] - File resolution utilities
-//!
-//! # Example
-//!
-//! ```rust,ignore
-//! use noslop::core::models::{Assertion, Attestation, Severity};
-//! use noslop::adapters::TomlAssertionRepository;
-//! use noslop::core::ports::AssertionRepository;
-//!
-//! // Create a repository for assertions
-//! let repo = TomlAssertionRepository::current_dir()?;
-//!
-//! // Find assertions for changed files
-//! let assertions = repo.find_for_files(&["src/main.rs".to_string()])?;
-//! ```
+//!   - [`adapters::toml`] - `.noslop.toml` file handling (parser, writer, repository)
+//!   - [`adapters::git`] - Git integration (hooks, staging, diff, checkpoint)
+//!   - [`adapters::review`] - JSON file review storage (`FileReviewStore`)
+//!   - [`adapters::agents`] - AI agent adapters (Claude, Codex) with output parsing
+//!   - [`adapters::analyzers`] - Review analyzers (`ConventionAnalyzer`)
 
 // Deny all clippy warnings in this crate
 #![deny(
@@ -65,19 +48,16 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // Core hexagonal architecture modules
 pub mod adapters;
 pub mod core;
-pub mod shared;
 
 // Output formatting (used by CLI and tests)
 pub mod output;
 
-// Storage abstraction (facade over adapters)
-pub mod storage;
-
 // Re-exports for convenience
-pub use core::models::{Assertion, Attestation, Severity};
-pub use core::ports::{AssertionRepository, AttestationStore, VersionControl};
-pub use core::services::{CheckResult, check_assertions, matches_target};
-
-// Re-exports for backwards compatibility
-pub use shared::parser;
-pub use shared::resolver;
+pub use core::models::{
+    AgentKind, Check, DismissReason, Feedback, FeedbackNote, FeedbackSource, FeedbackStatus,
+    ResolutionReason, Review, ReviewStatus, Severity, Span, Target,
+};
+pub use core::ports::{
+    AnalyzerTier, CheckRepository, CommitInfo, ContextKind, DiffHunk, DiffLine, DiffLineKind,
+    DiffStat, DiffStatus, FileDiff, ReviewAnalyzer, ReviewContext, ReviewStore, VersionControl,
+};
