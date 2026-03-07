@@ -1,8 +1,0 @@
-import { setContext, getContext } from 'svelte';
-const key = Symbol('renderWidget');
-export function setRenderWidget(props) {
-    setContext(key, () => props.renderWidgetLine);
-}
-export function getRenderWidget() {
-    return getContext(key);
-}

@@ -1,9 +1,0 @@
-import { type DiffFile } from '@git-diff-view/core';
-interface Props {
-    index: number;
-    diffFile: DiffFile;
-    lineNumber: number;
-}
-declare const DiffSplitHunkLineWrapGitHub: import("svelte").Component<Props, {}, "">;
-type DiffSplitHunkLineWrapGitHub = ReturnType<typeof DiffSplitHunkLineWrapGitHub>;
-export default DiffSplitHunkLineWrapGitHub;

@@ -1,8 +1,0 @@
-import { setContext, getContext } from 'svelte';
-const key = Symbol('enableWrap');
-export function setEnableWrap(props) {
-    setContext(key, () => props.diffViewWrap);
-}
-export function getEnableWrap() {
-    return getContext(key);
-}

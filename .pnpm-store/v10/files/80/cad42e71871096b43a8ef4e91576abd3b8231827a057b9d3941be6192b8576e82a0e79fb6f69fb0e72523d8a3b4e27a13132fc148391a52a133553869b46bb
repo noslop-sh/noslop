@@ -1,4 +1,0 @@
-export declare function setEnableWrap(props: {
-    diffViewWrap?: boolean;
-}): void;
-export declare function getEnableWrap(): () => boolean;

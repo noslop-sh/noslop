@@ -1,5 +1,0 @@
-import { DiffModeEnum } from '../utils/symbol.js';
-export declare function setMode(props: {
-    diffViewMode?: DiffModeEnum;
-}): void;
-export declare function getMode(): () => DiffModeEnum;

@@ -1,8 +1,0 @@
-import { setContext, getContext } from 'svelte';
-const key = Symbol('enableHighlight');
-export function setEnableHighlight(props) {
-    setContext(key, () => props.diffViewHighlight);
-}
-export function getEnableHighlight() {
-    return getContext(key);
-}

@@ -1,2 +1,0 @@
-export declare const diffFontSizeName = "--diff-font-size--";
-export declare const diffAsideWidthName = "--diff-aside-width--";

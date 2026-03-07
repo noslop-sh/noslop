@@ -1,4 +1,0 @@
-export declare function setEnableHighlight(props: {
-    diffViewHighlight?: boolean;
-}): void;
-export declare function getEnableHighlight(): () => boolean;

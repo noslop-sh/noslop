@@ -1,8 +1,0 @@
-export declare const useTextWidth: ({ text, font }: {
-    text: () => string;
-    font: () => {
-        fontFamily?: string;
-        fontStyle?: string;
-        fontSize?: string;
-    };
-}) => () => number;

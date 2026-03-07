@@ -1,9 +1,0 @@
-import { setContext, getContext } from 'svelte';
-import { DiffModeEnum } from '../utils/symbol.js';
-const key = Symbol('mode');
-export function setMode(props) {
-    setContext(key, () => props.diffViewMode || DiffModeEnum.Split);
-}
-export function getMode() {
-    return getContext(key);
-}
