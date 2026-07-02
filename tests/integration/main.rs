@@ -114,7 +114,7 @@ fn test_e2e_complete_workflow() {
         .stdout(predicate::str::contains("BLOCKED"))
         .stdout(predicate::str::contains("Ensure all Rust code follows style guidelines"));
 
-    // Step 8: Acknowledge the check
+    // Step 8: Acknowledge the check by its exact ID (acking by message must fail)
     noslop()
         .args([
             "ack",
@@ -122,6 +122,13 @@ fn test_e2e_complete_workflow() {
             "-m",
             "Reviewed code and it follows rustfmt conventions",
         ])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No check with ID"));
+
+    noslop()
+        .args(["ack", "CHK-1", "-m", "Reviewed code and it follows rustfmt conventions"])
         .current_dir(repo_path)
         .assert()
         .success()
@@ -250,16 +257,19 @@ fn test_multiple_checks_different_targets() {
     fs::write(
         repo_path.join(".noslop.toml"),
         r#"[[check]]
+id = "TST-1"
 target = "*.rs"
 message = "Rust code must be formatted with rustfmt"
 severity = "block"
 
 [[check]]
+id = "TST-2"
 target = "*.ts"
 message = "TypeScript must use strict mode"
 severity = "block"
 
 [[check]]
+id = "TST-3"
 target = "*.md"
 message = "Documentation should be reviewed"
 severity = "warn"
@@ -296,12 +306,7 @@ severity = "warn"
 
     // Acknowledge Rust check only
     noslop()
-        .args([
-            "ack",
-            "Rust code must be formatted with rustfmt",
-            "-m",
-            "Ran rustfmt on all files",
-        ])
+        .args(["ack", "TST-1", "-m", "Ran rustfmt on all files"])
         .current_dir(repo_path)
         .assert()
         .success();
@@ -316,7 +321,7 @@ severity = "warn"
 
     // Acknowledge TypeScript check
     noslop()
-        .args(["ack", "TypeScript must use strict mode", "-m", "Added strict: true to tsconfig"])
+        .args(["ack", "TST-2", "-m", "Added strict: true to tsconfig"])
         .current_dir(repo_path)
         .assert()
         .success();
@@ -343,6 +348,7 @@ fn test_single_check_multiple_files() {
     fs::write(
         repo_path.join(".noslop.toml"),
         r#"[[check]]
+id = "SEC-1"
 target = "*.rs"
 message = "All source files need security review"
 severity = "block"
@@ -374,12 +380,7 @@ severity = "block"
 
     // Single acknowledgment should cover all files
     noslop()
-        .args([
-            "ack",
-            "All source files need security review",
-            "-m",
-            "Reviewed all files for security issues",
-        ])
+        .args(["ack", "SEC-1", "-m", "Reviewed all files for security issues"])
         .current_dir(repo_path)
         .assert()
         .success();
@@ -397,9 +398,9 @@ severity = "block"
 // ACK MATCHING TESTS
 // =============================================================================
 
-/// Test ack matching by check target
+/// Acks must reference a real check ID; target patterns and messages are rejected
 #[test]
-fn test_ack_by_target() {
+fn test_ack_requires_exact_id() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
@@ -410,6 +411,7 @@ fn test_ack_by_target() {
     fs::write(
         repo_path.join(".noslop.toml"),
         r#"[[check]]
+id = "CFG-1"
 target = "config/*.yaml"
 message = "Config changes require DevOps review"
 severity = "block"
@@ -429,9 +431,26 @@ severity = "block"
     // Stage config file
     git_add(repo_path, "config/app.yaml");
 
-    // Ack by target pattern
+    // Acking by target pattern is rejected, with known IDs in the error
     noslop()
         .args(["ack", "config/*.yaml", "-m", "DevOps team approved changes"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No check with ID"))
+        .stderr(predicate::str::contains("CFG-1"));
+
+    // Acking by message is rejected too
+    noslop()
+        .args(["ack", "Config changes require DevOps review", "-m", "approved"])
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No check with ID"));
+
+    // Acking by exact ID works
+    noslop()
+        .args(["ack", "CFG-1", "-m", "DevOps team approved changes"])
         .current_dir(repo_path)
         .assert()
         .success();
@@ -445,16 +464,16 @@ severity = "block"
         .stdout(predicate::str::contains("All checks acknowledged"));
 }
 
-/// Test ack matching by partial message
+/// Checks without an explicit TOML id get a stable derived ID that can be acked
 #[test]
-fn test_ack_by_partial_message() {
+fn test_ack_derived_id_for_checks_without_explicit_id() {
     let temp = TempDir::new().unwrap();
     let repo_path = temp.path();
 
     // Setup
     init_git_repo(repo_path);
 
-    // Create .noslop.toml with a long message
+    // No `id` field: noslop derives a stable content-based ID
     fs::write(
         repo_path.join(".noslop.toml"),
         r#"[[check]]
@@ -465,29 +484,29 @@ severity = "block"
     )
     .unwrap();
 
-    // Create SQL file
     fs::write(repo_path.join("migration.sql"), "CREATE TABLE users (id INT);").unwrap();
 
-    // Initial commit
     git_add(repo_path, ".noslop.toml");
     git_commit(repo_path, "Initial commit");
-
-    // Stage SQL file
     git_add(repo_path, "migration.sql");
 
-    // Ack using the full message
+    // Discover the derived ID from the block output, ack it, and pass
+    let output = noslop().args(["check", "--ci"]).current_dir(repo_path).output().unwrap();
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let derived_id = stdout
+        .lines()
+        .find_map(|l| {
+            let l = l.trim();
+            l.strip_prefix('[')?.split(']').next().map(str::to_string)
+        })
+        .expect("block output should contain a check ID");
+
     noslop()
-        .args([
-            "ack",
-            "Database migrations must be reviewed by DBA team for performance impact",
-            "-m",
-            "DBA approved - no index changes needed",
-        ])
+        .args(["ack", &derived_id, "-m", "DBA approved - no index changes needed"])
         .current_dir(repo_path)
         .assert()
         .success();
 
-    // Should pass
     noslop().args(["check", "--ci"]).current_dir(repo_path).assert().success();
 }
 
@@ -495,7 +514,7 @@ severity = "block"
 // STAGED ACKS TESTS
 // =============================================================================
 
-/// Test that acks are stored in staged-acks.json
+/// Test that acks are stored in staged-acks.json with the actor recorded
 #[test]
 fn test_ack_stored_in_json_file() {
     let temp = TempDir::new().unwrap();
@@ -503,16 +522,26 @@ fn test_ack_stored_in_json_file() {
 
     // Setup
     init_git_repo(repo_path);
-
-    // Create .noslop directory
     fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[[check]]
+id = "test-check"
+target = "*.rs"
+message = "Test check"
+severity = "block"
+"#,
+    )
+    .unwrap();
 
-    // Ack
+    // Ack as an explicit actor
     noslop()
         .args(["ack", "test-check", "-m", "Test acknowledgment message"])
+        .env("NOSLOP_ACTOR", "test-bot")
         .current_dir(repo_path)
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("as test-bot"));
 
     // Verify staged-acks.json exists and contains correct data
     let json_path = repo_path.join(".noslop/staged-acks.json");
@@ -524,7 +553,7 @@ fn test_ack_stored_in_json_file() {
         content.contains("Test acknowledgment message"),
         "JSON should contain acknowledgment message"
     );
-    assert!(content.contains("human"), "JSON should indicate human acknowledgment");
+    assert!(content.contains("test-bot"), "JSON should record the acknowledging actor");
 }
 
 /// Test multiple acks accumulate in JSON file
@@ -535,9 +564,23 @@ fn test_multiple_acks_accumulate() {
 
     // Setup
     init_git_repo(repo_path);
-
-    // Create .noslop directory
     fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[[check]]
+id = "first-check"
+target = "*.rs"
+message = "First check"
+severity = "block"
+
+[[check]]
+id = "second-check"
+target = "*.py"
+message = "Second check"
+severity = "block"
+"#,
+    )
+    .unwrap();
 
     // Add first ack
     noslop()
@@ -561,6 +604,63 @@ fn test_multiple_acks_accumulate() {
     assert!(content.contains("second-check"), "Should contain second check");
     assert!(content.contains("First acknowledgment"), "Should contain first message");
     assert!(content.contains("Second acknowledgment"), "Should contain second message");
+}
+
+// =============================================================================
+// ACTOR GATING TESTS
+// =============================================================================
+
+/// A human committer is never blocked: blocking checks render as guidance
+#[test]
+fn test_human_committer_not_blocked() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[[check]]
+id = "HUM-1"
+target = "*.rs"
+message = "Rust review required"
+severity = "block"
+"#,
+    )
+    .unwrap();
+
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    fs::write(repo_path.join("main.rs"), "fn main() {}").unwrap();
+    git_add(repo_path, "main.rs");
+
+    // As a human (no --ci): guidance shown, exit 0
+    noslop()
+        .arg("check")
+        .env("NOSLOP_ACTOR", "human")
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Guidance"))
+        .stdout(predicate::str::contains("Human committer"));
+
+    // As an agent: blocked, exit 1
+    noslop()
+        .arg("check")
+        .env("NOSLOP_ACTOR", "some-agent")
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("BLOCKED"));
+
+    // --ci gates even a human actor
+    noslop()
+        .args(["check", "--ci"])
+        .env("NOSLOP_ACTOR", "human")
+        .current_dir(repo_path)
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("BLOCKED"));
 }
 
 // =============================================================================

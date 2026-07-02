@@ -31,9 +31,15 @@ pub struct Check {
 
 impl Check {
     /// Create a new check with optional custom ID (from TOML)
+    ///
+    /// Checks without an explicit ID get one derived from their content, so
+    /// the same check resolves to the same ID on every load (acknowledgments
+    /// match by exact ID and would otherwise never resolve).
+    #[must_use]
     pub fn new(id: Option<String>, target: String, message: String, severity: Severity) -> Self {
+        let id = id.unwrap_or_else(|| derive_id(&target, &message));
         Self {
-            id: id.unwrap_or_else(generate_id),
+            id,
             target,
             message,
             severity,
@@ -41,19 +47,39 @@ impl Check {
             created_at: chrono::Utc::now().to_rfc3339(),
         }
     }
-
-    /// Check if this check applies to a given file path
-    #[must_use]
-    #[allow(dead_code)] // Used in tests, will be wired up when Target integration is complete
-    pub fn applies_to(&self, path: &str) -> bool {
-        // Simple matching for now - exact or prefix
-        // TODO: Support glob patterns via Target
-        path == self.target || path.starts_with(&self.target) || self.target.contains(path)
-    }
 }
 
-fn generate_id() -> String {
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let ts = SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis();
-    format!("c{ts:x}")
+/// Stable content-derived fallback ID (FNV-1a over target + message)
+fn derive_id(target: &str, message: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in target.bytes().chain(message.bytes()) {
+        hash ^= u64::from(byte);
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("c{hash:012x}")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn derived_id_is_stable_across_loads() {
+        let a = Check::new(None, "src/*.rs".into(), "Check the thing".into(), Severity::Block);
+        let b = Check::new(None, "src/*.rs".into(), "Check the thing".into(), Severity::Block);
+        assert_eq!(a.id, b.id);
+    }
+
+    #[test]
+    fn different_checks_get_different_ids() {
+        let a = Check::new(None, "src/*.rs".into(), "Check A".into(), Severity::Block);
+        let b = Check::new(None, "src/*.rs".into(), "Check B".into(), Severity::Block);
+        assert_ne!(a.id, b.id);
+    }
+
+    #[test]
+    fn explicit_id_wins() {
+        let c = Check::new(Some("NOS-1".into()), "x".into(), "y".into(), Severity::Warn);
+        assert_eq!(c.id, "NOS-1");
+    }
 }

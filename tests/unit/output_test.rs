@@ -25,6 +25,8 @@ fn check_result_serialization() {
     let result = CheckResult {
         passed: true,
         files_checked: 2,
+        actor: "human".to_string(),
+        enforced: false,
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![CheckMatch {
@@ -48,6 +50,8 @@ fn check_result_blocking() {
     let result = CheckResult {
         passed: false,
         files_checked: 1,
+        actor: "claude-code".to_string(),
+        enforced: true,
         blocking: vec![CheckMatch {
             id: "TEST-2".to_string(),
             file: "src/api.rs".to_string(),
@@ -70,6 +74,8 @@ fn check_result_with_warnings() {
     let result = CheckResult {
         passed: true,
         files_checked: 1,
+        actor: "human".to_string(),
+        enforced: false,
         blocking: vec![],
         warnings: vec![CheckMatch {
             id: "TEST-3".to_string(),

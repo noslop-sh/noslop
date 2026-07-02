@@ -50,6 +50,31 @@ pub fn load_checks_for_files(files: &[String]) -> anyhow::Result<Vec<(Check, Str
     Ok(result)
 }
 
+/// Load every check defined in .noslop.toml files reachable from the cwd
+pub fn load_all_checks() -> anyhow::Result<Vec<Check>> {
+    let cwd = std::env::current_dir()?;
+    let mut checks = Vec::new();
+
+    for noslop_path in find_noslop_files(&cwd) {
+        let noslop_file = load_file(&noslop_path)?;
+        for entry in &noslop_file.checks {
+            checks.push(Check::new(
+                entry.id.clone(),
+                entry.target.clone(),
+                entry.message.clone(),
+                entry.severity.parse().unwrap_or(Severity::Block),
+            ));
+        }
+    }
+
+    Ok(checks)
+}
+
+/// Find a check by exact ID
+pub fn find_check_by_id(id: &str) -> anyhow::Result<Option<Check>> {
+    Ok(load_all_checks()?.into_iter().find(|c| c.id == id))
+}
+
 /// Create or update a .noslop.toml file with a new check
 pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<String> {
     adapter_add_check(target, message, severity)

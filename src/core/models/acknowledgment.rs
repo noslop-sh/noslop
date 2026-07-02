@@ -33,16 +33,9 @@ impl Acknowledgment {
         }
     }
 
-    /// Create an acknowledgment by a human
+    /// Create an acknowledgment by the given actor
     #[must_use]
-    pub fn by_human(check_id: String, message: String) -> Self {
-        Self::new(check_id, message, "human".to_string())
-    }
-
-    /// Create an acknowledgment by an LLM
-    #[must_use]
-    #[allow(dead_code)]
-    pub fn by_llm(check_id: String, message: String, model: &str) -> Self {
-        Self::new(check_id, message, model.to_string())
+    pub fn by_actor(check_id: String, message: String, actor: &super::Actor) -> Self {
+        Self::new(check_id, message, actor.name().to_string())
     }
 }

@@ -143,8 +143,22 @@ fn test_ack_stages_acknowledgment() {
         .output()
         .unwrap();
 
-    // Create .noslop directory
+    // Create .noslop directory and a check to acknowledge
     std::fs::create_dir_all(temp.path().join(".noslop")).unwrap();
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[[check]]\nid = \"test-check\"\ntarget = \"*.rs\"\nmessage = \"Check it\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+
+    // Acking an unknown ID fails with guidance
+    noslop()
+        .args(["ack", "nonexistent", "-m", "I checked it"])
+        .current_dir(temp.path())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("No check with ID"))
+        .stderr(predicate::str::contains("test-check"));
 
     noslop()
         .args(["ack", "test-check", "-m", "I checked it"])

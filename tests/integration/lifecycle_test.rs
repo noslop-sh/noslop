@@ -129,6 +129,7 @@ fn test_full_lifecycle_with_commit_m() {
     // Acknowledge (use the actual ID from .noslop.toml: CHK-1)
     noslop_in(repo_path)
         .args(["ack", "CHK-1", "-m", "Reviewed test file"])
+        .env("NOSLOP_ACTOR", "human")
         .assert()
         .success();
 
@@ -199,8 +200,12 @@ fn test_cross_branch_no_contamination() {
     // For this test, we simulate the fix by manually clearing
     fs::remove_file(&acks_file).ok();
 
-    // Now acknowledgment should be required
-    noslop_in(repo_path).arg("check").assert().failure();
+    // Now acknowledgment should be required (as an agent; humans are never blocked)
+    noslop_in(repo_path)
+        .arg("check")
+        .env("NOSLOP_ACTOR", "test-agent")
+        .assert()
+        .failure();
 
     // Acknowledge for feature branch
     noslop_in(repo_path)
@@ -250,11 +255,13 @@ fn test_multiple_acks_in_commit() {
     // Acknowledge both (CHK-1 for *.rs, CHK-2 for *.toml)
     noslop_in(repo_path)
         .args(["ack", "CHK-1", "-m", "Reviewed source code"])
+        .env("NOSLOP_ACTOR", "human")
         .assert()
         .success();
 
     noslop_in(repo_path)
         .args(["ack", "CHK-2", "-m", "Reviewed config"])
+        .env("NOSLOP_ACTOR", "human")
         .assert()
         .success();
 
@@ -308,8 +315,11 @@ fn test_commit_blocked_without_ack() {
     fs::write(repo_path.join("test.rs"), "fn test() {}").unwrap();
     git_in(repo_path, &["add", "test.rs"]).output().unwrap();
 
-    // Try to commit WITHOUT acknowledgment - should fail
-    let output = git_in(repo_path, &["commit", "-m", "Add test"]).output().unwrap();
+    // Try to commit WITHOUT acknowledgment as an agent - should fail
+    let output = git_in(repo_path, &["commit", "-m", "Add test"])
+        .env("NOSLOP_ACTOR", "test-agent")
+        .output()
+        .unwrap();
 
     assert!(!output.status.success(), "Commit should be blocked");
 }

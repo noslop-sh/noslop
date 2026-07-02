@@ -22,6 +22,10 @@ pub struct CheckResult {
     pub passed: bool,
     /// Number of files checked
     pub files_checked: usize,
+    /// Who is committing (e.g. "human", "claude-code")
+    pub actor: String,
+    /// Whether blocking checks gate this actor (agents/CI yes, humans no)
+    pub enforced: bool,
     /// Checks that are blocking (need acknowledgment)
     pub blocking: Vec<CheckMatch>,
     /// Checks that are warnings
@@ -121,7 +125,7 @@ impl CheckResult {
 
         if self.blocking.is_empty() {
             println!("All checks acknowledged. Commit may proceed.");
-        } else {
+        } else if self.enforced {
             println!("Blocking:");
             for m in &self.blocking {
                 println!("  [{}] {}", m.id, m.file);
@@ -133,6 +137,13 @@ impl CheckResult {
                 "Example:        noslop ack {} -m \"reviewed and verified\"",
                 self.blocking.first().map_or("CHK-1", |b| b.id.as_str())
             );
+        } else {
+            println!("Guidance (would block an agent):");
+            for m in &self.blocking {
+                println!("  [{}] {}", m.id, m.file);
+                println!("          {}\n", m.message);
+            }
+            println!("Human committer - proceeding without acknowledgment.");
         }
     }
 
