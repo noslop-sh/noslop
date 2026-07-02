@@ -56,8 +56,10 @@ pub fn mining_prompt(repo: &str, comments: &[ReviewComment]) -> String {
          severity = \"block\" # or \"warn\"\n\
          # evidence: <2-3 short quotes/paraphrases of supporting comments + rough count>\n\n\
          Rules: one obligation per check; a check must be justified by at least 2 separate \
-         comments; prefer concrete paths/patterns that appear in the comments; if fewer than 15 \
-         real conventions exist, output fewer rather than padding. Respond with ONLY the TOML.\n\n\
+         comments; prefer concrete paths/patterns that appear in the comments; target globs may \
+         only use *, ** and literal paths (no {{a,b}} brace expansion — emit separate checks \
+         instead); if fewer than 15 real conventions exist, output fewer rather than padding. \
+         Respond with ONLY the TOML.\n\n\
          COMMENTS:\n{serialized}"
     )
 }
@@ -145,6 +147,15 @@ pub fn parse_proposals(output: &str, source: &str) -> Result<Vec<Proposal>, Mini
     for entry in doc.checks {
         if entry.message.trim().len() < 10 {
             rejected_reasons.push(format!("'{}': message too short", entry.target));
+            continue;
+        }
+        // The matcher has no brace expansion: a {a,b} glob would parse but
+        // silently never match — reject so the retry loop corrects it.
+        if entry.target.contains(['{', '}']) {
+            rejected_reasons.push(format!(
+                "'{}': brace globs are unsupported, split into separate checks",
+                entry.target
+            ));
             continue;
         }
         if Target::parse(&entry.target).is_err() {
@@ -251,5 +262,13 @@ mod tests {
     fn all_invalid_is_an_error() {
         let out = "[[check]]\ntarget = \"x/*.rs\"\nmessage = \"tiny\"\n";
         assert!(matches!(parse_proposals(out, "m"), Err(MiningParseError::AllRejected(_))));
+    }
+
+    #[test]
+    fn brace_globs_are_rejected() {
+        // Regression: matcher has no brace expansion; such checks never fire
+        let out = "[[check]]\ntarget = \"src/{a,b}/**/*.ts\"\nmessage = \"Transactions must use the injected EntityManager?\"\n";
+        let err = parse_proposals(out, "m").unwrap_err();
+        assert!(err.to_string().contains("brace globs"));
     }
 }
