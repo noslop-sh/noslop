@@ -51,3 +51,21 @@ target = "docs/SCHEMA.md"
 message = "Schema formats changed? Bump schema version and add a migration note"
 severity = "block"
 
+[[check]]
+id = "NOS-9"
+target = "src/cli/**/*"
+message = "`src/cli/` — clap app + command handlers. CLI must call core services, never reimplement their logic."
+severity = "block"
+
+[[check]]
+id = "NOS-10"
+target = "src/**/*.rs"
+message = "No dead code: `#![allow(dead_code)]` is banned; delete unused code instead of parking it."
+severity = "warn"
+
+[[check]]
+id = "NOS-11"
+target = "src/**/*.rs"
+message = "No compat shims or speculative abstractions: one implementation per port until a second consumer exists."
+severity = "warn"
+

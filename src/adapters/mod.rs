@@ -6,6 +6,8 @@
 //! - [`mod@file`] - JSON file acknowledgment staging storage
 //! - [`git`] - Git operations (hooks, staging, version control)
 //! - [`ledger`] - Durable ack records in the tree (squash-proof)
+//! - [`proposals`] - Staged check proposals awaiting review
+//! - [`rules`] - Rules-file discovery (CLAUDE.md, AGENTS.md, .cursor/rules)
 //! - [`mod@toml`] - `.noslop.toml` file parsing and writing
 //! - [`trailer`] - Commit trailer acknowledgment storage
 
@@ -13,6 +15,8 @@ pub mod env;
 pub mod file;
 pub mod git;
 pub mod ledger;
+pub mod proposals;
+pub mod rules;
 pub mod toml;
 pub mod trailer;
 

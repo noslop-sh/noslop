@@ -39,7 +39,7 @@ Here's what makes noslop different from linters or pre-commit hooks:
 5. **You spot a new pattern** agents keep missing → add a check
 6. **Your `.noslop.toml` grows** into institutional memory
 
-Over time, you're not just blocking bad commits - you're building a context layer that makes agents smarter about *your* codebase.
+Over time, you're not just blocking bad commits - you're building a context layer that makes agents smarter about _your_ codebase.
 
 ## Quick Start
 
@@ -113,7 +113,7 @@ Noslop-Ack: DB-2 | Regenerated with alembic --autogenerate | claude-3-opus
 
 ## Building Your Context Layer
 
-Every time you catch an agent missing something in review, ask yourself: *"Could I have told the agent this at commit time?"*
+Every time you catch an agent missing something in review, ask yourself: _"Could I have told the agent this at commit time?"_
 
 If yes, add a check:
 
@@ -153,6 +153,8 @@ target = "config/prod.yaml"             # Specific file
 
 ```bash
 noslop init                              # Set up in repo
+noslop discover                          # Propose checks from CLAUDE.md, AGENTS.md, .cursor/rules
+noslop discover --review                 # Accept, edit, or reject proposals
 noslop check add <target> -m <message>   # Add check
 noslop check list                        # List all checks
 noslop check remove <id>                 # Remove check

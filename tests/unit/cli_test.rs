@@ -341,3 +341,61 @@ fn test_init_force_reinitialize() {
         .success()
         .stdout(predicate::str::contains("Created .noslop.toml"));
 }
+
+#[test]
+fn test_discover_imports_rules_and_review_accepts() {
+    let temp = TempDir::new().unwrap();
+
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    std::fs::write(
+        temp.path().join("CLAUDE.md"),
+        "# Conventions\n\n- Never commit directly to main\n- Run `make check` before every commit\n- just some prose here\n",
+    )
+    .unwrap();
+
+    // Scan stages proposals
+    noslop()
+        .arg("discover")
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("2 new proposal(s)"));
+    assert!(temp.path().join(".noslop/proposals.toml").exists());
+
+    // Re-scan is idempotent
+    noslop()
+        .arg("discover")
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0 new proposal(s)"));
+
+    // Review: accept first, reject second
+    noslop()
+        .args(["discover", "--review"])
+        .current_dir(temp.path())
+        .write_stdin("a\nr\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1 accepted, 1 rejected"));
+
+    // Accepted proposal became a check; proposals file is gone
+    let toml = std::fs::read_to_string(temp.path().join(".noslop.toml")).unwrap();
+    assert!(toml.contains("Never commit directly to main"));
+    assert!(!temp.path().join(".noslop/proposals.toml").exists());
+
+    // Accepted and rejected proposals both dedupe against future scans:
+    // the accepted one is now a check, the rejected one is in rejected-keys
+    noslop()
+        .arg("discover")
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("0 new proposal(s)"));
+    assert!(temp.path().join(".noslop/rejected-keys.txt").exists());
+}

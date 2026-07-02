@@ -11,11 +11,13 @@
 mod acknowledgment;
 mod actor;
 mod check;
+mod proposal;
 mod severity;
 mod target;
 
 pub use acknowledgment::Acknowledgment;
 pub use actor::Actor;
 pub use check::Check;
+pub use proposal::Proposal;
 pub use severity::Severity;
 pub use target::{Fragment, GlobPattern, ParseError, PathSpec, Target};

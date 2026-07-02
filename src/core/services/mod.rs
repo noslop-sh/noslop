@@ -8,6 +8,7 @@
 //! - [`matcher`] - Match target patterns to file paths
 
 pub mod checker;
+pub mod discovery;
 pub mod matcher;
 
 pub use checker::{CheckItemResult, CheckResult, check_items};

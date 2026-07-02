@@ -47,6 +47,13 @@ pub enum Command {
         action: Option<CheckAction>,
     },
 
+    /// Discover check proposals from rules files (CLAUDE.md, AGENTS.md, .cursor/rules)
+    Discover {
+        /// Review staged proposals: accept, edit, or reject each one
+        #[arg(long)]
+        review: bool,
+    },
+
     /// Acknowledge a check (prove something was considered)
     Ack {
         /// Check ID to acknowledge
@@ -128,6 +135,7 @@ pub fn run() -> anyhow::Result<()> {
             action: Some(action),
             ..
         }) => commands::check_manage(action, output_mode),
+        Some(Command::Discover { review }) => commands::discover(review, output_mode),
         Some(Command::Ack { id, message }) => commands::ack(&id, &message, output_mode),
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),
