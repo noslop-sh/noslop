@@ -1,0 +1,2 @@
+# Parallel branches both append ack history; union merge never conflicts
+.noslop/history.jsonl merge=union

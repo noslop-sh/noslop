@@ -49,6 +49,14 @@ prefix = "{prefix}"
     fs::write(".noslop/.gitkeep", "")?;
     println!("  Created .noslop/");
 
+    // Staged acks are per-clone state; the ledger and history are tracked
+    ensure_line(".gitignore", ".noslop/staged-acks.json")?;
+    println!("  Ensured .gitignore covers .noslop/staged-acks.json");
+
+    // Parallel branches both append to history.jsonl; union merge never conflicts
+    ensure_line(".gitattributes", ".noslop/history.jsonl merge=union")?;
+    println!("  Ensured .gitattributes union-merges .noslop/history.jsonl");
+
     // Install git hooks
     git::hooks::install_pre_commit()?;
     println!("  Installed pre-commit hook");
@@ -62,5 +70,26 @@ prefix = "{prefix}"
     println!("  noslop check add <target> -m \"message\"");
     println!("  git commit  # checks will be validated");
 
+    Ok(())
+}
+
+/// Append a line to a file unless it is already present
+fn ensure_line(path: &str, line: &str) -> anyhow::Result<()> {
+    let existing = if Path::new(path).exists() {
+        fs::read_to_string(path)?
+    } else {
+        String::new()
+    };
+
+    if existing.lines().any(|l| l.trim() == line) {
+        return Ok(());
+    }
+
+    let separator = if existing.is_empty() || existing.ends_with('\n') {
+        ""
+    } else {
+        "\n"
+    };
+    fs::write(path, format!("{existing}{separator}{line}\n"))?;
     Ok(())
 }

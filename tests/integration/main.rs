@@ -607,6 +607,100 @@ severity = "block"
 }
 
 // =============================================================================
+// LEDGER TESTS
+// =============================================================================
+
+/// Ack ledger records are staged into the tree and survive a squash merge
+#[test]
+fn test_ledger_survives_squash_merge() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[[check]]
+id = "LED-1"
+target = "*.rs"
+message = "Rust review required"
+severity = "block"
+"#,
+    )
+    .unwrap();
+
+    git_add(repo_path, ".noslop.toml");
+    git_commit(repo_path, "Initial commit");
+
+    // Work on a feature branch with two acked commits
+    Command::new("git")
+        .args(["checkout", "-b", "feature"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+
+    for (file, msg) in [("one.rs", "first ack"), ("two.rs", "second ack")] {
+        fs::write(repo_path.join(file), "fn x() {}").unwrap();
+        git_add(repo_path, file);
+        noslop()
+            .args(["ack", "LED-1", "-m", msg])
+            .env("NOSLOP_ACTOR", "test-agent")
+            .current_dir(repo_path)
+            .assert()
+            .success()
+            .stdout(predicate::str::contains(".noslop/acks/"));
+        git_commit(repo_path, &format!("Add {file}"));
+    }
+
+    // Squash-merge the branch: branch commit messages (and any trailers) are lost
+    Command::new("git")
+        .args(["checkout", "-"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    Command::new("git")
+        .args(["merge", "--squash", "feature"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    git_commit(repo_path, "Squashed feature");
+
+    // The ledger records survived in the tree
+    let tracked = Command::new("git")
+        .args(["ls-files", ".noslop/acks"])
+        .current_dir(repo_path)
+        .output()
+        .unwrap();
+    let tracked = String::from_utf8(tracked.stdout).unwrap();
+    assert_eq!(tracked.lines().count(), 2, "both ack records should survive the squash");
+
+    let record_path = repo_path.join(tracked.lines().next().unwrap());
+    let record = fs::read_to_string(record_path).unwrap();
+    assert!(record.contains("\"schema\": 1"));
+    assert!(record.contains("test-agent"));
+
+    // Compaction folds records into history.jsonl and removes them
+    noslop()
+        .arg("compact")
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Compacted 2 ack record(s)"));
+
+    let history = fs::read_to_string(repo_path.join(".noslop/history.jsonl")).unwrap();
+    assert_eq!(history.lines().count(), 2);
+    assert!(history.contains("first ack"));
+    assert!(history.contains("second ack"));
+
+    // Running compact again is a no-op
+    noslop()
+        .arg("compact")
+        .current_dir(repo_path)
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("No pending ack records"));
+}
+
+// =============================================================================
 // ACTOR GATING TESTS
 // =============================================================================
 

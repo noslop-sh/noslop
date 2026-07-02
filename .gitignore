@@ -26,4 +26,6 @@ tarpaulin-report.html
 
 # Debug
 *.pdb
-.noslop/
+
+# noslop per-clone state (the ledger in .noslop/acks/ and history.jsonl ARE tracked)
+.noslop/staged-acks.json

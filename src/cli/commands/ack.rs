@@ -3,7 +3,7 @@
 use noslop::output::OutputMode;
 
 use crate::noslop_file;
-use noslop::adapters::detect_actor;
+use noslop::adapters::{detect_actor, ledger};
 use noslop::core::models::Acknowledgment;
 use noslop::storage;
 
@@ -25,13 +25,17 @@ pub fn ack(check_ref: &str, message: &str, _mode: OutputMode) -> anyhow::Result<
     let actor = detect_actor();
     let ack = Acknowledgment::by_actor(check.id.clone(), message.to_string(), &actor);
 
-    // Stage via storage abstraction
+    // Stage via storage abstraction (drives the pre-commit gate and trailers)
     let store = storage::ack_store();
     store.stage(&ack)?;
+
+    // Durable ledger record: staged into the same commit, survives squash
+    let record_path = ledger::record(&ack)?;
 
     println!("Staged acknowledgment (as {}):", actor.name());
     println!("  For: {} - {}", check.id, check.message);
     println!("  Message: {}", message);
+    println!("  Ledger: {}", record_path.display());
     println!("\nThis will be recorded as a commit trailer:");
     println!("  {}", store.format_trailers(&[ack]));
     println!("\nRun 'git commit' to finalize.");

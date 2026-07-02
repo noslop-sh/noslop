@@ -45,3 +45,9 @@ target = "CLAUDE.md"
 message = "New convention documented: add a matching noslop check if it should be enforced"
 severity = "warn"
 
+[[check]]
+id = "NOS-8"
+target = "docs/SCHEMA.md"
+message = "Schema formats changed? Bump schema version and add a migration note"
+severity = "block"
+

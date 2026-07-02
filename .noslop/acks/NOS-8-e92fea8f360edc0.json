@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "check_id": "NOS-8",
+  "message": "initial schema v1 definition: ledger record, history line, check JSON output",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-02T01:01:39.072374782+00:00"
+}

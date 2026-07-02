@@ -68,6 +68,9 @@ pub enum Command {
     #[command(hide = true)]
     ClearStaged,
 
+    /// Fold pending ack records into .noslop/history.jsonl (run at merge time)
+    Compact,
+
     /// Show version
     Version,
 }
@@ -128,6 +131,7 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::Ack { id, message }) => commands::ack(&id, &message, output_mode),
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),
+        Some(Command::Compact) => commands::compact(),
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {
                 println!(
