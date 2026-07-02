@@ -8,35 +8,22 @@
 use std::fs;
 use std::path::Path;
 
-/// Install the pre-commit hook
-///
-/// # Errors
-///
-/// Returns an error if not in a git repository or the hook cannot be written.
-pub fn install_pre_commit() -> anyhow::Result<()> {
+/// Install a hook script, appending to any existing non-noslop hook
+fn install_hook(name: &str, content: &str) -> anyhow::Result<()> {
     let hooks_dir = Path::new(".git/hooks");
     if !hooks_dir.exists() {
         anyhow::bail!("Not a git repository (.git/hooks not found)");
     }
 
-    let hook_path = hooks_dir.join("pre-commit");
-    let hook_content = r"#!/bin/sh
-# noslop pre-commit hook
-# Checks that checks are acknowledged before allowing commit
-
-noslop check
-";
-
+    let hook_path = hooks_dir.join(name);
     if hook_path.exists() {
         let existing = fs::read_to_string(&hook_path)?;
         if existing.contains("noslop") {
             return Ok(()); // Already installed
         }
-        // Append to existing hook
-        let new_content = format!("{}\n\n# noslop\n{}", existing.trim(), hook_content);
-        fs::write(&hook_path, new_content)?;
+        fs::write(&hook_path, format!("{}\n\n# noslop\n{}", existing.trim(), content))?;
     } else {
-        fs::write(&hook_path, hook_content)?;
+        fs::write(&hook_path, content)?;
     }
 
     // Make executable
@@ -49,6 +36,18 @@ noslop check
     }
 
     Ok(())
+}
+
+/// Install the pre-commit hook
+///
+/// # Errors
+///
+/// Returns an error if not in a git repository or the hook cannot be written.
+pub fn install_pre_commit() -> anyhow::Result<()> {
+    install_hook(
+        "pre-commit",
+        "#!/bin/sh\n# noslop pre-commit hook\n# Checks that checks are acknowledged before allowing commit\n\nnoslop check\n",
+    )
 }
 
 /// Install the commit-msg hook (used instead of prepare-commit-msg for trailers)
@@ -57,43 +56,10 @@ noslop check
 ///
 /// Returns an error if not in a git repository or the hook cannot be written.
 pub fn install_commit_msg() -> anyhow::Result<()> {
-    let hooks_dir = Path::new(".git/hooks");
-    if !hooks_dir.exists() {
-        anyhow::bail!("Not a git repository (.git/hooks not found)");
-    }
-
-    let hook_path = hooks_dir.join("commit-msg");
-    // Need r#"..."# because content contains quotes
-    #[allow(clippy::needless_raw_string_hashes)]
-    let hook_content = r#"#!/bin/sh
-# noslop commit-msg hook
-# Adds acknowledgment trailers to commit message
-
-noslop add-trailers "$1"
-"#;
-
-    if hook_path.exists() {
-        let existing = fs::read_to_string(&hook_path)?;
-        if existing.contains("noslop") {
-            return Ok(()); // Already installed
-        }
-        // Append to existing hook
-        let new_content = format!("{}\n\n# noslop\n{}", existing.trim(), hook_content);
-        fs::write(&hook_path, new_content)?;
-    } else {
-        fs::write(&hook_path, hook_content)?;
-    }
-
-    // Make executable
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&hook_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&hook_path, perms)?;
-    }
-
-    Ok(())
+    install_hook(
+        "commit-msg",
+        "#!/bin/sh\n# noslop commit-msg hook\n# Adds acknowledgment trailers to commit message\n\nnoslop add-trailers \"$1\"\n",
+    )
 }
 
 /// Install the post-commit hook
@@ -102,39 +68,8 @@ noslop add-trailers "$1"
 ///
 /// Returns an error if not in a git repository or the hook cannot be written.
 pub fn install_post_commit() -> anyhow::Result<()> {
-    let hooks_dir = Path::new(".git/hooks");
-    if !hooks_dir.exists() {
-        anyhow::bail!("Not a git repository (.git/hooks not found)");
-    }
-
-    let hook_path = hooks_dir.join("post-commit");
-    let hook_content = r"#!/bin/sh
-# noslop post-commit hook
-# Clears staged acknowledgments after successful commit
-
-noslop clear-staged
-";
-
-    if hook_path.exists() {
-        let existing = fs::read_to_string(&hook_path)?;
-        if existing.contains("noslop") {
-            return Ok(()); // Already installed
-        }
-        // Append to existing hook
-        let new_content = format!("{}\n\n# noslop\n{}", existing.trim(), hook_content);
-        fs::write(&hook_path, new_content)?;
-    } else {
-        fs::write(&hook_path, hook_content)?;
-    }
-
-    // Make executable
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let mut perms = fs::metadata(&hook_path)?.permissions();
-        perms.set_mode(0o755);
-        fs::set_permissions(&hook_path, perms)?;
-    }
-
-    Ok(())
+    install_hook(
+        "post-commit",
+        "#!/bin/sh\n# noslop post-commit hook\n# Clears staged acknowledgments after successful commit\n\nnoslop clear-staged\n",
+    )
 }

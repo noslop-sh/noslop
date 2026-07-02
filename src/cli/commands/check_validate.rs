@@ -1,7 +1,7 @@
 //! Validate checks for staged changes
 
 use crate::{git, noslop_file};
-use noslop::core::models::Severity;
+use noslop::core::services::{CheckItemResult, check_items};
 use noslop::output::{CheckMatch, CheckResult, OutputMode};
 use noslop::storage;
 
@@ -11,14 +11,7 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
     let staged = git::staged::get_staged_files()?;
 
     if staged.is_empty() {
-        let result = CheckResult {
-            passed: true,
-            files_checked: 0,
-            blocking: vec![],
-            warnings: vec![],
-            acknowledged: vec![],
-        };
-        result.render(mode);
+        render_empty(0, mode);
         return Ok(());
     }
 
@@ -26,14 +19,7 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
     let applicable = noslop_file::load_checks_for_files(&staged)?;
 
     if applicable.is_empty() {
-        let result = CheckResult {
-            passed: true,
-            files_checked: staged.len(),
-            blocking: vec![],
-            warnings: vec![],
-            acknowledged: vec![],
-        };
-        result.render(mode);
+        render_empty(staged.len(), mode);
         return Ok(());
     }
 
@@ -41,55 +27,20 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
     let store = storage::ack_store();
     let acks = store.staged()?;
 
-    // Check for unacknowledged checks
-    let mut blocking = Vec::new();
-    let mut warnings = Vec::new();
-    let mut acknowledged_list = Vec::new();
-
-    for (check, file) in &applicable {
-        let is_acknowledged = acks.iter().any(|a| {
-            // Priority matching: ID first, then message, then target
-            a.check_id == check.id
-                || a.check_id.contains(&check.message)
-                || a.check_id == check.target
-        });
-
-        let check_match = CheckMatch {
-            id: check.id.clone(),
-            file: file.clone(),
-            target: check.target.clone(),
-            message: check.message.clone(),
-            severity: check.severity.to_string(),
-            acknowledged: is_acknowledged,
-        };
-
-        match check.severity {
-            Severity::Block if !is_acknowledged => {
-                blocking.push(check_match);
-            },
-            Severity::Warn if !is_acknowledged => {
-                warnings.push(check_match);
-            },
-            _ if is_acknowledged => {
-                acknowledged_list.push(check_match);
-            },
-            _ => {},
-        }
-    }
-
-    let passed = blocking.is_empty();
+    // Core service does the matching; map its result to output types
+    let core_result = check_items(&applicable, &acks, staged.len());
 
     let result = CheckResult {
-        passed,
-        files_checked: staged.len(),
-        blocking,
-        warnings,
-        acknowledged: acknowledged_list,
+        passed: core_result.passed,
+        files_checked: core_result.files_checked,
+        blocking: core_result.blocking.iter().map(to_check_match).collect(),
+        warnings: core_result.warnings.iter().map(to_check_match).collect(),
+        acknowledged: core_result.acknowledged.iter().map(to_check_match).collect(),
     };
 
     result.render(mode);
 
-    if !passed {
+    if !result.passed {
         if !ci {
             std::process::exit(1);
         }
@@ -97,4 +48,26 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
     }
 
     Ok(())
+}
+
+fn to_check_match(item: &CheckItemResult) -> CheckMatch {
+    CheckMatch {
+        id: item.id.clone(),
+        file: item.file.clone(),
+        target: item.target.clone(),
+        message: item.message.clone(),
+        severity: item.severity.to_string(),
+        acknowledged: item.acknowledged,
+    }
+}
+
+fn render_empty(files_checked: usize, mode: OutputMode) {
+    CheckResult {
+        passed: true,
+        files_checked,
+        blocking: vec![],
+        warnings: vec![],
+        acknowledged: vec![],
+    }
+    .render(mode);
 }

@@ -18,6 +18,6 @@ mod acknowledgment_store;
 mod check_repo;
 mod vcs;
 
-pub use acknowledgment_store::{AcknowledgmentStore, StorageBackend};
+pub use acknowledgment_store::AcknowledgmentStore;
 pub use check_repo::CheckRepository;
 pub use vcs::VersionControl;

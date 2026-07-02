@@ -298,29 +298,6 @@ fn test_check_add_with_severity() {
 }
 
 #[test]
-fn test_init_with_existing_docs() {
-    let temp = TempDir::new().unwrap();
-
-    // Initialize git repo
-    std::process::Command::new("git")
-        .args(["init"])
-        .current_dir(temp.path())
-        .output()
-        .unwrap();
-
-    // Create CLAUDE.md file
-    std::fs::write(temp.path().join("CLAUDE.md"), "# Claude docs\n").unwrap();
-
-    noslop()
-        .arg("init")
-        .current_dir(temp.path())
-        .assert()
-        .success()
-        .stdout(predicate::str::contains("Found: CLAUDE.md"))
-        .stdout(predicate::str::contains("noslop check import"));
-}
-
-#[test]
 fn test_init_force_reinitialize() {
     let temp = TempDir::new().unwrap();
 

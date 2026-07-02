@@ -20,10 +20,6 @@
 //!   - [`adapters::trailer`] - Commit trailer storage for acknowledgments
 //!   - [`adapters::file`] - JSON file storage for staging
 //!
-//! - [`shared`] - Cross-cutting utilities
-//!   - [`shared::parser`] - Code parsing utilities
-//!   - [`shared::resolver`] - File resolution utilities
-//!
 //! # Example
 //!
 //! ```rust,ignore
@@ -65,7 +61,6 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 // Core hexagonal architecture modules
 pub mod adapters;
 pub mod core;
-pub mod shared;
 
 // Output formatting (used by CLI and tests)
 pub mod output;
@@ -77,7 +72,3 @@ pub mod storage;
 pub use core::models::{Acknowledgment, Check, Severity};
 pub use core::ports::{AcknowledgmentStore, CheckRepository, VersionControl};
 pub use core::services::{CheckResult, check_items, matches_target};
-
-// Re-exports for backwards compatibility
-pub use shared::parser;
-pub use shared::resolver;

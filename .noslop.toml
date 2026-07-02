@@ -20,3 +20,28 @@ id = "NOS-3"
 target = ".github/workflows/"
 message = "When modifying GitHub Actions workflows, ensure docs/CI_CD.md is updated to reflect any changes"
 severity = "warn"
+
+[[check]]
+id = "NOS-4"
+target = "Cargo.toml"
+message = "Dependency change: full build passes and no unused deps remain"
+severity = "block"
+
+[[check]]
+id = "NOS-5"
+target = "tests/unit.rs"
+message = "Test module list matches the files present in tests/unit/"
+severity = "warn"
+
+[[check]]
+id = "NOS-6"
+target = "src/cli/**"
+message = "CLI surface changed: README commands section and help text still accurate?"
+severity = "warn"
+
+[[check]]
+id = "NOS-7"
+target = "CLAUDE.md"
+message = "New convention documented: add a matching noslop check if it should be enforced"
+severity = "warn"
+

@@ -31,34 +31,3 @@ pub trait AcknowledgmentStore: Send + Sync {
     /// Used to retrieve acknowledgment history from past commits.
     fn parse_from_commit(&self, commit_sha: &str) -> anyhow::Result<Vec<Acknowledgment>>;
 }
-
-/// Storage backend type enumeration
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum StorageBackend {
-    /// Commit message trailers (default, most portable)
-    #[default]
-    Trailer,
-    /// JSON files in .noslop/
-    File,
-}
-
-impl std::str::FromStr for StorageBackend {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "trailer" | "trailers" => Ok(Self::Trailer),
-            "file" | "files" => Ok(Self::File),
-            _ => Err(format!("Unknown backend: {s}. Use 'trailer' or 'file'")),
-        }
-    }
-}
-
-impl std::fmt::Display for StorageBackend {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Trailer => write!(f, "trailer"),
-            Self::File => write!(f, "file"),
-        }
-    }
-}

@@ -57,16 +57,6 @@ prefix = "{prefix}"
     git::hooks::install_post_commit()?;
     println!("  Installed post-commit hook");
 
-    // Check for existing docs to bootstrap from
-    let docs = ["CLAUDE.md", "AGENTS.md", "ARCHITECTURE.md"];
-    let found: Vec<_> = docs.iter().filter(|d| Path::new(d).exists()).collect();
-
-    if !found.is_empty() {
-        let found_str: Vec<&str> = found.into_iter().copied().collect();
-        println!("\n  Found: {}", found_str.join(", "));
-        println!("  Run 'noslop check import' to extract checks");
-    }
-
     println!("\nnoslop initialized!");
     println!("\nNext steps:");
     println!("  noslop check add <target> -m \"message\"");

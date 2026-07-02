@@ -1,37 +1,7 @@
 //! Tests for storage module (trailer and file storage)
 
 use noslop::core::models::Acknowledgment;
-use noslop::storage::{AcknowledgmentStore, Backend, TrailerAckStore, trailer::append_trailers};
-
-// =============================================================================
-// BACKEND TESTS
-// =============================================================================
-
-#[test]
-fn test_backend_from_str_trailer() {
-    assert_eq!("trailer".parse::<Backend>().unwrap(), Backend::Trailer);
-    assert_eq!("trailers".parse::<Backend>().unwrap(), Backend::Trailer);
-    assert_eq!("TRAILER".parse::<Backend>().unwrap(), Backend::Trailer);
-}
-
-#[test]
-fn test_backend_from_str_file() {
-    assert_eq!("file".parse::<Backend>().unwrap(), Backend::File);
-    assert_eq!("files".parse::<Backend>().unwrap(), Backend::File);
-    assert_eq!("FILE".parse::<Backend>().unwrap(), Backend::File);
-}
-
-#[test]
-fn test_backend_from_str_unknown() {
-    let result = "unknown".parse::<Backend>();
-    assert!(result.is_err());
-    assert!(result.unwrap_err().contains("Unknown backend"));
-}
-
-#[test]
-fn test_backend_default() {
-    assert_eq!(Backend::default(), Backend::Trailer);
-}
+use noslop::storage::{AcknowledgmentStore, TrailerAckStore, append_trailers};
 
 // =============================================================================
 // TRAILER STORE TESTS
