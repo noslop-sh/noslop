@@ -21,6 +21,7 @@ pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<
     } else {
         NoslopFile {
             project: ProjectConfig::default(),
+            discover: super::parser::DiscoverConfig::default(),
             checks: Vec::new(),
         }
     };
@@ -67,6 +68,13 @@ pub fn format_noslop_file(file: &NoslopFile) -> String {
     if file.project.prefix != "CHK" {
         out.push_str("[project]\n");
         let _ = writeln!(out, "prefix = \"{}\"", file.project.prefix);
+        out.push('\n');
+    }
+
+    // Preserve discover config across rewrites
+    if let Some(runner) = &file.discover.runner {
+        out.push_str("[discover]\n");
+        let _ = writeln!(out, "runner = \"{runner}\"");
         out.push('\n');
     }
 

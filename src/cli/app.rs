@@ -52,6 +52,14 @@ pub enum Command {
         /// Review staged proposals: accept, edit, or reject each one
         #[arg(long)]
         review: bool,
+
+        /// Mine PR review history via your agent CLI (needs gh, or --from-file)
+        #[arg(long, conflicts_with = "review")]
+        mine: bool,
+
+        /// Mine from a JSONL export of review comments ({"path","body"} per line)
+        #[arg(long, value_name = "PATH", conflicts_with = "review")]
+        from_file: Option<String>,
     },
 
     /// Acknowledge a check (prove something was considered)
@@ -135,7 +143,11 @@ pub fn run() -> anyhow::Result<()> {
             action: Some(action),
             ..
         }) => commands::check_manage(action, output_mode),
-        Some(Command::Discover { review }) => commands::discover(review, output_mode),
+        Some(Command::Discover {
+            review,
+            mine,
+            from_file,
+        }) => commands::discover(review, mine, from_file.as_deref(), output_mode),
         Some(Command::Ack { id, message }) => commands::ack(&id, &message, output_mode),
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),

@@ -154,6 +154,8 @@ target = "config/prod.yaml"             # Specific file
 ```bash
 noslop init                              # Set up in repo
 noslop discover                          # Propose checks from CLAUDE.md, AGENTS.md, .cursor/rules
+noslop discover --mine                   # Mine checks from PR review history (uses your agent CLI + gh)
+noslop discover --from-file <jsonl>      # Mine from an exported comment dump instead of gh
 noslop discover --review                 # Accept, edit, or reject proposals
 noslop check add <target> -m <message>   # Add check
 noslop check list                        # List all checks

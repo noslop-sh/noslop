@@ -14,9 +14,22 @@ pub struct NoslopFile {
     #[serde(default)]
     pub project: ProjectConfig,
 
+    /// Discovery configuration
+    #[serde(default)]
+    pub discover: DiscoverConfig,
+
     /// Checks in this file
     #[serde(default, rename = "check")]
     pub checks: Vec<CheckEntry>,
+}
+
+/// `[discover]` configuration
+#[derive(Debug, Default, Deserialize)]
+#[serde(default)]
+pub struct DiscoverConfig {
+    /// Command that runs mining prompts (must read the prompt on stdin and
+    /// print TOML on stdout), e.g. `"claude -p"`. Overrides auto-detection.
+    pub runner: Option<String>,
 }
 
 /// Project-level configuration

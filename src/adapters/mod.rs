@@ -4,19 +4,23 @@
 //!
 //! - [`env`] - Actor detection from the process environment
 //! - [`mod@file`] - JSON file acknowledgment staging storage
+//! - [`gh`] - Review-history fetching via the GitHub CLI
 //! - [`git`] - Git operations (hooks, staging, version control)
 //! - [`ledger`] - Durable ack records in the tree (squash-proof)
 //! - [`proposals`] - Staged check proposals awaiting review
 //! - [`rules`] - Rules-file discovery (CLAUDE.md, AGENTS.md, .cursor/rules)
+//! - [`runner`] - Agent CLI subprocess for mining prompts
 //! - [`mod@toml`] - `.noslop.toml` file parsing and writing
 //! - [`trailer`] - Commit trailer acknowledgment storage
 
 pub mod env;
 pub mod file;
+pub mod gh;
 pub mod git;
 pub mod ledger;
 pub mod proposals;
 pub mod rules;
+pub mod runner;
 pub mod toml;
 pub mod trailer;
 

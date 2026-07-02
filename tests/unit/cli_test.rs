@@ -399,3 +399,63 @@ fn test_discover_imports_rules_and_review_accepts() {
         .stdout(predicate::str::contains("0 new proposal(s)"));
     assert!(temp.path().join(".noslop/rejected-keys.txt").exists());
 }
+
+#[test]
+fn test_discover_mine_from_file_with_fake_runner() {
+    let temp = TempDir::new().unwrap();
+
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    // Fake agent CLI: consumes stdin, emits one valid check
+    let script = temp.path().join("fake-agent.sh");
+    std::fs::write(
+        &script,
+        "#!/bin/sh\ncat > /dev/null\necho '[[check]]'\necho 'target = \"api/**/*.py\"'\necho 'message = \"Rate limiting decorator added to public routes?\"'\necho 'severity = \"block\"'\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[discover]\nrunner = \"./fake-agent.sh\"\n",
+    )
+    .unwrap();
+
+    std::fs::write(
+        temp.path().join("comments.jsonl"),
+        "{\"path\": \"api/routes.py\", \"body\": \"needs rate limiting\"}\n{\"path\": \"api/users.py\", \"body\": \"rate limit missing again\"}\n",
+    )
+    .unwrap();
+
+    // Mine from the JSONL export through the fake runner
+    noslop()
+        .args(["discover", "--from-file", "comments.jsonl"])
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("1 new proposal(s) mined"));
+
+    // Accept it; the check lands with a TST id and runner config survives
+    noslop()
+        .args(["discover", "--review"])
+        .current_dir(temp.path())
+        .write_stdin("a\n")
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Added as TST-1"));
+
+    let toml = std::fs::read_to_string(temp.path().join(".noslop.toml")).unwrap();
+    assert!(toml.contains("Rate limiting decorator"));
+    assert!(
+        toml.contains("runner = \"./fake-agent.sh\""),
+        "discover config must survive rewrites"
+    );
+}
