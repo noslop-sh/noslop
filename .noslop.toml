@@ -69,3 +69,27 @@ target = "src/**/*.rs"
 message = "No compat shims or speculative abstractions: one implementation per port until a second consumer exists."
 severity = "warn"
 
+[[check]]
+id = "NOS-12"
+target = "src/core/**/*.rs"
+message = "Does this core code stay pure domain logic with no I/O?"
+severity = "block"
+
+[[check]]
+id = "NOS-13"
+target = "src/**/*.rs"
+message = "Does new logic added in this change include tests?"
+severity = "block"
+
+[[check]]
+id = "NOS-14"
+target = "src/**/*.rs"
+message = "If this change alters behavior, did you update the affected tests in the same commit?"
+severity = "warn"
+
+[[check]]
+id = "NOS-15"
+target = "src/adapters/**/*.rs"
+message = "If this change breaks a versioned schema (ack ledger or check-run payload), did you bump the schema version?"
+severity = "block"
+

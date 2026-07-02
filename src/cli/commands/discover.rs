@@ -1,10 +1,11 @@
 //! Discover command - turn existing rules files into check proposals
 //!
-//! `noslop discover` scans CLAUDE.md / AGENTS.md / `.cursor/rules` and
-//! stages atomic check proposals in `.noslop/proposals.toml`; `--mine`
-//! additionally mines PR review history through the developer's own agent
-//! CLI. Nothing is enforced until a human accepts a proposal via
-//! `noslop discover --review`, which promotes it to a check in `.noslop.toml`.
+//! `noslop discover` decomposes CLAUDE.md / AGENTS.md / `.cursor/rules`
+//! into atomic check proposals via the developer's own agent CLI; `--mine`
+//! does the same for PR review history. Both stage proposals in
+//! `.noslop/proposals.toml`; nothing is enforced until a human accepts a
+//! proposal via `noslop discover --review`, which promotes it to a check
+//! in `.noslop.toml`.
 
 use std::io::{BufRead, Write};
 
@@ -12,7 +13,7 @@ use crate::noslop_file;
 use noslop::adapters::runner::Runner;
 use noslop::adapters::{gh, proposals, rules};
 use noslop::core::models::Proposal;
-use noslop::core::services::{discovery, mining};
+use noslop::core::services::discovery;
 use noslop::output::OutputMode;
 
 /// Where raw runner output is saved when it cannot be parsed.
@@ -37,19 +38,22 @@ pub fn discover(
     }
 }
 
-/// Mine PR review history into proposals via the local agent CLI.
-fn mine_history(from_file: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
-    let root = std::env::current_dir()?;
-
-    // Runner: [discover] runner config wins, then PATH detection
-    let config_runner = load_runner_config(&root);
-    let Some(runner) = Runner::detect(config_runner.as_deref()) else {
-        anyhow::bail!(
+/// Resolve the agent CLI runner: `[discover] runner` config wins, then PATH.
+fn detect_runner(root: &std::path::Path) -> anyhow::Result<Runner> {
+    let config_runner = load_runner_config(root);
+    Runner::detect(config_runner.as_deref()).ok_or_else(|| {
+        anyhow::anyhow!(
             "no agent CLI found. Install one (e.g. claude) or set it in .noslop.toml:\n\n  \
              [discover]\n  runner = \"claude -p\"\n\nThe command must read the prompt on stdin \
              and print TOML on stdout."
-        );
-    };
+        )
+    })
+}
+
+/// Mine PR review history into proposals via the local agent CLI.
+fn mine_history(from_file: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
+    let root = std::env::current_dir()?;
+    let runner = detect_runner(&root)?;
 
     // Comments: JSONL export or live GitHub history
     let (comments, source) = if let Some(path) = from_file {
@@ -67,7 +71,7 @@ fn mine_history(from_file: Option<&str>, mode: OutputMode) -> anyhow::Result<()>
     }
 
     let repo_label = source.trim_start_matches("mining:").to_string();
-    let chunks = mining::chunk_comments(comments, CHUNK_BYTES);
+    let chunks = discovery::chunk_comments(comments, CHUNK_BYTES);
     println!(
         "Mining {} comment chunk(s) via '{}' (this can take a few minutes)...",
         chunks.len(),
@@ -76,7 +80,7 @@ fn mine_history(from_file: Option<&str>, mode: OutputMode) -> anyhow::Result<()>
 
     let mut chunk_outputs = Vec::new();
     for (i, chunk) in chunks.iter().enumerate() {
-        let prompt = mining::mining_prompt(&repo_label, chunk);
+        let prompt = discovery::mining_prompt(&repo_label, chunk);
         let output = run_with_retry(&runner, &prompt, &source)?;
         println!("  chunk {}/{}: ok", i + 1, chunks.len());
         chunk_outputs.push(output);
@@ -86,7 +90,7 @@ fn mine_history(from_file: Option<&str>, mode: OutputMode) -> anyhow::Result<()>
     let mined = if chunk_outputs.len() == 1 {
         chunk_outputs.pop().expect("one chunk output")
     } else {
-        let prompt = mining::merge_prompt(&repo_label, &chunk_outputs);
+        let prompt = discovery::merge_prompt(&repo_label, &chunk_outputs);
         run_with_retry(&runner, &prompt, &source)?
     };
 
@@ -98,13 +102,13 @@ fn mine_history(from_file: Option<&str>, mode: OutputMode) -> anyhow::Result<()>
 /// proposals) so multi-chunk outputs can be fed to the merge pass verbatim.
 fn run_with_retry(runner: &Runner, prompt: &str, source: &str) -> anyhow::Result<String> {
     let output = runner.run(prompt)?;
-    match mining::parse_proposals(&output, source) {
+    match discovery::parse_proposals(&output, source) {
         Ok(_) => Ok(output),
         Err(first_err) => {
             println!("  runner output unusable ({first_err}); retrying once...");
-            let retry = mining::retry_prompt(prompt, &first_err);
+            let retry = discovery::retry_prompt(prompt, &first_err);
             let output2 = runner.run(&retry)?;
-            match mining::parse_proposals(&output2, source) {
+            match discovery::parse_proposals(&output2, source) {
                 Ok(_) => Ok(output2),
                 Err(second_err) => {
                     std::fs::write(
@@ -127,7 +131,7 @@ fn stage_fresh(
     root: &std::path::Path,
     mode: OutputMode,
 ) -> anyhow::Result<()> {
-    let mined = mining::parse_proposals(mined_output, source)?;
+    let mined = discovery::parse_proposals(mined_output, source)?;
 
     let mut known: Vec<String> = existing_check_keys(root);
     known.extend(proposals::load_rejected_keys()?);
@@ -161,12 +165,12 @@ fn stage_fresh(
 }
 
 /// Read review comments from a JSONL export (objects with `path` and `body`).
-fn read_comments_jsonl(path: &str) -> anyhow::Result<Vec<mining::ReviewComment>> {
+fn read_comments_jsonl(path: &str) -> anyhow::Result<Vec<discovery::ReviewComment>> {
     let content =
         std::fs::read_to_string(path).map_err(|e| anyhow::anyhow!("cannot read {path}: {e}"))?;
     let mut comments = Vec::new();
     for line in content.lines().filter(|l| !l.trim().is_empty()) {
-        match serde_json::from_str::<mining::ReviewComment>(line) {
+        match serde_json::from_str::<discovery::ReviewComment>(line) {
             Ok(c) => comments.push(c),
             Err(_) => continue, // tolerate malformed lines in exports
         }
@@ -183,7 +187,7 @@ fn load_runner_config(root: &std::path::Path) -> Option<String> {
     noslop_file::load_file(&path).ok().and_then(|f| f.discover.runner)
 }
 
-/// Scan rules files, dedupe against known checks and staged proposals.
+/// Decompose rules files into proposals via the local agent CLI.
 fn scan(mode: OutputMode) -> anyhow::Result<()> {
     let root = std::env::current_dir()?;
     let files = rules::find_rules_files(&root)?;
@@ -195,51 +199,19 @@ fn scan(mode: OutputMode) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    let mut extracted = Vec::new();
-    for f in &files {
-        let props = match f.kind {
-            rules::RulesKind::Markdown => discovery::extract_from_markdown(&f.content, &f.name),
-            rules::RulesKind::Mdc => discovery::extract_from_mdc(&f.content, &f.name),
-        };
-        extracted.extend(props);
-    }
+    let runner = detect_runner(&root)?;
 
-    // Known keys: existing checks + staged proposals + past rejections
-    let mut known: Vec<String> = existing_check_keys(&root);
-    known.extend(proposals::load_rejected_keys()?);
-    let staged = proposals::load()?;
-    known.extend(staged.iter().map(Proposal::dedupe_key));
-
-    let fresh = discovery::dedupe(extracted, &known);
-    let fresh_count = fresh.len();
-
-    let mut all = staged;
-    all.extend(fresh);
-    proposals::save(&all)?;
-
-    if mode == OutputMode::Json {
-        println!(
-            "{}",
-            serde_json::json!({
-                "scanned": files.iter().map(|f| f.name.clone()).collect::<Vec<_>>(),
-                "new_proposals": fresh_count,
-                "pending_review": all.len(),
-                "proposals": all,
-            })
-        );
-        return Ok(());
-    }
-
-    println!("Scanned {} rules file(s):", files.len());
+    println!("Decomposing {} rules file(s) via '{}':", files.len(), runner.describe());
     for f in &files {
         println!("  {}", f.name);
     }
-    println!("\n{fresh_count} new proposal(s), {} pending review.", all.len());
-    if !all.is_empty() {
-        println!("\nRun 'noslop discover --review' to accept, edit, or reject them.");
-    }
 
-    Ok(())
+    let contents: Vec<(String, String)> =
+        files.iter().map(|f| (f.name.clone(), f.content.clone())).collect();
+    let prompt = discovery::import_prompt(&contents);
+    let output = run_with_retry(&runner, &prompt, "import")?;
+
+    stage_fresh(&output, "import", &root, mode)
 }
 
 /// Interactive review: accept/edit/skip/reject each staged proposal.

@@ -6,7 +6,7 @@
 
 use std::process::Command;
 
-use crate::core::services::mining::ReviewComment;
+use crate::core::services::discovery::ReviewComment;
 
 /// Bot author fragments filtered out of mining input.
 const BOT_LOGIN_FRAGMENTS: &[&str] = &["bot", "copilot", "coderabbit", "dependabot"];

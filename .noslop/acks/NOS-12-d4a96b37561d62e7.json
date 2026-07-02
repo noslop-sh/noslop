@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "check_id": "NOS-12",
+  "message": "Verified: core/services/discovery.rs is pure (prompt building, parsing, dedupe) — no filesystem/process/network I/O; subprocess lives in adapters::runner",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-02T23:47:42.299479693+00:00"
+}

@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "check_id": "NOS-15",
+  "message": "No versioned schema touched: rules/gh adapter changes only, ledger and check-run payload formats unchanged",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-02T23:47:42.304374184+00:00"
+}

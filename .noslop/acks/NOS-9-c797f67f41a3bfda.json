@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "check_id": "NOS-9",
+  "message": "Verified: scan() delegates decomposition to core discovery::import_prompt/parse_proposals/dedupe; CLI only orchestrates runner + staging",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-02T23:47:42.296797129+00:00"
+}

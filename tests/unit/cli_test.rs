@@ -354,11 +354,41 @@ fn test_discover_imports_rules_and_review_accepts() {
 
     std::fs::write(
         temp.path().join("CLAUDE.md"),
-        "# Conventions\n\n- Never commit directly to main\n- Run `make check` before every commit\n- just some prose here\n",
+        "# Conventions\n\n- Never commit directly to main\n- Run `make check` before every commit\n",
     )
     .unwrap();
 
-    // Scan stages proposals
+    // Fake agent CLI: consumes stdin, emits two decomposed checks
+    let script = temp.path().join("fake-agent.sh");
+    std::fs::write(
+        &script,
+        concat!(
+            "#!/bin/sh\ncat > /dev/null\n",
+            "echo '[[check]]'\n",
+            "echo 'target = \"**/*\"'\n",
+            "echo 'message = \"Never commit directly to main\"'\n",
+            "echo 'severity = \"block\"'\n",
+            "echo 'source = \"CLAUDE.md\"'\n",
+            "echo '[[check]]'\n",
+            "echo 'target = \"**/*.rs\"'\n",
+            "echo 'message = \"Did make check pass before this commit?\"'\n",
+            "echo 'severity = \"warn\"'\n",
+            "echo 'source = \"CLAUDE.md\"'\n",
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&script, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[discover]\nrunner = \"./fake-agent.sh\"\n",
+    )
+    .unwrap();
+
+    // Import decomposes rules files through the runner
     noslop()
         .arg("discover")
         .current_dir(temp.path())
@@ -366,6 +396,10 @@ fn test_discover_imports_rules_and_review_accepts() {
         .success()
         .stdout(predicate::str::contains("2 new proposal(s)"));
     assert!(temp.path().join(".noslop/proposals.toml").exists());
+
+    // Model-provided source survives into the proposal
+    let staged = std::fs::read_to_string(temp.path().join(".noslop/proposals.toml")).unwrap();
+    assert!(staged.contains("source = \"CLAUDE.md\""));
 
     // Re-scan is idempotent
     noslop()

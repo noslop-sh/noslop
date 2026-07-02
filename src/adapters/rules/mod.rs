@@ -2,19 +2,12 @@
 //!
 //! Finds and reads the agent rules files that `noslop discover` imports:
 //! `CLAUDE.md`, `AGENTS.md`, `AGENT.md`, `.cursor/rules/*.mdc`, and
-//! `.claude/rules/*.md` at the repository root.
+//! `.claude/rules/*.md` at the repository root. Files are passed to the
+//! LLM verbatim (it reads `.mdc` frontmatter itself), so no format
+//! distinction is needed here.
 
 use std::fs;
 use std::path::Path;
-
-/// How a rules file should be parsed
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RulesKind {
-    /// Plain markdown (CLAUDE.md, AGENTS.md)
-    Markdown,
-    /// Cursor rules file with `globs:` frontmatter
-    Mdc,
-}
 
 /// A rules file found in the repository
 #[derive(Debug, Clone)]
@@ -23,8 +16,6 @@ pub struct RulesFile {
     pub name: String,
     /// Raw file content
     pub content: String,
-    /// How to parse it
-    pub kind: RulesKind,
 }
 
 /// Root-level markdown rules files to look for.
@@ -44,25 +35,18 @@ pub fn find_rules_files(root: &Path) -> anyhow::Result<Vec<RulesFile>> {
             files.push(RulesFile {
                 name: (*name).to_string(),
                 content: fs::read_to_string(&path)?,
-                kind: RulesKind::Markdown,
             });
         }
     }
 
-    collect_dir(root, ".cursor/rules", "mdc", RulesKind::Mdc, &mut files)?;
-    collect_dir(root, ".claude/rules", "md", RulesKind::Markdown, &mut files)?;
+    collect_dir(root, ".cursor/rules", "mdc", &mut files)?;
+    collect_dir(root, ".claude/rules", "md", &mut files)?;
 
     Ok(files)
 }
 
 /// Collect files with `ext` from `dir` (non-recursive), sorted by name.
-fn collect_dir(
-    root: &Path,
-    dir: &str,
-    ext: &str,
-    kind: RulesKind,
-    out: &mut Vec<RulesFile>,
-) -> anyhow::Result<()> {
+fn collect_dir(root: &Path, dir: &str, ext: &str, out: &mut Vec<RulesFile>) -> anyhow::Result<()> {
     let dir_path = root.join(dir);
     if !dir_path.is_dir() {
         return Ok(());
@@ -81,7 +65,6 @@ fn collect_dir(
         out.push(RulesFile {
             name: format!("{dir}/{file_name}"),
             content: fs::read_to_string(&path)?,
-            kind,
         });
     }
     Ok(())

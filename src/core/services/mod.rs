@@ -10,7 +10,6 @@
 pub mod checker;
 pub mod discovery;
 pub mod matcher;
-pub mod mining;
 
 pub use checker::{CheckItemResult, CheckResult, check_items};
 pub use matcher::matches_target;
