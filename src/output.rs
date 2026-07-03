@@ -32,12 +32,21 @@ pub struct CheckResult {
     /// unavailable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tree_oid: Option<String>,
+    /// Version of the cloud check set in force for this run (additive
+    /// within schema 1; absent when the repo has no remote binding)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check_set_version: Option<String>,
     /// Checks that are blocking (need acknowledgment)
     pub blocking: Vec<CheckMatch>,
     /// Checks that are warnings
     pub warnings: Vec<CheckMatch>,
     /// Checks that were acknowledged
     pub acknowledged: Vec<CheckMatch>,
+    /// Monitor-state cloud checks that surfaced: recorded for promotion
+    /// decisions, never agent-visible, never gating (additive within
+    /// schema 1; omitted when empty)
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub monitor: Vec<CheckMatch>,
 }
 
 /// Version of the upload envelope format (see `docs/SCHEMA.md`)

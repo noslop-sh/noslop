@@ -74,6 +74,15 @@ deletes them. Union-merged across branches (`.gitattributes`:
   record tree oids to distinguish self-correction from rubber-stamping.
   Omitted when git state is unavailable; payloads from older versions
   simply lack it.
+- `check_set_version` (optional, added within schema 1 as an additive
+  field): content hash of the cloud-distributed check set in force for
+  this run, echoed from `GET /api/v1/repo/checks`. Absent when the repo
+  has no `[remote]` binding — the governing rules then live entirely in
+  the tree.
+- `monitor` (optional, added within schema 1 as an additive field):
+  surfacings of monitor-state cloud checks, same item shape as
+  `blocking`. Recorded for promotion decisions; never agent-visible,
+  never gating, omitted when empty.
 - This payload is the check-run upload's `check` field, verbatim.
 
 ## Fire events — `.noslop/events.jsonl` (local, per-clone)

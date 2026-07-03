@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-9",
+  "message": "check_validate calls core merge_checks and check_items; partition_remote only adapts wire types to core models and applies actor bypass at enforcement time — no core logic reimplemented",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T19:37:42.495659588+00:00",
+  "tree_oid": "370c33ef17f0e1cc0995750d7fc16e80119f2d98",
+  "fire_tree_oid": "f6d281bbbd922892db2bd2c58515839c2030bd59",
+  "fired_at": "2026-07-03T19:37:24.667052757+00:00"
+}

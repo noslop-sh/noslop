@@ -20,6 +20,7 @@ pub mod gh;
 pub mod git;
 pub mod ledger;
 pub mod proposals;
+pub mod remote;
 pub mod rules;
 pub mod runner;
 pub mod telemetry;

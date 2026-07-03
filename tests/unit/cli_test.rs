@@ -838,3 +838,122 @@ fn test_ack_without_prior_fire_omits_fire_fields() {
     assert!(record.get("fire_tree_oid").is_none());
     assert!(record.get("fired_at").is_none());
 }
+
+/// Minimal one-shot HTTP server: answers every request with the given JSON.
+fn serve_check_set(body: &'static str) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        // Serve a handful of requests, then let the thread die with the test
+        for stream in listener.incoming().take(4) {
+            let Ok(mut stream) = stream else { break };
+            use std::io::{Read, Write};
+            let mut buf = [0u8; 2048];
+            let _ = stream.read(&mut buf);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    format!("http://{addr}")
+}
+
+#[test]
+fn test_remote_checks_gate_and_monitor_stays_silent() {
+    let url = serve_check_set(
+        r#"{"check_set_version":"v-test-1","checks":[
+            {"id":"ORG-1","target":"*.rs","message":"org: reviewed?","severity":"block","state":"enforce","owner":"saumil","bypasses":[]},
+            {"id":"ORG-2","target":"*.rs","message":"org: trial check","severity":"block","state":"monitor","owner":"saumil","bypasses":[]}
+        ]}"#,
+    );
+
+    let temp = TempDir::new().unwrap();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(temp.path())
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap()
+    };
+    git(&["init", "-b", "main"]);
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        format!("[project]\nprefix = \"TST\"\n\n[remote]\nurl = \"{url}\"\n"),
+    )
+    .unwrap();
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "-A"]);
+
+    let out = noslop()
+        .args(["--json", "check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .env("NOSLOP_CLOUD_TOKEN", "nslp_test")
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    // The enforce-state org check blocks the agent
+    assert!(!out.status.success());
+
+    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["check_set_version"], "v-test-1");
+    let blocking: Vec<&str> = result["blocking"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["id"].as_str().unwrap())
+        .collect();
+    assert!(blocking.contains(&"ORG-1"));
+    // The monitor-state check never blocks and never joins blocking output;
+    // it rides the monitor array for promotion telemetry
+    assert!(!blocking.contains(&"ORG-2"));
+    let monitor: Vec<&str> = result["monitor"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(monitor, ["ORG-2"]);
+}
+
+#[test]
+fn test_remote_fetch_failure_fails_open_to_local_checks() {
+    let temp = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    // Unroutable remote: the gate must degrade to local checks, not error
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[remote]\nurl = \"http://127.0.0.1:1\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"local ask\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    let out = noslop()
+        .args(["--json", "check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .env("NOSLOP_CLOUD_TOKEN", "nslp_test")
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    // Local check still gates; the remote outage is a stderr warning only
+    assert!(!out.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["blocking"][0]["id"], "TST-1");
+    assert!(result.get("check_set_version").is_none());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("using local checks only"));
+}

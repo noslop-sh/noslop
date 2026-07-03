@@ -29,6 +29,7 @@ fn check_result_serialization() {
         actor: "human".to_string(),
         enforced: false,
         tree_oid: None,
+        check_set_version: None,
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![CheckMatch {
@@ -39,6 +40,7 @@ fn check_result_serialization() {
             severity: "block".to_string(),
             acknowledged: true,
         }],
+        monitor: vec![],
     };
 
     let json = serde_json::to_string(&result).unwrap();
@@ -55,6 +57,7 @@ fn check_result_blocking() {
         actor: "claude-code".to_string(),
         enforced: true,
         tree_oid: None,
+        check_set_version: None,
         blocking: vec![CheckMatch {
             id: "TEST-2".to_string(),
             file: "src/api.rs".to_string(),
@@ -65,6 +68,7 @@ fn check_result_blocking() {
         }],
         warnings: vec![],
         acknowledged: vec![],
+        monitor: vec![],
     };
 
     let json = serde_json::to_string(&result).unwrap();
@@ -80,6 +84,7 @@ fn check_result_with_warnings() {
         actor: "human".to_string(),
         enforced: false,
         tree_oid: None,
+        check_set_version: None,
         blocking: vec![],
         warnings: vec![CheckMatch {
             id: "TEST-3".to_string(),
@@ -90,6 +95,7 @@ fn check_result_with_warnings() {
             acknowledged: false,
         }],
         acknowledged: vec![],
+        monitor: vec![],
     };
 
     let json = serde_json::to_string(&result).unwrap();
@@ -215,9 +221,11 @@ fn check_result_tree_oid_serializes_when_present() {
         actor: "ci".to_string(),
         enforced: true,
         tree_oid: Some("8f2c4b1e".to_string()),
+        check_set_version: None,
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![],
+        monitor: vec![],
     };
 
     let json = serde_json::to_string(&result).unwrap();
@@ -232,9 +240,11 @@ fn check_result_tree_oid_omitted_when_absent() {
         actor: "human".to_string(),
         enforced: false,
         tree_oid: None,
+        check_set_version: None,
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![],
+        monitor: vec![],
     };
 
     // Additive schema-1 field: older-payload consumers never see the key

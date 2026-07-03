@@ -18,9 +18,28 @@ pub struct NoslopFile {
     #[serde(default)]
     pub discover: DiscoverConfig,
 
+    /// Org binding for cloud-distributed checks
+    #[serde(default)]
+    pub remote: RemoteConfig,
+
     /// Checks in this file
     #[serde(default, rename = "check")]
     pub checks: Vec<CheckEntry>,
+}
+
+/// `[remote]` configuration: where to fetch org checks from
+///
+/// Absence simply means local-only — no compat shim needed. The token is
+/// never stored in the file; `token_env` names the environment variable
+/// holding the repo token.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(default)]
+pub struct RemoteConfig {
+    /// Base URL of the noslop cloud API (e.g. `https://ingest.noslop.sh`)
+    pub url: Option<String>,
+
+    /// Env var holding the repo token (default: `NOSLOP_CLOUD_TOKEN`)
+    pub token_env: Option<String>,
 }
 
 /// `[discover]` configuration

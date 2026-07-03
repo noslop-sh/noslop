@@ -11,7 +11,9 @@ pub mod checker;
 pub mod curate;
 pub mod discovery;
 pub mod matcher;
+pub mod merge;
 pub mod stats;
 
 pub use checker::{CheckItemResult, CheckResult, check_items};
 pub use matcher::matches_target;
+pub use merge::merge_checks;

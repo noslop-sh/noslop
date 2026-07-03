@@ -22,6 +22,7 @@ pub fn add_check(target: &str, message: &str, severity: &str) -> anyhow::Result<
         NoslopFile {
             project: ProjectConfig::default(),
             discover: super::parser::DiscoverConfig::default(),
+            remote: super::parser::RemoteConfig::default(),
             checks: Vec::new(),
         }
     };
