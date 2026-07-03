@@ -757,3 +757,84 @@ fn test_envelope_rejects_non_check_payload() {
         .assert()
         .failure();
 }
+
+#[test]
+fn test_ack_embeds_fire_evidence_from_local_events() {
+    let temp = TempDir::new().unwrap();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(temp.path())
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap()
+    };
+    git(&["init", "-b", "main"]);
+
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Reviewed?\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "-A"]);
+
+    // The gate fires TST-1 and logs a local fire event (agent actor, local mode)
+    noslop()
+        .args(["check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .assert()
+        .failure();
+    assert!(temp.path().join(".noslop/events.jsonl").exists());
+
+    // The ack copies the fire's tree oid + timestamp into the ledger record
+    noslop()
+        .args(["ack", "TST-1", "-m", "verified"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .assert()
+        .success();
+
+    let acks_dir = temp.path().join(".noslop/acks");
+    let record_path = std::fs::read_dir(&acks_dir).unwrap().next().unwrap().unwrap().path();
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(record_path).unwrap()).unwrap();
+    assert!(record["fire_tree_oid"].is_string());
+    assert!(record["fired_at"].is_string());
+    // Nothing changed between fire and ack: the trees match (a rubber stamp)
+    assert_eq!(record["fire_tree_oid"], record["tree_oid"]);
+}
+
+#[test]
+fn test_ack_without_prior_fire_omits_fire_fields() {
+    let temp = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Reviewed?\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+
+    noslop()
+        .args(["ack", "TST-1", "-m", "acked before any check ran"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .assert()
+        .success();
+
+    let acks_dir = temp.path().join(".noslop/acks");
+    let record_path = std::fs::read_dir(&acks_dir).unwrap().next().unwrap().unwrap().path();
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(record_path).unwrap()).unwrap();
+    // Additive optional fields: absent, not null, when no fire event exists
+    assert!(record.get("fire_tree_oid").is_none());
+    assert!(record.get("fired_at").is_none());
+}

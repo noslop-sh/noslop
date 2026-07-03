@@ -27,6 +27,13 @@ change. File content survives squash merges and rebases (trailers do not).
   staged-tree object id (`git write-tree`) at ack time. Joined with fire
   events to distinguish self-correction from rubber-stamping. Records
   written before this field simply omit it.
+- `fire_tree_oid`, `fired_at` (optional, added within schema 1 as additive
+  fields): the staged-tree oid and timestamp of the check's latest local
+  fire event, copied into the record at ack time so it is self-contained
+  evidence — `fire_tree_oid == tree_oid` means the ack changed nothing
+  (rubber stamp), and `fired_at → created_at` is the time-to-ack. Absent
+  when no local fire event preceded the ack (e.g. ack before first check
+  run) and in records written before these fields.
 - File name digest is content-derived; records are immutable once committed.
 
 ## History ledger — `.noslop/history.jsonl`

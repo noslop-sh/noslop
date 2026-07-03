@@ -27,6 +27,21 @@ pub struct Acknowledgment {
     /// Optional: absent in schema-v1 records written before this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree_oid: Option<String>,
+
+    /// Staged-tree object id when this check last fired before the ack.
+    ///
+    /// Copied from the local fire event at ack time so the record is
+    /// self-contained evidence: `fire_tree_oid == tree_oid` means the ack
+    /// changed nothing (rubber stamp). Optional additive schema-1 field.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fire_tree_oid: Option<String>,
+
+    /// When this check last fired before the ack (from the fire event).
+    ///
+    /// With `created_at` this yields time-to-ack. Optional additive
+    /// schema-1 field; absent when no local fire event preceded the ack.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fired_at: Option<String>,
 }
 
 impl Acknowledgment {
@@ -39,6 +54,8 @@ impl Acknowledgment {
             acknowledged_by,
             created_at: chrono::Utc::now().to_rfc3339(),
             tree_oid: None,
+            fire_tree_oid: None,
+            fired_at: None,
         }
     }
 
@@ -52,6 +69,14 @@ impl Acknowledgment {
     #[must_use]
     pub fn with_tree_oid(mut self, tree_oid: Option<String>) -> Self {
         self.tree_oid = tree_oid;
+        self
+    }
+
+    /// Attach the fire event this ack answers (tree oid + fire time)
+    #[must_use]
+    pub fn with_fire(mut self, fire_tree_oid: Option<String>, fired_at: Option<String>) -> Self {
+        self.fire_tree_oid = fire_tree_oid;
+        self.fired_at = fired_at;
         self
     }
 }
