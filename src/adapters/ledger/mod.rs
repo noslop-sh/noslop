@@ -120,6 +120,44 @@ pub fn compact() -> anyhow::Result<usize> {
 ///
 /// Returns an error only if an existing file cannot be read.
 pub fn load_pending() -> anyhow::Result<Vec<Acknowledgment>> {
+    Ok(pending_records()?.into_iter().map(|r| r.ack).collect())
+}
+
+/// Load every acknowledgment in the ledger: pending records plus history.
+///
+/// # Errors
+///
+/// Returns an error only if an existing file cannot be read.
+pub fn load_all() -> anyhow::Result<Vec<Acknowledgment>> {
+    Ok(load_all_records()?.into_iter().map(|r| r.ack).collect())
+}
+
+/// Load every full ledger record (schema wrapper included): pending plus
+/// history. This is the shape the upload envelope ships to consumers.
+///
+/// Unparsable entries are skipped — the ledger accumulates records from
+/// multiple schema-compatible versions and readers must not fail on one
+/// bad line.
+///
+/// # Errors
+///
+/// Returns an error only if an existing file cannot be read.
+pub fn load_all_records() -> anyhow::Result<Vec<LedgerRecord>> {
+    let mut records = pending_records()?;
+
+    let history_path = Path::new(HISTORY_FILE);
+    if history_path.exists() {
+        for line in fs::read_to_string(history_path)?.lines() {
+            if let Ok(record) = serde_json::from_str::<LedgerRecord>(line) {
+                records.push(record);
+            }
+        }
+    }
+
+    Ok(records)
+}
+
+fn pending_records() -> anyhow::Result<Vec<LedgerRecord>> {
     let acks_dir = Path::new(ACKS_DIR);
     if !acks_dir.exists() {
         return Ok(Vec::new());
@@ -131,37 +169,13 @@ pub fn load_pending() -> anyhow::Result<Vec<Acknowledgment>> {
         .collect();
     entries.sort();
 
-    let mut acks = Vec::new();
+    let mut records = Vec::new();
     for path in entries {
         if let Ok(record) = serde_json::from_str::<LedgerRecord>(&fs::read_to_string(&path)?) {
-            acks.push(record.ack);
+            records.push(record);
         }
     }
-    Ok(acks)
-}
-
-/// Load every acknowledgment in the ledger: pending records plus history.
-///
-/// Unparsable entries are skipped — the ledger accumulates records from
-/// multiple schema-compatible versions and stats must not fail on one bad
-/// line.
-///
-/// # Errors
-///
-/// Returns an error only if an existing file cannot be read.
-pub fn load_all() -> anyhow::Result<Vec<Acknowledgment>> {
-    let mut acks = load_pending()?;
-
-    let history_path = Path::new(HISTORY_FILE);
-    if history_path.exists() {
-        for line in fs::read_to_string(history_path)?.lines() {
-            if let Ok(record) = serde_json::from_str::<LedgerRecord>(line) {
-                acks.push(record.ack);
-            }
-        }
-    }
-
-    Ok(acks)
+    Ok(records)
 }
 
 /// Deterministic record file name: `<check-id>-<content-digest>.json`

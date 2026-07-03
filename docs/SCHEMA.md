@@ -44,6 +44,7 @@ deletes them. Union-merged across branches (`.gitattributes`:
   "files_checked": 15,
   "actor": "claude-code",
   "enforced": true,
+  "tree_oid": "8f2c4b1e0a9d7c6b5a4f3e2d1c0b9a8f7e6d5c4b",
   "blocking": [
     {
       "id": "NOS-2",
@@ -61,7 +62,12 @@ deletes them. Union-merged across branches (`.gitattributes`:
 
 - `enforced: false` means the actor is human and blocking checks are
   advisory (exit code 0). `--ci` forces `enforced: true` for any actor.
-- This payload is the basis for the future CI check-run upload.
+- `tree_oid` (optional, added within schema 1 as an additive field): the
+  gate-time staged-tree object id (`git write-tree`). Joined with ledger
+  record tree oids to distinguish self-correction from rubber-stamping.
+  Omitted when git state is unavailable; payloads from older versions
+  simply lack it.
+- This payload is the check-run upload's `check` field, verbatim.
 
 ## Fire events — `.noslop/events.jsonl` (local, per-clone)
 
@@ -86,6 +92,8 @@ happens via the check-run payload, not this file.
 
 When the GitHub Action is configured with `upload-url`, it POSTs the check
 payload wrapped with run coordinates. This is the hosted-ingestion contract.
+The envelope is built by `noslop envelope` (the CLI is the single
+serializer of this format).
 
 ```json
 {
@@ -94,11 +102,26 @@ payload wrapped with run coordinates. This is the hosted-ingestion contract.
   "sha": "8f2c4b1e…",
   "pr": "42",
   "base": "origin/main",
-  "check": { "passed": false, "actor": "ci", "blocking": ["…"] }
+  "check": { "passed": false, "actor": "ci", "blocking": ["…"] },
+  "ledger": [
+    {
+      "schema": 1,
+      "check_id": "NOS-2",
+      "message": "exact-ID matching only; added tests",
+      "acknowledged_by": "claude-code",
+      "created_at": "2026-07-02T00:53:11.000Z",
+      "tree_oid": "8f2c4b1e0a9d7c6b5a4f3e2d1c0b9a8f7e6d5c4b"
+    }
+  ]
 }
 ```
 
 - `check` is the `noslop check --json` payload verbatim (see above).
+- `ledger` (optional, added within schema 1 as an additive field): the
+  repository's ledger records for the check ids this run touched — the
+  acknowledgment justification, actor, timestamp, and ack-time tree oid.
+  Consumers must accept envelopes without it (older CLI versions omit it).
+  Unrelated ledger history never leaves the repository.
 - Upload is telemetry, not truth: a failed upload never changes the gate
   verdict.
 

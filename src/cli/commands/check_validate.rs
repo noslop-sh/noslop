@@ -50,11 +50,15 @@ pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> an
     // Core service does the matching; map its result to output types
     let core_result = check_items(&applicable, &acks, staged.len());
 
+    // Gate-time tree oid: joined against ledger tree oids downstream to
+    // distinguish self-correction from rubber-stamping (see docs/SCHEMA.md).
+    let tree_oid = git::staged::staged_tree_oid().ok();
+
     // Telemetry: record every surfaced (unacknowledged) check for stats.
     // Best-effort — a telemetry failure must never block a commit. CI
     // diff-base runs don't log: events are per-clone developer telemetry.
     if diff_base.is_none()
-        && let Ok(tree_oid) = git::staged::staged_tree_oid()
+        && let Some(tree_oid) = tree_oid.clone()
     {
         let events: Vec<CheckFireEvent> = core_result
             .blocking
@@ -78,6 +82,7 @@ pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> an
         files_checked: core_result.files_checked,
         actor: actor.name().to_string(),
         enforced,
+        tree_oid,
         blocking: core_result.blocking.iter().map(to_check_match).collect(),
         warnings: core_result.warnings.iter().map(to_check_match).collect(),
         acknowledged: core_result.acknowledged.iter().map(to_check_match).collect(),
@@ -112,6 +117,7 @@ fn render_empty(files_checked: usize, actor: &Actor, enforced: bool, mode: Outpu
         files_checked,
         actor: actor.name().to_string(),
         enforced,
+        tree_oid: git::staged::staged_tree_oid().ok(),
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![],

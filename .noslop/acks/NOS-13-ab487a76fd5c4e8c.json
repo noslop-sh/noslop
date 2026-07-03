@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-13",
+  "message": "5 new tests: tree_oid serialization present/omitted, UploadEnvelope stable field names, e2e envelope wraps check + filters ledger to touched ids, e2e rejects non-check payloads; full suite 181 green",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T18:34:59.082205286+00:00",
+  "tree_oid": "e0b92e018445f1e5c93528d300d8bcc59a661d96"
+}

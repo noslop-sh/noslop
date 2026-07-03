@@ -660,3 +660,100 @@ fn test_check_diff_base_reconciles_ledger_not_local_state() {
         .assert()
         .success();
 }
+
+#[test]
+fn test_envelope_wraps_check_with_touched_ledger_records() {
+    let temp = TempDir::new().unwrap();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(temp.path())
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap()
+    };
+    git(&["init", "-b", "main"]);
+
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Reviewed?\"\nseverity = \"block\"\n\n[[check]]\nid = \"TST-2\"\ntarget = \"*.md\"\nmessage = \"Docs current?\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-m", "base"]);
+
+    // Branch touches only the .rs check; ack both so the ledger holds a
+    // record the run touched (TST-1) and one it did not (TST-2)
+    git(&["checkout", "-b", "feature"]);
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "lib.rs"]);
+    for (id, msg) in [("TST-1", "verified the rust change"), ("TST-2", "unrelated ack")] {
+        noslop()
+            .args(["ack", id, "-m", msg])
+            .env("NOSLOP_ACTOR", "claude-code")
+            .current_dir(temp.path())
+            .assert()
+            .success();
+    }
+    git(&["add", "-A"]);
+    git(&["commit", "-m", "change with acks"]);
+
+    // The Action flow: check --json to a file, then envelope wraps it
+    let check_out = noslop()
+        .args(["--json", "check", "--ci", "--diff-base", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    std::fs::write(temp.path().join("noslop-check.json"), &check_out.stdout).unwrap();
+
+    let envelope_out = noslop()
+        .args([
+            "envelope",
+            "--check",
+            "noslop-check.json",
+            "--repo",
+            "acme/api",
+            "--sha",
+            "abc123",
+            "--base",
+            "main",
+        ])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(envelope_out.status.success());
+
+    let envelope: serde_json::Value = serde_json::from_slice(&envelope_out.stdout).unwrap();
+    assert_eq!(envelope["schema"], 1);
+    assert_eq!(envelope["repo"], "acme/api");
+    assert_eq!(envelope["pr"], ""); // defaulted: non-PR run
+
+    // check payload embedded verbatim, including the gate-time tree oid
+    assert_eq!(envelope["check"]["passed"], true);
+    assert!(envelope["check"]["tree_oid"].is_string());
+
+    // Ledger carries the touched record with its justification and ack
+    // tree oid; the untouched TST-2 record never leaves the repository
+    let ledger = envelope["ledger"].as_array().unwrap();
+    assert_eq!(ledger.len(), 1);
+    assert_eq!(ledger[0]["check_id"], "TST-1");
+    assert_eq!(ledger[0]["message"], "verified the rust change");
+    assert_eq!(ledger[0]["acknowledged_by"], "claude-code");
+    assert!(ledger[0]["tree_oid"].is_string());
+    assert!(ledger[0]["created_at"].is_string());
+}
+
+#[test]
+fn test_envelope_rejects_non_check_payload() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("bogus.json"), "[1,2,3]").unwrap();
+
+    noslop()
+        .args(["envelope", "--check", "bogus.json", "--repo", "r", "--sha", "s", "--base", "m"])
+        .current_dir(temp.path())
+        .assert()
+        .failure();
+}

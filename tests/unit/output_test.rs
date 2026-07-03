@@ -4,7 +4,8 @@
 //! human-readable text or machine-parseable JSON.
 
 use noslop::output::{
-    AckResult, CheckInfo, CheckListResult, CheckMatch, CheckResult, OperationResult, OutputMode,
+    AckResult, CheckInfo, CheckListResult, CheckMatch, CheckResult, ENVELOPE_SCHEMA,
+    OperationResult, OutputMode, UploadEnvelope,
 };
 
 // =============================================================================
@@ -27,6 +28,7 @@ fn check_result_serialization() {
         files_checked: 2,
         actor: "human".to_string(),
         enforced: false,
+        tree_oid: None,
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![CheckMatch {
@@ -52,6 +54,7 @@ fn check_result_blocking() {
         files_checked: 1,
         actor: "claude-code".to_string(),
         enforced: true,
+        tree_oid: None,
         blocking: vec![CheckMatch {
             id: "TEST-2".to_string(),
             file: "src/api.rs".to_string(),
@@ -76,6 +79,7 @@ fn check_result_with_warnings() {
         files_checked: 1,
         actor: "human".to_string(),
         enforced: false,
+        tree_oid: None,
         blocking: vec![],
         warnings: vec![CheckMatch {
             id: "TEST-3".to_string(),
@@ -197,4 +201,74 @@ fn operation_result_success() {
 
     let json = serde_json::to_string(&result).unwrap();
     assert!(json.contains("\"success\":true"));
+}
+
+// =============================================================================
+// Tree oid + UploadEnvelope Serialization Tests
+// =============================================================================
+
+#[test]
+fn check_result_tree_oid_serializes_when_present() {
+    let result = CheckResult {
+        passed: true,
+        files_checked: 1,
+        actor: "ci".to_string(),
+        enforced: true,
+        tree_oid: Some("8f2c4b1e".to_string()),
+        blocking: vec![],
+        warnings: vec![],
+        acknowledged: vec![],
+    };
+
+    let json = serde_json::to_string(&result).unwrap();
+    assert!(json.contains("\"tree_oid\":\"8f2c4b1e\""));
+}
+
+#[test]
+fn check_result_tree_oid_omitted_when_absent() {
+    let result = CheckResult {
+        passed: true,
+        files_checked: 0,
+        actor: "human".to_string(),
+        enforced: false,
+        tree_oid: None,
+        blocking: vec![],
+        warnings: vec![],
+        acknowledged: vec![],
+    };
+
+    // Additive schema-1 field: older-payload consumers never see the key
+    let json = serde_json::to_string(&result).unwrap();
+    assert!(!json.contains("tree_oid"));
+}
+
+#[test]
+fn upload_envelope_serializes_stable_field_names() {
+    let envelope = UploadEnvelope {
+        schema: ENVELOPE_SCHEMA,
+        repo: "noslop-sh/noslop".to_string(),
+        sha: "abc123".to_string(),
+        pr: String::new(),
+        base: "origin/main".to_string(),
+        check: serde_json::json!({"passed": false, "blocking": [{"id": "NOS-2"}]}),
+        ledger: vec![noslop::adapters::ledger::LedgerRecord {
+            schema: 1,
+            ack: noslop::core::models::Acknowledgment::new(
+                "NOS-2".into(),
+                "exact-ID matching only; added tests".into(),
+                "claude-code".into(),
+            ),
+        }],
+    };
+
+    let json = serde_json::to_string(&envelope).unwrap();
+    // The stable API surface: field names may not drift (docs/SCHEMA.md)
+    assert!(json.contains("\"schema\":1"));
+    assert!(json.contains("\"repo\":\"noslop-sh/noslop\""));
+    assert!(json.contains("\"pr\":\"\""));
+    // check payload embedded verbatim
+    assert!(json.contains("\"blocking\":[{\"id\":\"NOS-2\"}]"));
+    // ledger record carries the justification and actor
+    assert!(json.contains("\"check_id\":\"NOS-2\""));
+    assert!(json.contains("\"acknowledged_by\":\"claude-code\""));
 }

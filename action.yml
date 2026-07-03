@@ -76,15 +76,16 @@ runs:
       if: inputs.upload-url != ''
       shell: bash
       run: |
-        # Wrap the versioned payload with run coordinates; failures here
-        # never change the gate verdict (upload is telemetry, not truth).
-        jq -n \
-          --arg repo "${{ github.repository }}" \
-          --arg sha "${{ github.event.pull_request.head.sha || github.sha }}" \
-          --arg pr "${{ github.event.pull_request.number || '' }}" \
-          --arg base "${{ steps.base.outputs.ref }}" \
-          --slurpfile check noslop-check.json \
-          '{schema: 1, repo: $repo, sha: $sha, pr: $pr, base: $base, check: $check[0]}' \
+        # The CLI is the single serializer of the envelope contract
+        # (docs/SCHEMA.md): check payload verbatim + run coordinates + the
+        # run's ledger records. Failures here never change the gate verdict
+        # (upload is telemetry, not truth).
+        noslop envelope \
+          --check noslop-check.json \
+          --repo "${{ github.repository }}" \
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+          --pr "${{ github.event.pull_request.number || '' }}" \
+          --base "${{ steps.base.outputs.ref }}" \
           > noslop-upload.json
         curl --fail-with-body --silent --show-error \
           -X POST \

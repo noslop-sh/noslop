@@ -8,6 +8,7 @@ mod clear_staged;
 mod compact;
 mod curate;
 mod discover;
+mod envelope;
 mod init;
 mod stats;
 
@@ -19,5 +20,6 @@ pub use clear_staged::clear_staged;
 pub use compact::compact;
 pub use curate::curate;
 pub use discover::discover;
+pub use envelope::envelope;
 pub use init::init;
 pub use stats::stats;

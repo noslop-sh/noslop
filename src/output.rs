@@ -26,12 +26,45 @@ pub struct CheckResult {
     pub actor: String,
     /// Whether blocking checks gate this actor (agents/CI yes, humans no)
     pub enforced: bool,
+    /// Gate-time staged-tree object id (`git write-tree`). Additive within
+    /// schema 1: joined against ledger record tree oids to distinguish
+    /// self-correction from rubber-stamping. Absent when git state is
+    /// unavailable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree_oid: Option<String>,
     /// Checks that are blocking (need acknowledgment)
     pub blocking: Vec<CheckMatch>,
     /// Checks that are warnings
     pub warnings: Vec<CheckMatch>,
     /// Checks that were acknowledged
     pub acknowledged: Vec<CheckMatch>,
+}
+
+/// Version of the upload envelope format (see `docs/SCHEMA.md`)
+pub const ENVELOPE_SCHEMA: u32 = 1;
+
+/// Upload envelope: the hosted-ingestion contract.
+///
+/// Wraps the verbatim `noslop check --json` payload with run coordinates
+/// and the run's ledger records.
+#[derive(Debug, Serialize)]
+pub struct UploadEnvelope {
+    /// Envelope format version
+    pub schema: u32,
+    /// Repository slug (e.g. "noslop-sh/noslop")
+    pub repo: String,
+    /// Commit under test
+    pub sha: String,
+    /// Pull request number, empty for non-PR runs
+    pub pr: String,
+    /// Base ref the diff was computed against
+    pub base: String,
+    /// The `noslop check --json` payload, verbatim
+    pub check: serde_json::Value,
+    /// Ledger records for the checks this run touched: the acknowledgment
+    /// justification, actor, timestamp, and ack-time tree oid. Additive
+    /// within schema 1 — consumers must treat it as optional.
+    pub ledger: Vec<crate::adapters::ledger::LedgerRecord>,
 }
 
 /// A check matched to a file
