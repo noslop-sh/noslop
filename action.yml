@@ -1,0 +1,63 @@
+name: "noslop check"
+description: >-
+  Recompute noslop checks against the pull request diff and reconcile them
+  with the acknowledgment ledger committed in the branch. Fails when a
+  blocking check has no ledger record — commits made with --no-verify
+  carry no acknowledgments, so they fail here. Posts the ack table to the
+  job summary.
+branding:
+  icon: "shield"
+  color: "orange"
+
+inputs:
+  base-ref:
+    description: "Base ref to diff against (defaults to the PR base branch)"
+    required: false
+    default: ""
+  version:
+    description: 'noslop version to install (crates.io), or "local" to cargo-install the checked-out source'
+    required: false
+    default: "latest"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install noslop
+      shell: bash
+      run: |
+        if [ "${{ inputs.version }}" = "local" ]; then
+          cargo install --path . --locked
+        elif [ "${{ inputs.version }}" = "latest" ]; then
+          cargo install noslop --locked
+        else
+          cargo install noslop --version "${{ inputs.version }}" --locked
+        fi
+
+    - name: Resolve base ref
+      id: base
+      shell: bash
+      run: |
+        BASE="${{ inputs.base-ref }}"
+        if [ -z "$BASE" ]; then
+          BASE="origin/${{ github.base_ref || 'main' }}"
+        fi
+        git fetch --no-tags --depth=200 origin "${BASE#origin/}" || true
+        echo "ref=$BASE" >> "$GITHUB_OUTPUT"
+
+    - name: noslop check (branch diff vs ledger)
+      shell: bash
+      run: |
+        set +e
+        NOSLOP_ACTOR=ci noslop check --ci --diff-base "${{ steps.base.outputs.ref }}" --json > noslop-check.json
+        STATUS=$?
+        set -e
+
+        {
+          echo "## noslop check"
+          echo ""
+          echo '```json'
+          cat noslop-check.json
+          echo '```'
+        } >> "$GITHUB_STEP_SUMMARY"
+
+        exit $STATUS

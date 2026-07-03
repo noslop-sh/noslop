@@ -24,5 +24,7 @@ pub mod hooks {
 
 pub mod staged {
     //! Staged files re-exports
-    pub use noslop::adapters::git::staging::{get_staged_files, staged_tree_oid, tracked_files};
+    pub use noslop::adapters::git::staging::{
+        diff_files, get_staged_files, staged_tree_oid, tracked_files,
+    };
 }

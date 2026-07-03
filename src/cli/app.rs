@@ -43,6 +43,11 @@ pub enum Command {
         #[arg(long)]
         ci: bool,
 
+        /// Check the branch diff against this base ref instead of the index
+        /// (CI source of truth; acks come from committed ledger records)
+        #[arg(long, value_name = "REF")]
+        diff_base: Option<String>,
+
         #[command(subcommand)]
         action: Option<CheckAction>,
     },
@@ -88,6 +93,13 @@ pub enum Command {
 
     /// Per-check metrics: fires, acks, self-correction vs rubber stamps, dead targets
     Stats {
+        /// Render as a markdown table (for CI summaries)
+        #[arg(long)]
+        markdown: bool,
+    },
+
+    /// Rulebook maintenance report: what to prune or reword, with evidence
+    Curate {
         /// Render as a markdown table (for CI summaries)
         #[arg(long)]
         markdown: bool,
@@ -145,7 +157,11 @@ pub fn run() -> anyhow::Result<()> {
 
     match cli.command {
         Some(Command::Init { force }) => commands::init(force, output_mode),
-        Some(Command::Check { action: None, ci }) => commands::check_validate(ci, output_mode),
+        Some(Command::Check {
+            action: None,
+            ci,
+            diff_base,
+        }) => commands::check_validate(ci, diff_base.as_deref(), output_mode),
         Some(Command::Check {
             action: Some(action),
             ..
@@ -160,6 +176,7 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::ClearStaged) => commands::clear_staged(),
         Some(Command::Compact) => commands::compact(),
         Some(Command::Stats { markdown }) => commands::stats(markdown, output_mode),
+        Some(Command::Curate { markdown }) => commands::curate(markdown, output_mode),
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {
                 println!(

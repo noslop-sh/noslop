@@ -8,6 +8,7 @@
 //! - [`matcher`] - Match target patterns to file paths
 
 pub mod checker;
+pub mod curate;
 pub mod discovery;
 pub mod matcher;
 pub mod stats;

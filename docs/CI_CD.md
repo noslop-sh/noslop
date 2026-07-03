@@ -296,3 +296,22 @@ Potential enhancements to consider:
 - [cargo-xwin](https://github.com/rust-cross/cargo-xwin)
 - [Semantic Versioning](https://semver.org/)
 - [crates.io Publishing Guide](https://doc.rust-lang.org/cargo/reference/publishing.html)
+
+### 4. noslop Gate (`.github/workflows/noslop.yml`)
+
+**Triggers:** Pull requests to `main`.
+
+Dogfoods the repo-root composite action (`action.yml`): installs noslop from
+the checked-out source (`version: local`), then runs
+`noslop check --ci --diff-base origin/main --json`.
+
+- File list = the PR diff (`git diff base...HEAD`), not the index — immune
+  to squash/amend history editing.
+- Acknowledgments = ledger records committed in the branch
+  (`.noslop/acks/*.json`). A commit made with `--no-verify` carries no
+  record, so it fails this job: CI is the source of truth, the local hook
+  is convenience.
+- The JSON check payload is appended to the job summary (the "ack table").
+
+External repos use the same action via `uses: noslop-sh/noslop@main` with
+`version: latest` (crates.io install).

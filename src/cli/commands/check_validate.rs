@@ -1,22 +1,31 @@
 //! Validate checks for staged changes
 
 use crate::{git, noslop_file};
-use noslop::adapters::{detect_actor, telemetry};
+use noslop::adapters::{detect_actor, ledger, telemetry};
 use noslop::core::models::{Actor, CheckFireEvent};
 use noslop::core::services::{CheckItemResult, check_items};
 use noslop::output::{CheckMatch, CheckResult, OutputMode};
 use noslop::storage;
 
-/// Validate checks for staged changes (pre-commit hook)
+/// Validate checks for staged changes (pre-commit hook) or, with
+/// `diff_base`, for everything a branch changed (CI mode).
 ///
 /// Blocking checks gate agents and CI. A human committer sees the same
 /// guidance but is never blocked.
-pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
+///
+/// In diff-base mode the file list is the branch diff and acknowledgments
+/// come from the ledger records committed in the branch — so a commit made
+/// with `--no-verify` (no ledger record) fails here.
+pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> anyhow::Result<()> {
     let actor = detect_actor();
-    let enforced = ci || actor.is_gated();
+    // Diff-base is the CI source-of-truth pass: always enforced
+    let enforced = ci || diff_base.is_some() || actor.is_gated();
 
-    // Get staged files
-    let staged = git::staged::get_staged_files()?;
+    // Files under scrutiny: the branch diff (CI) or the index (pre-commit)
+    let staged = match diff_base {
+        Some(base) => git::staged::diff_files(base)?,
+        None => git::staged::get_staged_files()?,
+    };
 
     if staged.is_empty() {
         render_empty(0, &actor, enforced, mode);
@@ -31,16 +40,22 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
         return Ok(());
     }
 
-    // Load staged acknowledgments via storage abstraction
-    let store = storage::ack_store();
-    let acks = store.staged()?;
+    // Acknowledgments: committed ledger records (CI) or staged acks (local)
+    let acks = if diff_base.is_some() {
+        ledger::load_pending()?
+    } else {
+        storage::ack_store().staged()?
+    };
 
     // Core service does the matching; map its result to output types
     let core_result = check_items(&applicable, &acks, staged.len());
 
     // Telemetry: record every surfaced (unacknowledged) check for stats.
-    // Best-effort — a telemetry failure must never block a commit.
-    if let Ok(tree_oid) = git::staged::staged_tree_oid() {
+    // Best-effort — a telemetry failure must never block a commit. CI
+    // diff-base runs don't log: events are per-clone developer telemetry.
+    if diff_base.is_none()
+        && let Ok(tree_oid) = git::staged::staged_tree_oid()
+    {
         let events: Vec<CheckFireEvent> = core_result
             .blocking
             .iter()

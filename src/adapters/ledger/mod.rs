@@ -110,6 +110,36 @@ pub fn compact() -> anyhow::Result<usize> {
     Ok(entries.len())
 }
 
+/// Load pending (not yet compacted) ledger records from `.noslop/acks/`.
+///
+/// During a pull request this is the branch's own acknowledgments —
+/// compaction folds them into history at merge time — so CI reconciles
+/// fired checks against exactly these.
+///
+/// # Errors
+///
+/// Returns an error only if an existing file cannot be read.
+pub fn load_pending() -> anyhow::Result<Vec<Acknowledgment>> {
+    let acks_dir = Path::new(ACKS_DIR);
+    if !acks_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut entries: Vec<PathBuf> = fs::read_dir(acks_dir)?
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+        .collect();
+    entries.sort();
+
+    let mut acks = Vec::new();
+    for path in entries {
+        if let Ok(record) = serde_json::from_str::<LedgerRecord>(&fs::read_to_string(&path)?) {
+            acks.push(record.ack);
+        }
+    }
+    Ok(acks)
+}
+
 /// Load every acknowledgment in the ledger: pending records plus history.
 ///
 /// Unparsable entries are skipped — the ledger accumulates records from
@@ -120,22 +150,7 @@ pub fn compact() -> anyhow::Result<usize> {
 ///
 /// Returns an error only if an existing file cannot be read.
 pub fn load_all() -> anyhow::Result<Vec<Acknowledgment>> {
-    let mut acks = Vec::new();
-
-    let acks_dir = Path::new(ACKS_DIR);
-    if acks_dir.exists() {
-        let mut entries: Vec<PathBuf> = fs::read_dir(acks_dir)?
-            .filter_map(Result::ok)
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
-            .collect();
-        entries.sort();
-        for path in entries {
-            if let Ok(record) = serde_json::from_str::<LedgerRecord>(&fs::read_to_string(&path)?) {
-                acks.push(record.ack);
-            }
-        }
-    }
+    let mut acks = load_pending()?;
 
     let history_path = Path::new(HISTORY_FILE);
     if history_path.exists() {

@@ -593,3 +593,57 @@ fn test_stats_tracks_fires_acks_and_rubber_stamps() {
         .success()
         .stdout(predicate::str::contains("\"rubber_stamps\":1"));
 }
+
+#[test]
+fn test_check_diff_base_reconciles_ledger_not_local_state() {
+    let temp = TempDir::new().unwrap();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(temp.path())
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap()
+    };
+    git(&["init", "-b", "main"]);
+
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Reviewed?\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-m", "base"]);
+
+    // Branch commits a matching file with NO ledger record (--no-verify style)
+    git(&["checkout", "-b", "feature"]);
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "lib.rs"]);
+    git(&["commit", "-m", "change without ack"]);
+
+    noslop()
+        .args(["check", "--ci", "--diff-base", "main"])
+        .current_dir(temp.path())
+        .assert()
+        .failure()
+        .stdout(predicate::str::contains("TST-1"));
+
+    // Ack writes a ledger record; commit it — now the branch carries proof
+    noslop()
+        .args(["ack", "TST-1", "-m", "reviewed the rust change"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .assert()
+        .success();
+    git(&["add", "-A"]);
+    git(&["commit", "-m", "ack"]);
+
+    noslop()
+        .args(["check", "--ci", "--diff-base", "main"])
+        .current_dir(temp.path())
+        .assert()
+        .success();
+}

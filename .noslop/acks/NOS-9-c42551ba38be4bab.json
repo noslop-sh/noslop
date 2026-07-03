@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-9",
+  "message": "Verified: curate CLI delegates to core::services::{curate::recommend, stats::compute}; check_validate diff-base mode reuses check_items; CLI only gathers I/O inputs",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T01:01:50.861774196+00:00",
+  "tree_oid": "8a9f6dd744bf29586d869bd4712db8f3868f1c55"
+}

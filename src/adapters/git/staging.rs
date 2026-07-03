@@ -41,6 +41,29 @@ pub fn staged_tree_oid() -> anyhow::Result<String> {
     Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
+/// Files changed since `base` (`git diff --name-only <base>...HEAD`).
+///
+/// This is the CI view of a pull request: everything the branch touched,
+/// regardless of how commits were staged, squashed, or amended locally.
+///
+/// # Errors
+///
+/// Returns an error if git command fails (e.g. unknown base ref).
+pub fn diff_files(base: &str) -> anyhow::Result<Vec<String>> {
+    let range = format!("{base}...HEAD");
+    let output = Command::new("git").args(["diff", "--name-only", &range]).output()?;
+
+    if !output.status.success() {
+        anyhow::bail!(
+            "Failed to diff against '{base}': {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    Ok(stdout.lines().map(String::from).filter(|s| !s.is_empty()).collect())
+}
+
 /// All tracked files in the repository (`git ls-files`).
 ///
 /// # Errors

@@ -1,0 +1,23 @@
+# Dogfood: noslop gates its own pull requests.
+# Recomputes checks on the PR diff and reconciles the committed ack ledger —
+# the squash-proof source of truth that a local --no-verify cannot bypass.
+name: noslop
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: noslop gate
+        uses: ./
+        with:
+          version: local
