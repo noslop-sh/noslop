@@ -1,6 +1,6 @@
 # noslop
 
-**Teach AI agents your codebase's unwritten rules.**
+**Teach AI agents your codebase's unwritten rules — and get receipts.**
 
 [![CI](https://github.com/noslop-sh/noslop/workflows/CI/badge.svg)](https://github.com/noslop-sh/noslop/actions)
 [![Crates.io](https://img.shields.io/crates/v/noslop.svg)](https://crates.io/crates/noslop)
@@ -12,168 +12,178 @@ Your codebase has knowledge that lives in people's heads:
 - "Migration files must be auto-generated, not hand-written"
 - "New models need to be imported in `__init__.py` for Alembic to see them"
 - "Public API routes need rate limiting"
-- "Auth changes require security review"
 
-AI agents don't know any of this. They write code that works, passes tests, and ignores everything your team actually cares about. You catch it in review, leave comments, wait for fixes, repeat.
+You wrote it all down in CLAUDE.md or AGENTS.md — and agents still miss it.
+Rules files are advisory: models follow a fraction of a long instruction
+list, and nothing records whether a rule was ever considered. You catch
+violations in review, leave the same comments again, and repeat.
 
-**This is slop** - technically correct code that misses the point.
+**This is slop** — technically correct code that misses the point.
 
 ## The Solution
 
-noslop creates a feedback loop that teaches agents your conventions at commit time. When an agent tries to commit, it receives contextual guidance - like a senior developer who never forgets to ask "did you remember X?"
+noslop turns your conventions into small, glob-scoped **checks** that fire
+at commit time, exactly when the files they guard are being changed:
 
 ```text
-Agent commits → noslop intercepts → Agent gets guidance → Agent self-corrects
+Agent commits → matching checks block → agent fixes & acknowledges → commit proceeds
 ```
 
-The agent fixes the issue, acknowledges that it addressed the guidance, and commits. No review round-trip. No repeating yourself.
+Three properties make it different from a linter or a rules file:
 
-## The Feedback Loop
-
-Here's what makes noslop different from linters or pre-commit hooks:
-
-1. **Agent writes code** that works but misses a convention
-2. **Agent tries to commit** → noslop intercepts with relevant context
-3. **Agent reads the guidance** ("Did you import in `__init__.py`?")
-4. **Agent self-corrects** and acknowledges it addressed the issue
-5. **You spot a new pattern** agents keep missing → add a check
-6. **Your `.noslop.toml` grows** into institutional memory
-
-Over time, you're not just blocking bad commits - you're building a context layer that makes agents smarter about _your_ codebase.
+1. **It gates agents, never humans.** noslop detects who is committing
+   (Claude Code, Cursor, Codex, aider, CI — or a person). Agents must
+   acknowledge blocking checks; humans see the same guidance as an FYI and
+   are never blocked. Hotfixes stay fast.
+2. **Acknowledgments are receipts, not checkboxes.** `noslop ack` requires
+   the exact check ID and records who acknowledged, what they claimed, and
+   a fingerprint of the staged tree — written into the repository itself,
+   so the audit trail survives squash merges and rebases.
+3. **The rulebook is measured, not static.** Every check firing and every
+   ack is recorded. `noslop stats` shows which checks cause real
+   self-correction and which get rubber-stamped; `noslop curate` tells you
+   what to prune or reword, with evidence.
 
 ## Quick Start
 
 ```bash
 # Install
-curl -fsSL https://raw.githubusercontent.com/noslop-sh/noslop/main/scripts/install.sh | bash
-# Or: cargo install noslop
+cargo install noslop
+# Or: curl -fsSL https://raw.githubusercontent.com/noslop-sh/noslop/main/scripts/install.sh | bash
 
-# Initialize in your repo
 cd your-project
-noslop init
+noslop init        # hooks + config; safe to re-run on fresh clones
+noslop discover    # propose checks from CLAUDE.md / AGENTS.md / .cursor/rules
+noslop discover --review   # accept, edit, or reject each proposal
+```
+
+`discover` decomposes your existing rules files into atomic checks using
+whatever agent CLI you already have installed (`claude -p` by default;
+configurable). Nothing enforces until you accept it.
+
+Have review history? Mine the conventions your team enforces by hand:
+
+```bash
+noslop discover --mine                    # last ~600 PR review comments via gh
+noslop discover --from-file dump.jsonl    # or from an exported dump
 ```
 
 ## Defining Checks
-
-Add checks for patterns that trip up agents:
 
 ```toml
 # .noslop.toml
 
 [[check]]
-target = "migrations/versions/*.py"
-message = "Generated with alembic revision --autogenerate?"
-severity = "block"
-
-[[check]]
-target = "models/**/*.py"
-message = "Imported in models/__init__.py?"
-severity = "block"
-
-[[check]]
+id = "API-1"
 target = "api/public/*_router.py"
 message = "Rate limiting decorator added?"
 severity = "block"
 ```
 
-When an agent commits changes to these paths:
+When an agent commits changes to matching paths:
 
 ```text
-$ git commit -m "Add User model"
+$ git commit -m "Add users endpoint"
 
-BLOCKED: 2 unacknowledged checks
+Blocking:
+  [API-1] api/public/users_router.py
+          Rate limiting decorator added?
 
-  [DB-1] models/user.py
-         Imported in models/__init__.py?
-
-  [DB-2] migrations/versions/abc123_add_user.py
-         Generated with alembic revision --autogenerate?
-
-To proceed: noslop ack <id> -m "verification"
+BLOCKED: 1 unacknowledged check(s)
 ```
 
-The agent sees exactly what it missed, fixes it, and acknowledges:
+The agent fixes the issue and acknowledges with its identity:
 
 ```bash
-noslop ack DB-1 -m "Added import to models/__init__.py"
-noslop ack DB-2 -m "Regenerated with alembic --autogenerate"
-git commit -m "Add User model"  # Now succeeds
+noslop ack API-1 -m "Added @rate_limit(100/min) to all new routes"
+git commit -m "Add users endpoint"   # proceeds
 ```
 
-## Acknowledgments as Learning Records
-
-Acknowledgments aren't just checkboxes - they're a record of what the agent acknowledged and how it addressed the guidance. They're stored as git trailers, visible in your commit history:
+The receipt is recorded as a ledger file committed with the change, plus a
+cosmetic trailer:
 
 ```text
-Add User model
-
-Noslop-Ack: DB-1 | Added import to models/__init__.py | claude-3-opus
-Noslop-Ack: DB-2 | Regenerated with alembic --autogenerate | claude-3-opus
+Noslop-Ack: API-1 | Added @rate_limit(100/min) to all new routes | claude-code
 ```
 
-## Building Your Context Layer
+## CI as the Source of Truth
 
-Every time you catch an agent missing something in review, ask yourself: _"Could I have told the agent this at commit time?"_
+Local hooks can be skipped (`--no-verify`); the ledger cannot. The GitHub
+Action recomputes checks against the pull request diff and reconciles them
+with the ledger records committed in the branch — a commit that skipped the
+gate carries no receipt and fails CI:
 
-If yes, add a check:
+```yaml
+# .github/workflows/noslop.yml
+on:
+  pull_request:
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: noslop-sh/noslop@main
+```
+
+## Measuring the Rulebook
 
 ```bash
-noslop check add "config/prod.yaml" \
-  -m "Production config changes need #ops-review approval" \
-  --severity block
+noslop stats     # per check: fires, acks, self-corrections vs rubber stamps, dead targets
+noslop curate    # what to prune or reword, with evidence
 ```
 
-Your `.noslop.toml` becomes a living document - institutional knowledge that compounds over time:
+An ack that changed nothing between block and acknowledgment is a rubber
+stamp; one where files changed means the guidance worked. Checks whose
+targets no longer exist are flagged dead. Your `.noslop.toml` stays a
+living document instead of rotting like a rules file.
 
-```text
-Week 1: Agent forgets __init__.py imports     → Add check
-Week 2: Agent forgets rate limiting           → Add check
-Week 3: Agent hand-writes migrations          → Add check
-Week 4: Agent handles all three automatically
-```
+## Actor Detection
 
-The more you use it, the less you repeat yourself.
+| Committer                         | Detected as | Blocking checks             |
+| --------------------------------- | ----------- | --------------------------- |
+| Claude Code, Cursor, Codex, aider | agent name  | must be acknowledged        |
+| CI (`--ci` or CI env)             | `ci`        | enforced                    |
+| A person at a terminal            | `human`     | shown as FYI, never blocked |
 
-## Target Patterns
-
-```toml
-target = "migrations/versions/*.py"     # Files in directory
-target = "models/**/*.py"               # Recursive glob
-target = "*_router.py"                  # Suffix match anywhere
-target = "config/prod.yaml"             # Specific file
-```
-
-## Severity Levels
-
-- **block** - Commit blocked until acknowledged (for hard requirements)
-- **warn** - Warning shown, commit proceeds (for soft guidelines)
-- **info** - Informational context (for helpful reminders)
+Override with `NOSLOP_ACTOR=<name>` when needed.
 
 ## Commands
 
 ```bash
-noslop init                              # Set up in repo
-noslop discover                          # Propose checks from CLAUDE.md, AGENTS.md, .cursor/rules
-noslop discover --mine                   # Mine checks from PR review history (uses your agent CLI + gh)
-noslop discover --from-file <jsonl>      # Mine from an exported comment dump instead of gh
+noslop init                              # Set up in repo (safe on fresh clones)
+noslop discover                          # Propose checks from rules files (uses your agent CLI)
+noslop discover --mine                   # Mine checks from PR review history (gh)
+noslop discover --from-file <jsonl>      # Mine from an exported comment dump
 noslop discover --review                 # Accept, edit, or reject proposals
-noslop check add <target> -m <message>   # Add check
+noslop check                             # Validate staged files (pre-commit hook)
+noslop check --ci --diff-base <ref>      # CI: validate branch diff against the ledger
+noslop check add <target> -m <message>   # Add a check by hand
 noslop check list                        # List all checks
-noslop check remove <id>                 # Remove check
-noslop ack <id> -m <message>             # Acknowledge a check
-noslop stats [--markdown]                # Per-check metrics: fires, self-correction vs rubber stamps
-noslop check                             # Validate staged files
+noslop check remove <id>                 # Remove a check
+noslop ack <id> -m <message>             # Acknowledge a check (exact ID required)
+noslop stats [--markdown]                # Per-check metrics
+noslop curate [--markdown]               # Prune/reword recommendations
+noslop compact                           # Fold ack records into history (run at merge)
 ```
 
-## Why "noslop"?
+## Severity Levels
 
-Slop is code that technically works but misses everything that matters. It compiles, passes tests, and ignores every convention your team has built up over years.
+- **block** — agents must acknowledge before committing
+- **warn** — shown prominently, never blocks
+- **info** — contextual reminder
 
-noslop is the feedback loop that fixes this - teaching agents your codebase's unwritten rules so they stop producing slop and start producing code that actually fits.
+## Data Formats
+
+The ack ledger, check payload, and upload envelope are versioned formats —
+see [docs/SCHEMA.md](docs/SCHEMA.md). This repo dogfoods noslop: its own
+commits are gated by the checks in [.noslop.toml](.noslop.toml), and the
+receipts are in [.noslop/](.noslop/).
 
 ## License
 
-See [LICENSE](LICENSE).
+AGPL-3.0 — see [LICENSE](LICENSE).
 
 ## Links
 
