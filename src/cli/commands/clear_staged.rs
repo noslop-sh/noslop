@@ -10,7 +10,7 @@ use std::path::Path;
 /// Called by post-commit hook to delete .noslop/staged-acks.json
 /// after the commit has been created with acknowledgment trailers.
 pub fn clear_staged() -> anyhow::Result<()> {
-    clear_staged_in(Path::new("."))
+    clear_staged_in(&noslop::adapters::git::repo_root_or_cwd())
 }
 
 /// Clear staged acknowledgments in a specific directory (for testing)

@@ -5,7 +5,6 @@
 //! staged acks — they are not tracked and never enforce anything.
 
 use std::fs;
-use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
@@ -27,7 +26,7 @@ struct ProposalsFile {
 ///
 /// Returns an error if the file exists but cannot be read or parsed.
 pub fn load() -> anyhow::Result<Vec<Proposal>> {
-    let path = Path::new(PROPOSALS_PATH);
+    let path = crate::adapters::git::state_path(PROPOSALS_PATH);
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -42,7 +41,7 @@ pub fn load() -> anyhow::Result<Vec<Proposal>> {
 ///
 /// Returns an error if the file cannot be written.
 pub fn save(proposals: &[Proposal]) -> anyhow::Result<()> {
-    let path = Path::new(PROPOSALS_PATH);
+    let path = crate::adapters::git::state_path(PROPOSALS_PATH);
 
     if proposals.is_empty() {
         if path.exists() {
@@ -70,7 +69,7 @@ pub fn save(proposals: &[Proposal]) -> anyhow::Result<()> {
 ///
 /// Returns an error if the file exists but cannot be read.
 pub fn load_rejected_keys() -> anyhow::Result<Vec<String>> {
-    let path = Path::new(REJECTED_PATH);
+    let path = crate::adapters::git::state_path(REJECTED_PATH);
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -86,7 +85,7 @@ pub fn append_rejected_keys(keys: &[String]) -> anyhow::Result<()> {
     if keys.is_empty() {
         return Ok(());
     }
-    let path = Path::new(REJECTED_PATH);
+    let path = crate::adapters::git::state_path(REJECTED_PATH);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -107,7 +106,7 @@ pub fn append_rejected_keys(keys: &[String]) -> anyhow::Result<()> {
 ///
 /// Returns an error if the file exists but cannot be read.
 pub fn load_rejected_rules() -> anyhow::Result<Vec<String>> {
-    let path = Path::new(REJECTED_RULES_PATH);
+    let path = crate::adapters::git::state_path(REJECTED_RULES_PATH);
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -127,7 +126,7 @@ pub fn append_rejected_rules(messages: &[String]) -> anyhow::Result<()> {
     if messages.is_empty() {
         return Ok(());
     }
-    let path = Path::new(REJECTED_RULES_PATH);
+    let path = crate::adapters::git::state_path(REJECTED_RULES_PATH);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }

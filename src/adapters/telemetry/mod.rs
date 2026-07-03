@@ -8,8 +8,8 @@
 
 use std::fs::OpenOptions;
 use std::io::Write;
-use std::path::Path;
 
+use crate::adapters::git::state_path;
 use crate::core::models::CheckFireEvent;
 
 const EVENTS_PATH: &str = ".noslop/events.jsonl";
@@ -23,10 +23,11 @@ pub fn append_events(events: &[CheckFireEvent]) -> anyhow::Result<()> {
     if events.is_empty() {
         return Ok(());
     }
-    if let Some(parent) = Path::new(EVENTS_PATH).parent() {
+    let path = state_path(EVENTS_PATH);
+    if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    let mut file = OpenOptions::new().create(true).append(true).open(EVENTS_PATH)?;
+    let mut file = OpenOptions::new().create(true).append(true).open(path)?;
     for event in events {
         writeln!(file, "{}", serde_json::to_string(event)?)?;
     }
@@ -39,7 +40,7 @@ pub fn append_events(events: &[CheckFireEvent]) -> anyhow::Result<()> {
 ///
 /// Returns an error only if an existing log cannot be read.
 pub fn load_events() -> anyhow::Result<Vec<CheckFireEvent>> {
-    let path = Path::new(EVENTS_PATH);
+    let path = state_path(EVENTS_PATH);
     if !path.exists() {
         return Ok(Vec::new());
     }

@@ -108,7 +108,7 @@ fn now_unix() -> u64 {
 }
 
 fn read_cache() -> Option<CachedSet> {
-    let content = fs::read_to_string(CACHE_FILE).ok()?;
+    let content = fs::read_to_string(crate::adapters::git::state_path(CACHE_FILE)).ok()?;
     serde_json::from_str(&content).ok()
 }
 
@@ -118,9 +118,9 @@ fn write_cache(set: &RemoteCheckSet) {
         set: set.clone(),
     };
     if let Ok(json) = serde_json::to_string(&cached) {
-        let _ =
-            fs::create_dir_all(Path::new(CACHE_FILE).parent().unwrap_or_else(|| Path::new(".")));
-        let _ = fs::write(CACHE_FILE, json);
+        let path = crate::adapters::git::state_path(CACHE_FILE);
+        let _ = fs::create_dir_all(path.parent().unwrap_or_else(|| Path::new(".")));
+        let _ = fs::write(path, json);
     }
 }
 

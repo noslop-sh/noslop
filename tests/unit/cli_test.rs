@@ -172,6 +172,57 @@ fn test_ack_stages_acknowledgment() {
 }
 
 #[test]
+fn test_ack_from_subdirectory_lands_in_repo_root_state() {
+    let temp = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Check it\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    let subdir = temp.path().join("apps/web");
+    std::fs::create_dir_all(&subdir).unwrap();
+    std::fs::write(subdir.join("lib.rs"), "fn main() {}\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    // Ack from deep inside the tree: state must land at the repo root, not
+    // grow a stray .noslop/ under the cwd
+    noslop()
+        .args(["ack", "TST-1", "-m", "verified from a subdirectory"])
+        .current_dir(&subdir)
+        .assert()
+        .success();
+
+    assert!(temp.path().join(".noslop/staged-acks.json").exists());
+    assert!(!subdir.join(".noslop").exists(), "stray .noslop/ created in subdirectory");
+
+    // The gate run from the root reads the same store
+    let out = noslop()
+        .args(["--json", "check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let acked: Vec<&str> = result["acknowledged"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    assert!(acked.contains(&"TST-1"));
+}
+
+#[test]
 fn test_check_list_with_no_checks() {
     let temp = TempDir::new().unwrap();
 

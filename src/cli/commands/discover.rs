@@ -113,7 +113,7 @@ fn run_with_retry(runner: &Runner, prompt: &str, source: &str) -> anyhow::Result
                 Ok(_) => Ok(output2),
                 Err(second_err) => {
                     std::fs::write(
-                        RAW_OUTPUT_PATH,
+                        noslop::adapters::git::state_path(RAW_OUTPUT_PATH),
                         format!("{output}\n\n---RETRY---\n\n{output2}"),
                     )?;
                     anyhow::bail!(
