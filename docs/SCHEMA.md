@@ -82,6 +82,26 @@ happens via the check-run payload, not this file.
 }
 ```
 
+## Upload envelope — Action `upload-url` POST body
+
+When the GitHub Action is configured with `upload-url`, it POSTs the check
+payload wrapped with run coordinates. This is the hosted-ingestion contract.
+
+```json
+{
+  "schema": 1,
+  "repo": "noslop-sh/noslop",
+  "sha": "8f2c4b1e…",
+  "pr": "42",
+  "base": "origin/main",
+  "check": { "passed": false, "actor": "ci", "blocking": ["…"] }
+}
+```
+
+- `check` is the `noslop check --json` payload verbatim (see above).
+- Upload is telemetry, not truth: a failed upload never changes the gate
+  verdict.
+
 ## Commit trailer — `Noslop-Ack: <check-id> | <message> | <actor>`
 
 Cosmetic convenience for humans reading `git log`. Not durable across squash

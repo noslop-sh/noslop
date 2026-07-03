@@ -315,3 +315,8 @@ the checked-out source (`version: local`), then runs
 
 External repos use the same action via `uses: noslop-sh/noslop@main` with
 `version: latest` (crates.io install).
+
+**Hosted ingestion seam:** the action accepts optional `upload-url` +
+`upload-token` inputs. When set, the versioned upload envelope (see
+docs/SCHEMA.md) is POSTed after the check; upload failures warn but never
+change the gate verdict. Unset = fully local operation.

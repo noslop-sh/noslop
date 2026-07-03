@@ -18,6 +18,17 @@ inputs:
     description: 'noslop version to install (crates.io), or "local" to cargo-install the checked-out source'
     required: false
     default: "latest"
+  upload-url:
+    description: >-
+      Optional noslop cloud ingestion endpoint. When set, the versioned
+      check-run payload is POSTed there (team metrics, org rulebooks,
+      history). Leave empty for fully-local operation.
+    required: false
+    default: ""
+  upload-token:
+    description: "Bearer token for upload-url (store as a repository secret)"
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -45,11 +56,12 @@ runs:
         echo "ref=$BASE" >> "$GITHUB_OUTPUT"
 
     - name: noslop check (branch diff vs ledger)
+      id: check
       shell: bash
       run: |
         set +e
         NOSLOP_ACTOR=ci noslop check --ci --diff-base "${{ steps.base.outputs.ref }}" --json > noslop-check.json
-        STATUS=$?
+        echo "status=$?" >> "$GITHUB_OUTPUT"
         set -e
 
         {
@@ -60,4 +72,28 @@ runs:
           echo '```'
         } >> "$GITHUB_STEP_SUMMARY"
 
-        exit $STATUS
+    - name: Upload check-run payload
+      if: inputs.upload-url != ''
+      shell: bash
+      run: |
+        # Wrap the versioned payload with run coordinates; failures here
+        # never change the gate verdict (upload is telemetry, not truth).
+        jq -n \
+          --arg repo "${{ github.repository }}" \
+          --arg sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+          --arg pr "${{ github.event.pull_request.number || '' }}" \
+          --arg base "${{ steps.base.outputs.ref }}" \
+          --slurpfile check noslop-check.json \
+          '{schema: 1, repo: $repo, sha: $sha, pr: $pr, base: $base, check: $check[0]}' \
+          > noslop-upload.json
+        curl --fail-with-body --silent --show-error \
+          -X POST \
+          -H "Authorization: Bearer ${{ inputs.upload-token }}" \
+          -H "Content-Type: application/json" \
+          --data @noslop-upload.json \
+          "${{ inputs.upload-url }}" \
+          || echo "::warning::noslop upload failed (gate verdict unaffected)"
+
+    - name: Gate verdict
+      shell: bash
+      run: exit "${{ steps.check.outputs.status }}"
