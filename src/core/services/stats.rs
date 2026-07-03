@@ -5,7 +5,8 @@
 //! (`git write-tree`), so an ack whose oid still matches a fire oid means
 //! the check was acknowledged without changing anything — theater, not
 //! verification. A differing oid means files changed between block and
-//! ack: the guidance did its job.
+//! ack: the guidance did its job. Stamp rates matter in aggregate; a
+//! single no-change ack can be honest verification.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::Path;
