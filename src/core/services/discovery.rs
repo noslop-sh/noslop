@@ -54,14 +54,16 @@ const OUTPUT_CONTRACT: &str = "Output: a noslop TOML check list — [[check]] en
 
 /// Build the import prompt that decomposes rules files into checks.
 ///
-/// `files` are `(name, content)` pairs.
+/// `files` are `(name, content)` pairs; `rejected` is the full text of
+/// rules the team previously declined.
 #[must_use]
-pub fn import_prompt(files: &[(String, String)]) -> String {
+pub fn import_prompt(files: &[(String, String)], rejected: &[String]) -> String {
     use std::fmt::Write as _;
     let mut serialized = String::new();
     for (name, content) in files {
         let _ = writeln!(serialized, "===== FILE: {name} =====\n{content}\n");
     }
+    let guard = rejection_guard(rejected);
 
     format!(
         "The following are agent rules files from a code repository (CLAUDE.md / AGENTS.md / \
@@ -74,18 +76,21 @@ pub fn import_prompt(files: &[(String, String)]) -> String {
          the frontmatter `globs:` value scopes that file's rules. Skip prose that describes \
          architecture or navigation rather than obligating anything. Do NOT invent rules that \
          are not in the files.\n\n\
-         {OUTPUT_CONTRACT}\n\nFILES:\n{serialized}"
+         {OUTPUT_CONTRACT}{guard}\n\nFILES:\n{serialized}"
     )
 }
 
 /// Build the mining prompt for one chunk of review comments.
+///
+/// `rejected` is the full text of rules the team previously declined.
 #[must_use]
-pub fn mining_prompt(repo: &str, comments: &[ReviewComment]) -> String {
+pub fn mining_prompt(repo: &str, comments: &[ReviewComment], rejected: &[String]) -> String {
     use std::fmt::Write as _;
     let mut serialized = String::new();
     for c in comments {
         let _ = writeln!(serialized, "PATH: {}\nCOMMENT: {}\n---", c.path, c.body);
     }
+    let guard = rejection_guard(rejected);
 
     format!(
         "The following are inline code-review comments (file path + comment text) written by \
@@ -97,8 +102,33 @@ pub fn mining_prompt(repo: &str, comments: &[ReviewComment]) -> String {
          paths/patterns that appear in the comments; set source = \"mined from review history\"; \
          output at most 15 checks — if fewer real conventions exist, output fewer rather than \
          padding.\n\n\
-         {OUTPUT_CONTRACT}\n\nCOMMENTS:\n{serialized}"
+         {OUTPUT_CONTRACT}{guard}\n\nCOMMENTS:\n{serialized}"
     )
+}
+
+/// Most recent rejected rules included in a prompt, and per-rule length cap.
+const REJECTED_IN_PROMPT: usize = 50;
+const REJECTED_RULE_MAX_LEN: usize = 200;
+
+/// Render the do-not-re-propose section from previously rejected rules.
+///
+/// Exact-key dedupe catches identical re-proposals; this guard is what
+/// stops *paraphrases* of declined rules from resurfacing.
+fn rejection_guard(rejected: &[String]) -> String {
+    use std::fmt::Write as _;
+    if rejected.is_empty() {
+        return String::new();
+    }
+    let mut section = String::from(
+        "\n\nThe team has already REJECTED the following rules. Do not propose them again, \
+         in any wording or paraphrase:\n",
+    );
+    let start = rejected.len().saturating_sub(REJECTED_IN_PROMPT);
+    for rule in &rejected[start..] {
+        let truncated: String = rule.chars().take(REJECTED_RULE_MAX_LEN).collect();
+        let _ = writeln!(section, "- {truncated}");
+    }
+    section
 }
 
 /// Build the merge prompt that consolidates per-chunk mining results.
@@ -278,19 +308,46 @@ mod tests {
     #[test]
     fn import_prompt_contains_files_and_contract() {
         let files = vec![("CLAUDE.md".to_string(), "- Never commit to main".to_string())];
-        let p = import_prompt(&files);
+        let p = import_prompt(&files, &[]);
         assert!(p.contains("===== FILE: CLAUDE.md ====="));
         assert!(p.contains("Never commit to main"));
         assert!(p.contains("ONLY the TOML"));
         assert!(p.contains("no {a,b} brace expansion"));
+        assert!(!p.contains("REJECTED"), "no guard section without rejections");
     }
 
     #[test]
     fn mining_prompt_contains_comments_and_contract() {
-        let p = mining_prompt("acme/api", &[comment("src/a.py", "add rate limiting")]);
+        let p = mining_prompt("acme/api", &[comment("src/a.py", "add rate limiting")], &[]);
         assert!(p.contains("PATH: src/a.py"));
         assert!(p.contains("ONLY the TOML"));
         assert!(p.contains("acme/api"));
+    }
+
+    #[test]
+    fn rejected_rules_appear_as_prompt_guard() {
+        let rejected = vec!["Run make check before every commit".to_string()];
+        let files = vec![("CLAUDE.md".to_string(), "- Use feature branches".to_string())];
+
+        let import = import_prompt(&files, &rejected);
+        assert!(import.contains("already REJECTED"));
+        assert!(import.contains("- Run make check before every commit"));
+
+        let mine = mining_prompt("acme/api", &[comment("a.py", "x")], &rejected);
+        assert!(mine.contains("already REJECTED"));
+        assert!(mine.contains("in any wording or paraphrase"));
+    }
+
+    #[test]
+    fn rejection_guard_caps_count_and_length() {
+        let rejected: Vec<String> =
+            (0..60).map(|i| format!("rule {i} {}", "x".repeat(300))).collect();
+        let guard = rejection_guard(&rejected);
+        // Oldest rules beyond the cap are dropped, newest kept
+        assert!(!guard.contains("rule 9 "));
+        assert!(guard.contains("rule 59"));
+        // Individual rules are truncated
+        assert!(guard.lines().all(|l| l.chars().count() <= REJECTED_RULE_MAX_LEN + 2));
     }
 
     #[test]

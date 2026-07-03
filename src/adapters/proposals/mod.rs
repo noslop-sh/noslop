@@ -13,6 +13,7 @@ use crate::core::models::Proposal;
 
 const PROPOSALS_PATH: &str = ".noslop/proposals.toml";
 const REJECTED_PATH: &str = ".noslop/rejected-keys.txt";
+const REJECTED_RULES_PATH: &str = ".noslop/rejected-rules.txt";
 
 #[derive(Debug, Default, Serialize, Deserialize)]
 struct ProposalsFile {
@@ -91,6 +92,47 @@ pub fn append_rejected_keys(keys: &[String]) -> anyhow::Result<()> {
     }
     let mut existing = load_rejected_keys()?;
     existing.extend(keys.iter().cloned());
+    existing.dedup();
+    fs::write(path, existing.join("\n") + "\n")?;
+    Ok(())
+}
+
+/// Load the full text of rejected rules.
+///
+/// Keys (above) give exact-match dedupe; these raw messages are fed into
+/// discovery prompts so the model won't re-propose *paraphrases* of rules
+/// the team already declined.
+///
+/// # Errors
+///
+/// Returns an error if the file exists but cannot be read.
+pub fn load_rejected_rules() -> anyhow::Result<Vec<String>> {
+    let path = Path::new(REJECTED_RULES_PATH);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    Ok(fs::read_to_string(path)?
+        .lines()
+        .filter(|l| !l.trim().is_empty())
+        .map(str::to_string)
+        .collect())
+}
+
+/// Record the full text of rejected rules (append-only, newline-flattened).
+///
+/// # Errors
+///
+/// Returns an error if the file cannot be written.
+pub fn append_rejected_rules(messages: &[String]) -> anyhow::Result<()> {
+    if messages.is_empty() {
+        return Ok(());
+    }
+    let path = Path::new(REJECTED_RULES_PATH);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let mut existing = load_rejected_rules()?;
+    existing.extend(messages.iter().map(|m| m.replace('\n', " ")));
     existing.dedup();
     fs::write(path, existing.join("\n") + "\n")?;
     Ok(())

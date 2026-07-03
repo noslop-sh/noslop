@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-12",
+  "message": "Verified: rejection_guard is pure string formatting over &[String]; file reads stay in adapters::proposals",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T01:39:34.334199959+00:00",
+  "tree_oid": "124dd7c039e3dc9d253f19d6565bea22d507c932"
+}

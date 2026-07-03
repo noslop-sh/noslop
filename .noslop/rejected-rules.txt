@@ -1,0 +1,9 @@
+`make check` — fmt + clippy (pedantic, deny warnings) + full test suite. Must pass before every commit.
+Branches: `sp/no-<linear-issue>-<slug>`. Never commit to main. PRs attach to their Linear issue (team "No Slop", prefix NO-).
+This repo dogfoods noslop: hooks are active. Ack checks honestly after actually verifying them. Never use `--no-verify`.
+Does `make check` (fmt + clippy pedantic with warnings denied + full test suite) pass before this commit?
+Does this CLI code call core services rather than reimplementing their logic?
+Did you avoid adding `#![allow(dead_code)]` (it is banned)?
+Did you delete unused code rather than parking it as dead code?
+Does this change avoid adding compat shims or speculative abstractions, keeping one implementation per port until a second consumer exists?
+If this change breaks a versioned schema (ack ledger or check-run payload), did you add a migration note?

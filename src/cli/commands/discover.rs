@@ -71,6 +71,7 @@ fn mine_history(from_file: Option<&str>, mode: OutputMode) -> anyhow::Result<()>
     }
 
     let repo_label = source.trim_start_matches("mining:").to_string();
+    let rejected = proposals::load_rejected_rules()?;
     let chunks = discovery::chunk_comments(comments, CHUNK_BYTES);
     println!(
         "Mining {} comment chunk(s) via '{}' (this can take a few minutes)...",
@@ -80,7 +81,7 @@ fn mine_history(from_file: Option<&str>, mode: OutputMode) -> anyhow::Result<()>
 
     let mut chunk_outputs = Vec::new();
     for (i, chunk) in chunks.iter().enumerate() {
-        let prompt = discovery::mining_prompt(&repo_label, chunk);
+        let prompt = discovery::mining_prompt(&repo_label, chunk, &rejected);
         let output = run_with_retry(&runner, &prompt, &source)?;
         println!("  chunk {}/{}: ok", i + 1, chunks.len());
         chunk_outputs.push(output);
@@ -208,7 +209,8 @@ fn scan(mode: OutputMode) -> anyhow::Result<()> {
 
     let contents: Vec<(String, String)> =
         files.iter().map(|f| (f.name.clone(), f.content.clone())).collect();
-    let prompt = discovery::import_prompt(&contents);
+    let rejected = proposals::load_rejected_rules()?;
+    let prompt = discovery::import_prompt(&contents, &rejected);
     let output = run_with_retry(&runner, &prompt, "import")?;
 
     stage_fresh(&output, "import", &root, mode)
@@ -255,6 +257,7 @@ fn review_proposals() -> anyhow::Result<()> {
             },
             "r" => {
                 proposals::append_rejected_keys(&[p.dedupe_key()])?;
+                proposals::append_rejected_rules(std::slice::from_ref(&p.message))?;
                 rejected += 1;
             },
             "q" => {

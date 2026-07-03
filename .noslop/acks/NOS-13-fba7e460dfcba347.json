@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-13",
+  "message": "Added: prompt-guard unit tests (presence, absence, count/length caps) + CLI test asserting rejected rule text lands in rejected-rules.txt and in the next scan prompt",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T01:39:20.256609033+00:00",
+  "tree_oid": "c4e0b1d6b88b59267e5827b3d46c5e179f74ab84"
+}

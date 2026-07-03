@@ -397,22 +397,27 @@ fn test_discover_imports_rules_and_review_accepts() {
     )
     .unwrap();
 
-    // Fake agent CLI: consumes stdin, emits two decomposed checks
+    // Fake agent CLI: dumps stdin (so tests can inspect the prompt),
+    // emits two decomposed checks
     let script = temp.path().join("fake-agent.sh");
+    let dump = temp.path().join("prompt-dump.txt");
     std::fs::write(
         &script,
-        concat!(
-            "#!/bin/sh\ncat > /dev/null\n",
-            "echo '[[check]]'\n",
-            "echo 'target = \"**/*\"'\n",
-            "echo 'message = \"Never commit directly to main\"'\n",
-            "echo 'severity = \"block\"'\n",
-            "echo 'source = \"CLAUDE.md\"'\n",
-            "echo '[[check]]'\n",
-            "echo 'target = \"**/*.rs\"'\n",
-            "echo 'message = \"Did make check pass before this commit?\"'\n",
-            "echo 'severity = \"warn\"'\n",
-            "echo 'source = \"CLAUDE.md\"'\n",
+        format!(
+            concat!(
+                "#!/bin/sh\ncat > {}\n",
+                "echo '[[check]]'\n",
+                "echo 'target = \"**/*\"'\n",
+                "echo 'message = \"Never commit directly to main\"'\n",
+                "echo 'severity = \"block\"'\n",
+                "echo 'source = \"CLAUDE.md\"'\n",
+                "echo '[[check]]'\n",
+                "echo 'target = \"**/*.rs\"'\n",
+                "echo 'message = \"Did make check pass before this commit?\"'\n",
+                "echo 'severity = \"warn\"'\n",
+                "echo 'source = \"CLAUDE.md\"'\n",
+            ),
+            dump.display()
         ),
     )
     .unwrap();
@@ -471,6 +476,14 @@ fn test_discover_imports_rules_and_review_accepts() {
         .success()
         .stdout(predicate::str::contains("0 new proposal(s)"));
     assert!(temp.path().join(".noslop/rejected-keys.txt").exists());
+
+    // NO-13: the rejected rule's full text is stored and fed into the next
+    // scan's prompt as a do-not-re-propose guard (defeats paraphrasing)
+    let rules = std::fs::read_to_string(temp.path().join(".noslop/rejected-rules.txt")).unwrap();
+    assert!(rules.contains("Did make check pass before this commit?"));
+    let prompt = std::fs::read_to_string(temp.path().join("prompt-dump.txt")).unwrap();
+    assert!(prompt.contains("already REJECTED"));
+    assert!(prompt.contains("Did make check pass before this commit?"));
 }
 
 #[test]
