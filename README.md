@@ -48,8 +48,11 @@ Three properties make it different from a linter or a rules file:
 
 ```bash
 # Install
-cargo install noslop
-# Or: curl -fsSL https://raw.githubusercontent.com/noslop-sh/noslop/main/scripts/install.sh | bash
+cargo install noslop --locked
+# Or download the install script, review it, then run it. It verifies the
+# release sha256 before installing and refuses to install otherwise.
+#   curl -fsSLO https://raw.githubusercontent.com/noslop-sh/noslop/main/scripts/install.sh
+#   less install.sh && bash install.sh
 
 cd your-project
 noslop init        # hooks + config; safe to re-run on fresh clones

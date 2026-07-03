@@ -77,10 +77,30 @@ pub struct RemoteCheckSet {
     pub checks: Vec<RemoteCheck>,
 }
 
+/// A check set plus how stale it is. The gate is fail-open, so a run may
+/// legitimately proceed on cached rules — the age travels in the envelope
+/// so the cloud can tell a fresh ruleset from a stale one.
+#[derive(Debug, Clone)]
+pub struct FetchedCheckSet {
+    /// The effective check set
+    pub set: RemoteCheckSet,
+    /// Seconds since the set was fetched from the cloud (0 = this run)
+    pub age_seconds: u64,
+}
+
 #[derive(Serialize, Deserialize)]
 struct CachedSet {
     fetched_at: u64,
     set: RemoteCheckSet,
+}
+
+impl CachedSet {
+    fn into_fetched(self) -> FetchedCheckSet {
+        FetchedCheckSet {
+            age_seconds: now_unix().saturating_sub(self.fetched_at),
+            set: self.set,
+        }
+    }
 }
 
 fn now_unix() -> u64 {
@@ -118,7 +138,7 @@ fn fetch(url: &str, token: &str) -> anyhow::Result<RemoteCheckSet> {
 /// remote binding or nothing is reachable. Warnings go to stderr; errors
 /// never propagate (fail-open).
 #[must_use]
-pub fn load_remote_checks(config: &RemoteConfig) -> Option<RemoteCheckSet> {
+pub fn load_remote_checks(config: &RemoteConfig) -> Option<FetchedCheckSet> {
     let url = config.url.as_deref()?;
     let token_env = config.token_env.as_deref().unwrap_or(DEFAULT_TOKEN_ENV);
     let Ok(token) = std::env::var(token_env) else {
@@ -131,23 +151,27 @@ pub fn load_remote_checks(config: &RemoteConfig) -> Option<RemoteCheckSet> {
     if let Some(cached) = read_cache()
         && now_unix().saturating_sub(cached.fetched_at) < CACHE_TTL_SECS
     {
-        return Some(cached.set);
+        return Some(cached.into_fetched());
     }
 
     match fetch(url, &token) {
         Ok(set) => {
             write_cache(&set);
-            Some(set)
+            Some(FetchedCheckSet {
+                set,
+                age_seconds: 0,
+            })
         },
-        Err(err) => {
-            if let Some(cached) = read_cache() {
-                eprintln!("noslop: remote check fetch failed ({err}); using cached set");
-                Some(cached.set)
-            } else {
+        Err(err) => read_cache().map_or_else(
+            || {
                 eprintln!("noslop: remote check fetch failed ({err}); using local checks only");
                 None
-            }
-        },
+            },
+            |cached| {
+                eprintln!("noslop: remote check fetch failed ({err}); using cached set");
+                Some(cached.into_fetched())
+            },
+        ),
     }
 }
 
@@ -177,6 +201,26 @@ mod tests {
             ..expired
         };
         assert!(!garbage.exempts("release-bot", &now));
+    }
+
+    #[test]
+    fn cached_set_reports_age_since_fetch() {
+        let cached = CachedSet {
+            fetched_at: now_unix() - 120,
+            set: RemoteCheckSet {
+                check_set_version: "v1".into(),
+                checks: vec![],
+            },
+        };
+        let fetched = cached.into_fetched();
+        assert!((120..125).contains(&fetched.age_seconds));
+
+        // A clock that runs backwards must not underflow
+        let future = CachedSet {
+            fetched_at: now_unix() + 999,
+            set: fetched.set,
+        };
+        assert_eq!(future.into_fetched().age_seconds, 0);
     }
 
     #[test]

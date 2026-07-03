@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-15",
+  "message": "no schema break: check_set_age_seconds is additive within schema 1 (Option, skip_serializing_if none), same pattern as tree_oid and check_set_version; absent payloads stay valid",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T23:12:09.525619370+00:00",
+  "tree_oid": "a188e8541540ac2c609d995a76d38a7062dce201",
+  "fire_tree_oid": "88d78b12a9fc84b4a3af9594dc26c4076785658e",
+  "fired_at": "2026-07-03T23:11:56.114139142+00:00"
+}

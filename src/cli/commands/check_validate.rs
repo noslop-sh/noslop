@@ -1,7 +1,7 @@
 //! Validate checks for staged changes
 
 use crate::{git, noslop_file};
-use noslop::adapters::remote::{RemoteCheckSet, load_remote_checks};
+use noslop::adapters::remote::{FetchedCheckSet, RemoteCheckSet, load_remote_checks};
 use noslop::adapters::{detect_actor, ledger, telemetry};
 use noslop::core::models::{Actor, Check, CheckFireEvent, Severity};
 use noslop::core::services::{CheckItemResult, check_items, matches_target, merge_checks};
@@ -36,12 +36,13 @@ pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> an
     // Load checks from .noslop.toml files, then merge the org's cloud set
     // (fail-open: a cloud outage degrades to local checks, never a block)
     let local = noslop_file::load_checks_for_files(&staged)?;
-    let remote_set = load_remote_checks(&noslop_file::load_remote_config());
-    let (remote_gating, remote_monitor) = partition_remote(remote_set.as_ref(), &staged, &actor);
+    let fetched = load_remote_checks(&noslop_file::load_remote_config());
+    let remote_set = fetched.as_ref().map(|f| &f.set);
+    let (remote_gating, remote_monitor) = partition_remote(remote_set, &staged, &actor);
     let applicable = merge_checks(local, remote_gating);
 
     if applicable.is_empty() && remote_monitor.is_empty() {
-        render_empty(staged.len(), &actor, enforced, mode, remote_set.as_ref());
+        render_empty(staged.len(), &actor, enforced, mode, fetched.as_ref());
         return Ok(());
     }
 
@@ -98,7 +99,8 @@ pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> an
         actor: actor.name().to_string(),
         enforced,
         tree_oid,
-        check_set_version: remote_set.map(|s| s.check_set_version),
+        check_set_version: remote_set.map(|s| s.check_set_version.clone()),
+        check_set_age_seconds: fetched.as_ref().map(|f| f.age_seconds),
         blocking: core_result.blocking.iter().map(to_check_match).collect(),
         warnings: core_result.warnings.iter().map(to_check_match).collect(),
         acknowledged: core_result.acknowledged.iter().map(to_check_match).collect(),
@@ -176,7 +178,7 @@ fn render_empty(
     actor: &Actor,
     enforced: bool,
     mode: OutputMode,
-    remote_set: Option<&RemoteCheckSet>,
+    fetched: Option<&FetchedCheckSet>,
 ) {
     CheckResult {
         passed: true,
@@ -184,7 +186,8 @@ fn render_empty(
         actor: actor.name().to_string(),
         enforced,
         tree_oid: git::staged::staged_tree_oid().ok(),
-        check_set_version: remote_set.map(|s| s.check_set_version.clone()),
+        check_set_version: fetched.map(|f| f.set.check_set_version.clone()),
+        check_set_age_seconds: fetched.map(|f| f.age_seconds),
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![],

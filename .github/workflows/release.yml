@@ -75,11 +75,13 @@ jobs:
             ### Installation
 
             ```bash
-            # Quick install (Linux/macOS)
-            curl -fsSL https://raw.githubusercontent.com/noslop-sh/noslop/main/scripts/install.sh | bash
+            # From crates.io
+            cargo install noslop --locked
 
-            # Or from crates.io
-            cargo install noslop
+            # Or download the install script, review it, then run it.
+            # It verifies the release sha256 before installing.
+            curl -fsSLO https://raw.githubusercontent.com/noslop-sh/noslop/main/scripts/install.sh
+            less install.sh && bash install.sh
             ```
 
             ### Changes

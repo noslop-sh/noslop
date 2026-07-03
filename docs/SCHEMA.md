@@ -79,6 +79,11 @@ deletes them. Union-merged across branches (`.gitattributes`:
   this run, echoed from `GET /api/v1/repo/checks`. Absent when the repo
   has no `[remote]` binding — the governing rules then live entirely in
   the tree.
+- `check_set_age_seconds` (optional, added within schema 1 as an additive
+  field): seconds between the cloud check set being fetched and this run
+  gating with it (0 = fetched during the run). The fetch is fail-open, so
+  a run may legitimately gate on cached rules; this field lets consumers
+  flag runs that used a stale set. Absent without a `[remote]` binding.
 - `monitor` (optional, added within schema 1 as an additive field):
   surfacings of monitor-state cloud checks, same item shape as
   `blocking`. Recorded for promotion decisions; never agent-visible,

@@ -36,6 +36,12 @@ pub struct CheckResult {
     /// within schema 1; absent when the repo has no remote binding)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub check_set_version: Option<String>,
+    /// Seconds since the cloud check set was fetched (0 = fetched this
+    /// run). The gate is fail-open, so runs may proceed on cached rules;
+    /// this lets the cloud flag runs that gated on a stale set. Additive
+    /// within schema 1; absent when the repo has no remote binding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check_set_age_seconds: Option<u64>,
     /// Checks that are blocking (need acknowledgment)
     pub blocking: Vec<CheckMatch>,
     /// Checks that are warnings

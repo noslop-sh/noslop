@@ -903,6 +903,8 @@ fn test_remote_checks_gate_and_monitor_stays_silent() {
 
     let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(result["check_set_version"], "v-test-1");
+    // Fetched this run: the set is fresh
+    assert_eq!(result["check_set_age_seconds"], 0);
     let blocking: Vec<&str> = result["blocking"]
         .as_array()
         .unwrap()
@@ -955,5 +957,56 @@ fn test_remote_fetch_failure_fails_open_to_local_checks() {
     let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(result["blocking"][0]["id"], "TST-1");
     assert!(result.get("check_set_version").is_none());
+    assert!(result.get("check_set_age_seconds").is_none());
     assert!(String::from_utf8_lossy(&out.stderr).contains("using local checks only"));
+}
+
+#[test]
+fn test_remote_fetch_failure_falls_back_to_stale_cache_with_age() {
+    let temp = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[remote]\nurl = \"http://127.0.0.1:1\"\n",
+    )
+    .unwrap();
+    // A cache from an hour ago: the unroutable fetch must degrade to it and
+    // report honestly how stale the rules were
+    let hour_ago = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - 3600;
+    std::fs::create_dir_all(temp.path().join(".noslop")).unwrap();
+    std::fs::write(
+        temp.path().join(".noslop/remote-checks.json"),
+        format!(
+            r#"{{"fetched_at":{hour_ago},"set":{{"check_set_version":"v-stale","checks":[{{"id":"ORG-1","target":"*.rs","message":"org: reviewed?","severity":"block","state":"enforce","owner":"saumil","bypasses":[]}}]}}}}"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    let out = noslop()
+        .args(["--json", "check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .env("NOSLOP_CLOUD_TOKEN", "nslp_test")
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    // The cached enforce-state check still gates the agent
+    assert!(!out.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["check_set_version"], "v-stale");
+    assert!(result["check_set_age_seconds"].as_u64().unwrap() >= 3600);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("using cached set"));
 }

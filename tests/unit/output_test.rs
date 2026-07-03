@@ -30,6 +30,7 @@ fn check_result_serialization() {
         enforced: false,
         tree_oid: None,
         check_set_version: None,
+        check_set_age_seconds: None,
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![CheckMatch {
@@ -58,6 +59,7 @@ fn check_result_blocking() {
         enforced: true,
         tree_oid: None,
         check_set_version: None,
+        check_set_age_seconds: None,
         blocking: vec![CheckMatch {
             id: "TEST-2".to_string(),
             file: "src/api.rs".to_string(),
@@ -85,6 +87,7 @@ fn check_result_with_warnings() {
         enforced: false,
         tree_oid: None,
         check_set_version: None,
+        check_set_age_seconds: None,
         blocking: vec![],
         warnings: vec![CheckMatch {
             id: "TEST-3".to_string(),
@@ -222,6 +225,7 @@ fn check_result_tree_oid_serializes_when_present() {
         enforced: true,
         tree_oid: Some("8f2c4b1e".to_string()),
         check_set_version: None,
+        check_set_age_seconds: None,
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![],
@@ -241,6 +245,7 @@ fn check_result_tree_oid_omitted_when_absent() {
         enforced: false,
         tree_oid: None,
         check_set_version: None,
+        check_set_age_seconds: None,
         blocking: vec![],
         warnings: vec![],
         acknowledged: vec![],
