@@ -50,9 +50,11 @@ prefix = "{prefix}"
     fs::write(".noslop/.gitkeep", "")?;
     println!("  Created .noslop/");
 
-    // Staged acks are per-clone state; the ledger and history are tracked
+    // Staged acks and fire telemetry are per-clone state; the ledger and
+    // history are tracked
     ensure_line(".gitignore", ".noslop/staged-acks.json")?;
-    println!("  Ensured .gitignore covers .noslop/staged-acks.json");
+    ensure_line(".gitignore", ".noslop/events.jsonl")?;
+    println!("  Ensured .gitignore covers per-clone .noslop/ state");
 
     // Parallel branches both append to history.jsonl; union merge never conflicts
     ensure_line(".gitattributes", ".noslop/history.jsonl merge=union")?;

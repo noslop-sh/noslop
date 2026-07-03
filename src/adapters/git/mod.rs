@@ -14,7 +14,7 @@ use std::process::Command;
 use crate::core::ports::VersionControl;
 
 pub use hooks::{install_commit_msg, install_post_commit, install_pre_commit};
-pub use staging::get_staged_files;
+pub use staging::{get_staged_files, staged_tree_oid, tracked_files};
 
 /// Git-based version control implementation
 #[derive(Debug, Clone)]

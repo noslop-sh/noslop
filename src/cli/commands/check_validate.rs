@@ -1,8 +1,8 @@
 //! Validate checks for staged changes
 
 use crate::{git, noslop_file};
-use noslop::adapters::detect_actor;
-use noslop::core::models::Actor;
+use noslop::adapters::{detect_actor, telemetry};
+use noslop::core::models::{Actor, CheckFireEvent};
 use noslop::core::services::{CheckItemResult, check_items};
 use noslop::output::{CheckMatch, CheckResult, OutputMode};
 use noslop::storage;
@@ -37,6 +37,26 @@ pub fn check_validate(ci: bool, mode: OutputMode) -> anyhow::Result<()> {
 
     // Core service does the matching; map its result to output types
     let core_result = check_items(&applicable, &acks, staged.len());
+
+    // Telemetry: record every surfaced (unacknowledged) check for stats.
+    // Best-effort — a telemetry failure must never block a commit.
+    if let Ok(tree_oid) = git::staged::staged_tree_oid() {
+        let events: Vec<CheckFireEvent> = core_result
+            .blocking
+            .iter()
+            .chain(core_result.warnings.iter())
+            .map(|item| {
+                CheckFireEvent::new(
+                    item.id.clone(),
+                    item.file.clone(),
+                    item.severity,
+                    actor.name().to_string(),
+                    tree_oid.clone(),
+                )
+            })
+            .collect();
+        let _ = telemetry::append_events(&events);
+    }
 
     let result = CheckResult {
         passed: core_result.passed || !enforced,

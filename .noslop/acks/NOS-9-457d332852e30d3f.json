@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-9",
+  "message": "Verified: stats command delegates all metric computation to core::services::stats::compute; check_validate delegates matching to check_items and only appends telemetry",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T00:56:01.684208041+00:00",
+  "tree_oid": "760c62f5aac1d7618bd722a06fe43d038b21e95f"
+}

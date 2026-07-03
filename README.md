@@ -161,6 +161,7 @@ noslop check add <target> -m <message>   # Add check
 noslop check list                        # List all checks
 noslop check remove <id>                 # Remove check
 noslop ack <id> -m <message>             # Acknowledge a check
+noslop stats [--markdown]                # Per-check metrics: fires, self-correction vs rubber stamps
 noslop check                             # Validate staged files
 ```
 

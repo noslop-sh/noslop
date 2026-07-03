@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-8",
+  "message": "SCHEMA.md edit is additive within v1: optional tree_oid documented with back-compat note; events.jsonl documented as local non-API format, no version bump required",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T00:56:29.425780468+00:00",
+  "tree_oid": "88865859f269e9056cf7512de3751cc83a4c6972"
+}

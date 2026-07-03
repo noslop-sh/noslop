@@ -86,6 +86,13 @@ pub enum Command {
     /// Fold pending ack records into .noslop/history.jsonl (run at merge time)
     Compact,
 
+    /// Per-check metrics: fires, acks, self-correction vs rubber stamps, dead targets
+    Stats {
+        /// Render as a markdown table (for CI summaries)
+        #[arg(long)]
+        markdown: bool,
+    },
+
     /// Show version
     Version,
 }
@@ -152,6 +159,7 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),
         Some(Command::Compact) => commands::compact(),
+        Some(Command::Stats { markdown }) => commands::stats(markdown, output_mode),
         Some(Command::Version) => {
             if output_mode == OutputMode::Json {
                 println!(

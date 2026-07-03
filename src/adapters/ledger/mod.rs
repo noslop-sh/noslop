@@ -110,6 +110,45 @@ pub fn compact() -> anyhow::Result<usize> {
     Ok(entries.len())
 }
 
+/// Load every acknowledgment in the ledger: pending records plus history.
+///
+/// Unparsable entries are skipped — the ledger accumulates records from
+/// multiple schema-compatible versions and stats must not fail on one bad
+/// line.
+///
+/// # Errors
+///
+/// Returns an error only if an existing file cannot be read.
+pub fn load_all() -> anyhow::Result<Vec<Acknowledgment>> {
+    let mut acks = Vec::new();
+
+    let acks_dir = Path::new(ACKS_DIR);
+    if acks_dir.exists() {
+        let mut entries: Vec<PathBuf> = fs::read_dir(acks_dir)?
+            .filter_map(Result::ok)
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
+            .collect();
+        entries.sort();
+        for path in entries {
+            if let Ok(record) = serde_json::from_str::<LedgerRecord>(&fs::read_to_string(&path)?) {
+                acks.push(record.ack);
+            }
+        }
+    }
+
+    let history_path = Path::new(HISTORY_FILE);
+    if history_path.exists() {
+        for line in fs::read_to_string(history_path)?.lines() {
+            if let Ok(record) = serde_json::from_str::<LedgerRecord>(line) {
+                acks.push(record.ack);
+            }
+        }
+    }
+
+    Ok(acks)
+}
+
 /// Deterministic record file name: `<check-id>-<content-digest>.json`
 fn record_file_name(ack: &Acknowledgment) -> String {
     let mut hash: u64 = 0xcbf2_9ce4_8422_2325;

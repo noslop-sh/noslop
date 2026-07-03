@@ -8,6 +8,7 @@ mod clear_staged;
 mod compact;
 mod discover;
 mod init;
+mod stats;
 
 pub use ack::ack;
 pub use add_trailers::add_trailers;
@@ -17,3 +18,4 @@ pub use clear_staged::clear_staged;
 pub use compact::compact;
 pub use discover::discover;
 pub use init::init;
+pub use stats::stats;

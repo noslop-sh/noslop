@@ -11,6 +11,7 @@
 mod acknowledgment;
 mod actor;
 mod check;
+mod event;
 mod proposal;
 mod severity;
 mod target;
@@ -18,6 +19,7 @@ mod target;
 pub use acknowledgment::Acknowledgment;
 pub use actor::Actor;
 pub use check::Check;
+pub use event::{CheckFireEvent, EVENT_SCHEMA_VERSION};
 pub use proposal::Proposal;
 pub use severity::Severity;
 pub use target::{Fragment, GlobPattern, ParseError, PathSpec, Target};

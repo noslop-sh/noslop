@@ -532,3 +532,64 @@ fn test_discover_mine_from_file_with_fake_runner() {
         "discover config must survive rewrites"
     );
 }
+
+#[test]
+fn test_stats_tracks_fires_acks_and_rubber_stamps() {
+    let temp = TempDir::new().unwrap();
+
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Reviewed the rust change?\"\nseverity = \"block\"\n\n[[check]]\nid = \"TST-2\"\ntarget = \"ghost/**/*.py\"\nmessage = \"Dead check\"\nseverity = \"warn\"\n",
+    )
+    .unwrap();
+
+    // Stage a matching file; check fires (agent actor) and logs an event
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "lib.rs"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    noslop()
+        .arg("check")
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .assert()
+        .failure();
+    assert!(temp.path().join(".noslop/events.jsonl").exists());
+
+    // Ack WITHOUT changing anything: a rubber stamp
+    noslop()
+        .args(["ack", "TST-1", "-m", "looks fine"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .assert()
+        .success();
+
+    // Stats: 1 fire, 1 ack, 1 stamp, 0 self-fix; TST-2 flagged dead
+    let out = noslop()
+        .arg("stats")
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("ALWAYS-STAMPED"))
+        .stdout(predicate::str::contains("DEAD-TARGET"));
+    let stdout = String::from_utf8_lossy(&out.get_output().stdout).to_string();
+    let tst1 = stdout.lines().find(|l| l.starts_with("TST-1")).unwrap();
+    assert!(tst1.contains(" 1"), "expected fire/ack/stamp counts in: {tst1}");
+
+    // JSON mode carries the same data
+    noslop()
+        .args(["stats", "--json"])
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("\"rubber_stamps\":1"));
+}

@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-13",
+  "message": "Added: 4 unit tests for stats service (oid dedupe, stamp-vs-selffix, legacy acks, dead targets) + CLI integration test for the full fire→ack→stats loop",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T00:56:01.694060319+00:00",
+  "tree_oid": "ac57f3ad5757279284d0c203122496c2ace49f34"
+}

@@ -23,7 +23,8 @@ pub fn ack(check_ref: &str, message: &str, _mode: OutputMode) -> anyhow::Result<
     };
 
     let actor = detect_actor();
-    let ack = Acknowledgment::by_actor(check.id.clone(), message.to_string(), &actor);
+    let ack = Acknowledgment::by_actor(check.id.clone(), message.to_string(), &actor)
+        .with_tree_oid(crate::git::staged::staged_tree_oid().ok());
 
     // Stage via storage abstraction (drives the pre-commit gate and trailers)
     let store = storage::ack_store();

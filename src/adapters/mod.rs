@@ -10,6 +10,7 @@
 //! - [`proposals`] - Staged check proposals awaiting review
 //! - [`rules`] - Rules-file discovery (CLAUDE.md, AGENTS.md, .cursor/rules)
 //! - [`runner`] - Agent CLI subprocess for mining prompts
+//! - [`telemetry`] - Local check-fire event log for stats
 //! - [`mod@toml`] - `.noslop.toml` file parsing and writing
 //! - [`trailer`] - Commit trailer acknowledgment storage
 
@@ -21,6 +22,7 @@ pub mod ledger;
 pub mod proposals;
 pub mod rules;
 pub mod runner;
+pub mod telemetry;
 pub mod toml;
 pub mod trailer;
 
