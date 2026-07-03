@@ -1,0 +1,7 @@
+{
+  "schema": 1,
+  "check_id": "NOS-13",
+  "message": "Added test_init_fresh_clone_installs_hooks regression test; updated test_init_force_reinitialize for new message",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T00:46:12.877925930+00:00"
+}

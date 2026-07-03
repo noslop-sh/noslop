@@ -325,13 +325,13 @@ fn test_init_force_reinitialize() {
     // Initialize once
     noslop().arg("init").current_dir(temp.path()).assert().success();
 
-    // Try to initialize again without force - should be prevented
+    // Re-init without force keeps the config
     noslop()
         .arg("init")
         .current_dir(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("Already initialized"));
+        .stdout(predicate::str::contains("Kept existing .noslop.toml"));
 
     // Initialize with force
     noslop()
@@ -340,6 +340,45 @@ fn test_init_force_reinitialize() {
         .assert()
         .success()
         .stdout(predicate::str::contains("Created .noslop.toml"));
+}
+
+#[test]
+fn test_init_fresh_clone_installs_hooks() {
+    // Regression (NO-11): a fresh clone already has .noslop.toml (tracked)
+    // but no hooks (per-clone). init must install hooks anyway.
+    let temp = TempDir::new().unwrap();
+
+    std::process::Command::new("git")
+        .args(["init"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    // Simulate the fresh clone: tracked config exists, hooks don't
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Existing team check\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    assert!(!temp.path().join(".git/hooks/pre-commit").exists());
+
+    noslop()
+        .arg("init")
+        .current_dir(temp.path())
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("Kept existing .noslop.toml"))
+        .stdout(predicate::str::contains("Installed pre-commit hook"));
+
+    // Hooks installed, team config untouched
+    for hook in ["pre-commit", "commit-msg", "post-commit"] {
+        let path = temp.path().join(".git/hooks").join(hook);
+        assert!(path.exists(), "{hook} hook must exist after init on fresh clone");
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("noslop"), "{hook} hook must invoke noslop");
+    }
+    let config = std::fs::read_to_string(temp.path().join(".noslop.toml")).unwrap();
+    assert!(config.contains("Existing team check"));
 }
 
 #[test]

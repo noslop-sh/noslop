@@ -7,25 +7,25 @@ use crate::{git, noslop_file};
 use noslop::output::OutputMode;
 
 /// Initialize noslop in the current repository
+///
+/// Config (`.noslop.toml`) is per-repo and only written when absent (or
+/// `--force`). Hooks and `.noslop/` are per-clone and are ALWAYS ensured —
+/// a fresh clone of an initialized repo must still get its hooks.
 pub fn init(force: bool, _mode: OutputMode) -> anyhow::Result<()> {
     let noslop_path = Path::new(".noslop.toml");
-    let _noslop_dir = Path::new(".noslop");
-
-    if noslop_path.exists() && !force {
-        println!("Already initialized (.noslop.toml exists).");
-        println!("Use --force to reinitialize.");
-        return Ok(());
-    }
 
     println!("Initializing noslop...\n");
 
-    // Generate project prefix from repo name
-    let prefix = noslop_file::generate_prefix_from_repo();
-    println!("  Generated project prefix: {prefix}");
+    if noslop_path.exists() && !force {
+        println!("  Kept existing .noslop.toml (use --force to overwrite)");
+    } else {
+        // Generate project prefix from repo name
+        let prefix = noslop_file::generate_prefix_from_repo();
+        println!("  Generated project prefix: {prefix}");
 
-    // Create .noslop.toml with project config and example check
-    let noslop_toml = format!(
-        r#"# noslop checks
+        // Create .noslop.toml with project config and example check
+        let noslop_toml = format!(
+            r#"# noslop checks
 
 [project]
 prefix = "{prefix}"
@@ -40,9 +40,10 @@ prefix = "{prefix}"
 # message = "Consider impact on public API"
 # severity = "warn"
 "#
-    );
-    fs::write(noslop_path, noslop_toml)?;
-    println!("  Created .noslop.toml");
+        );
+        fs::write(noslop_path, noslop_toml)?;
+        println!("  Created .noslop.toml");
+    }
 
     // Create .noslop/ for acknowledgments (pending until committed)
     fs::create_dir_all(".noslop")?;
