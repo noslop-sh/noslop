@@ -320,3 +320,8 @@ External repos use the same action via `uses: noslop-sh/noslop@main` with
 `upload-token` inputs. When set, the versioned upload envelope (see
 docs/SCHEMA.md) is POSTed after the check; upload failures warn but never
 change the gate verdict. Unset = fully local operation.
+
+**Release publish policy:** the crates.io publish step has no
+`continue-on-error` — an auth or version failure fails the whole release
+run loudly. If it fails on authentication, refresh `CARGO_REGISTRY_TOKEN`
+(repo secret) and re-run the failed job.
