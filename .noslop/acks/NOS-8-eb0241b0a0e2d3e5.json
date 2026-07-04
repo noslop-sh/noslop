@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-8",
+  "message": "both additions documented in SCHEMA.md with explicit 'added within schema 1 as an additive field' migration notes and consumer guidance; no version bump needed for additive fields per the file's own convention",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T18:34:59.091232925+00:00",
+  "tree_oid": "5ddde92054e1243a404ee5028debb30f89a422f5"
+}

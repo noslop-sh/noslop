@@ -29,6 +29,15 @@ inputs:
     description: "Bearer token for upload-url (store as a repository secret)"
     required: false
     default: ""
+  dashboard-url:
+    description: >-
+      Optional org dashboard base URL including the view token (e.g.
+      https://cloud.example.com/dash/<view-token>). When set, the job
+      summary links to this run's page. Anyone who can read the job
+      summary can follow the link; view tokens are read-only and rotatable
+      from the dashboard.
+    required: false
+    default: ""
 
 runs:
   using: "composite"
@@ -67,6 +76,12 @@ runs:
         {
           echo "## noslop check"
           echo ""
+          # Run view keys on the PR when there is one, sha otherwise
+          if [ -n "${{ inputs.dashboard-url }}" ]; then
+            REF="${{ github.event.pull_request.number || github.event.pull_request.head.sha || github.sha }}"
+            echo "[View this run](${{ inputs.dashboard-url }}/runs/${REF})"
+            echo ""
+          fi
           echo '```json'
           cat noslop-check.json
           echo '```'
@@ -76,15 +91,16 @@ runs:
       if: inputs.upload-url != ''
       shell: bash
       run: |
-        # Wrap the versioned payload with run coordinates; failures here
-        # never change the gate verdict (upload is telemetry, not truth).
-        jq -n \
-          --arg repo "${{ github.repository }}" \
-          --arg sha "${{ github.event.pull_request.head.sha || github.sha }}" \
-          --arg pr "${{ github.event.pull_request.number || '' }}" \
-          --arg base "${{ steps.base.outputs.ref }}" \
-          --slurpfile check noslop-check.json \
-          '{schema: 1, repo: $repo, sha: $sha, pr: $pr, base: $base, check: $check[0]}' \
+        # The CLI is the single serializer of the envelope contract
+        # (docs/SCHEMA.md): check payload verbatim + run coordinates + the
+        # run's ledger records. Failures here never change the gate verdict
+        # (upload is telemetry, not truth).
+        noslop envelope \
+          --check noslop-check.json \
+          --repo "${{ github.repository }}" \
+          --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
+          --pr "${{ github.event.pull_request.number || '' }}" \
+          --base "${{ steps.base.outputs.ref }}" \
           > noslop-upload.json
         curl --fail-with-body --silent --show-error \
           -X POST \

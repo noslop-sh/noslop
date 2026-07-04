@@ -30,6 +30,7 @@ tarpaulin-report.html
 # noslop per-clone state (the ledger in .noslop/acks/ and history.jsonl ARE tracked)
 .noslop/staged-acks.json
 .noslop/events.jsonl
+.noslop/remote-checks.json
 
 # Local scratch space (spike artifacts, experiments) - visible in IDE, never committed
 /tmp/

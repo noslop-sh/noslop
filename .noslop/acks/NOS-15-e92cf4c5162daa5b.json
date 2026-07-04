@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-15",
+  "message": "no schema change: state files keep their exact formats and repo-relative locations; only path resolution is anchored to git rev-parse --show-toplevel",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T23:18:01.393770779+00:00",
+  "tree_oid": "a359779ab531ee3ca182e3bbb238b345344ea694",
+  "fire_tree_oid": "dd57baca0670e7667debcee72b95138f08134cd6",
+  "fired_at": "2026-07-03T23:17:50.558357424+00:00"
+}

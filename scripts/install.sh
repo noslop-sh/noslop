@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 # Installation script for noslop
-# Downloads and installs the latest release from GitHub
+# Downloads a release from GitHub and verifies its sha256 against the
+# checksum asset before installing. Verification is mandatory: a missing
+# or mismatched checksum aborts the install (Codecov 2021 lesson — never
+# run an uploader-style binary you couldn't verify).
 
 set -e
 
@@ -8,6 +11,8 @@ set -e
 REPO="noslop-sh/noslop"
 BINARY_NAME="noslop"
 INSTALL_DIR="${INSTALL_DIR:-$HOME/.local/bin}"
+# Pin a version with NOSLOP_VERSION=v0.2.0; defaults to the latest release
+PIN_VERSION="${NOSLOP_VERSION:-}"
 
 # Colors
 RED='\033[0;31m'
@@ -52,16 +57,20 @@ main() {
     local platform=$(detect_platform)
     echo "Platform: ${platform}"
 
-    # Get latest version
-    echo "Fetching latest release..."
-    local version=$(get_latest_version)
-
-    if [ -z "$version" ]; then
-        echo -e "${RED}Failed to fetch latest version${NC}"
-        exit 1
+    # Resolve version: explicit pin wins, otherwise latest
+    local version
+    if [ -n "$PIN_VERSION" ]; then
+        version="$PIN_VERSION"
+        echo "Pinned version: ${version}"
+    else
+        echo "Fetching latest release..."
+        version=$(get_latest_version)
+        if [ -z "$version" ]; then
+            echo -e "${RED}Failed to fetch latest version${NC}"
+            exit 1
+        fi
+        echo "Latest version: ${version}"
     fi
-
-    echo "Latest version: ${version}"
 
     # Construct download URL
     local ext="tar.gz"
@@ -83,9 +92,31 @@ main() {
     if ! curl -sL "$download_url" -o "noslop.${ext}"; then
         echo -e "${RED}Failed to download${NC}"
         echo -e "${YELLOW}Falling back to cargo install...${NC}"
-        cargo install noslop
+        cargo install noslop --locked
         exit 0
     fi
+
+    # Verify: the .sha256 asset is generated at build time by the release
+    # workflow. No checksum, no install — never fall through silently.
+    if ! curl -sL "${download_url}.sha256" -o "noslop.${ext}.sha256"; then
+        echo -e "${RED}Failed to download checksum for ${asset_name}.${ext}; aborting${NC}"
+        exit 1
+    fi
+    # The checksum file names the asset as built; verify against our local name
+    local expected actual
+    expected=$(awk '{print $1}' "noslop.${ext}.sha256")
+    if command -v sha256sum >/dev/null 2>&1; then
+        actual=$(sha256sum "noslop.${ext}" | awk '{print $1}')
+    else
+        actual=$(shasum -a 256 "noslop.${ext}" | awk '{print $1}')
+    fi
+    if [ -z "$expected" ] || [ "$expected" != "$actual" ]; then
+        echo -e "${RED}Checksum mismatch for ${asset_name}.${ext}${NC}"
+        echo "expected: ${expected}"
+        echo "actual:   ${actual}"
+        exit 1
+    fi
+    echo -e "${GREEN}✓ sha256 verified${NC}"
 
     # Extract
     if [[ "$ext" == "zip" ]]; then

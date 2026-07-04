@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-13",
+  "message": "2 new e2e tests: ack embeds fire_tree_oid+fired_at from local events (and equality with ack tree proves the rubber-stamp join), ack without prior fire omits the fields entirely",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T18:40:35.007370223+00:00",
+  "tree_oid": "71482accc8daf2b7bd62c61e8bbbe611d60d7090"
+}

@@ -15,6 +15,7 @@ use std::process::Command;
 
 use serde::{Deserialize, Serialize};
 
+use crate::adapters::git::state_path;
 use crate::core::models::Acknowledgment;
 
 /// Version of the on-disk ack record and history line format
@@ -51,8 +52,9 @@ pub fn record(ack: &Acknowledgment) -> anyhow::Result<PathBuf> {
     };
     let json = serde_json::to_string_pretty(&record)?;
 
-    fs::create_dir_all(ACKS_DIR)?;
-    let path = Path::new(ACKS_DIR).join(record_file_name(ack));
+    let acks_dir = state_path(ACKS_DIR);
+    fs::create_dir_all(&acks_dir)?;
+    let path = acks_dir.join(record_file_name(ack));
     fs::write(&path, &json)?;
 
     git_add(&path)?;
@@ -68,12 +70,12 @@ pub fn record(ack: &Acknowledgment) -> anyhow::Result<PathBuf> {
 ///
 /// Returns an error if records cannot be read, appended, or staged.
 pub fn compact() -> anyhow::Result<usize> {
-    let acks_dir = Path::new(ACKS_DIR);
+    let acks_dir = state_path(ACKS_DIR);
     if !acks_dir.exists() {
         return Ok(0);
     }
 
-    let mut entries: Vec<PathBuf> = fs::read_dir(acks_dir)?
+    let mut entries: Vec<PathBuf> = fs::read_dir(&acks_dir)?
         .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
@@ -93,14 +95,14 @@ pub fn compact() -> anyhow::Result<usize> {
         history.push('\n');
     }
 
-    let history_path = Path::new(HISTORY_FILE);
+    let history_path = state_path(HISTORY_FILE);
     let existing = if history_path.exists() {
-        fs::read_to_string(history_path)?
+        fs::read_to_string(&history_path)?
     } else {
         String::new()
     };
-    fs::write(history_path, format!("{existing}{history}"))?;
-    git_add(history_path)?;
+    fs::write(&history_path, format!("{existing}{history}"))?;
+    git_add(&history_path)?;
 
     for path in &entries {
         fs::remove_file(path)?;
@@ -120,48 +122,62 @@ pub fn compact() -> anyhow::Result<usize> {
 ///
 /// Returns an error only if an existing file cannot be read.
 pub fn load_pending() -> anyhow::Result<Vec<Acknowledgment>> {
-    let acks_dir = Path::new(ACKS_DIR);
+    Ok(pending_records()?.into_iter().map(|r| r.ack).collect())
+}
+
+/// Load every acknowledgment in the ledger: pending records plus history.
+///
+/// # Errors
+///
+/// Returns an error only if an existing file cannot be read.
+pub fn load_all() -> anyhow::Result<Vec<Acknowledgment>> {
+    Ok(load_all_records()?.into_iter().map(|r| r.ack).collect())
+}
+
+/// Load every full ledger record (schema wrapper included): pending plus
+/// history. This is the shape the upload envelope ships to consumers.
+///
+/// Unparsable entries are skipped — the ledger accumulates records from
+/// multiple schema-compatible versions and readers must not fail on one
+/// bad line.
+///
+/// # Errors
+///
+/// Returns an error only if an existing file cannot be read.
+pub fn load_all_records() -> anyhow::Result<Vec<LedgerRecord>> {
+    let mut records = pending_records()?;
+
+    let history_path = state_path(HISTORY_FILE);
+    if history_path.exists() {
+        for line in fs::read_to_string(&history_path)?.lines() {
+            if let Ok(record) = serde_json::from_str::<LedgerRecord>(line) {
+                records.push(record);
+            }
+        }
+    }
+
+    Ok(records)
+}
+
+fn pending_records() -> anyhow::Result<Vec<LedgerRecord>> {
+    let acks_dir = state_path(ACKS_DIR);
     if !acks_dir.exists() {
         return Ok(Vec::new());
     }
-    let mut entries: Vec<PathBuf> = fs::read_dir(acks_dir)?
+    let mut entries: Vec<PathBuf> = fs::read_dir(&acks_dir)?
         .filter_map(Result::ok)
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|ext| ext == "json"))
         .collect();
     entries.sort();
 
-    let mut acks = Vec::new();
+    let mut records = Vec::new();
     for path in entries {
         if let Ok(record) = serde_json::from_str::<LedgerRecord>(&fs::read_to_string(&path)?) {
-            acks.push(record.ack);
+            records.push(record);
         }
     }
-    Ok(acks)
-}
-
-/// Load every acknowledgment in the ledger: pending records plus history.
-///
-/// Unparsable entries are skipped — the ledger accumulates records from
-/// multiple schema-compatible versions and stats must not fail on one bad
-/// line.
-///
-/// # Errors
-///
-/// Returns an error only if an existing file cannot be read.
-pub fn load_all() -> anyhow::Result<Vec<Acknowledgment>> {
-    let mut acks = load_pending()?;
-
-    let history_path = Path::new(HISTORY_FILE);
-    if history_path.exists() {
-        for line in fs::read_to_string(history_path)?.lines() {
-            if let Ok(record) = serde_json::from_str::<LedgerRecord>(line) {
-                acks.push(record.ack);
-            }
-        }
-    }
-
-    Ok(acks)
+    Ok(records)
 }
 
 /// Deterministic record file name: `<check-id>-<content-digest>.json`

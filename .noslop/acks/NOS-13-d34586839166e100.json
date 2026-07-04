@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-13",
+  "message": "6 new tests: bypass exempts matrix (actor/expiry/garbage-date), check-set serde round-trip, merge truth table (3), e2e remote gate + monitor silence via stdlib mock server, e2e fail-open to local on unroutable remote",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T19:37:42.476384888+00:00",
+  "tree_oid": "1d6caeab71e3d748512f0aeb570f5a8459485d43",
+  "fire_tree_oid": "f6d281bbbd922892db2bd2c58515839c2030bd59",
+  "fired_at": "2026-07-03T19:37:24.667051919+00:00"
+}

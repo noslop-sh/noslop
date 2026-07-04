@@ -1,0 +1,8 @@
+{
+  "schema": 1,
+  "check_id": "NOS-9",
+  "message": "envelope.rs contains no domain logic: reads payload, filters adapters::ledger records by ids from the payload, serializes output struct; check_validate change only threads git adapter's tree_oid into the output type",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-03T18:34:59.095415895+00:00",
+  "tree_oid": "b99cdcd80916c1b7c47e157923b8db6887f1da31"
+}

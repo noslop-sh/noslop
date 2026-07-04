@@ -112,6 +112,32 @@ impl VersionControl for GitVersionControl {
     }
 }
 
+/// Absolute repository root (`git rev-parse --show-toplevel`), falling
+/// back to the current directory outside a work tree.
+#[must_use]
+pub fn repo_root_or_cwd() -> PathBuf {
+    Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map_or_else(
+            || PathBuf::from("."),
+            |o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()),
+        )
+}
+
+/// A `.noslop` state path anchored to the repository root.
+///
+/// Every module that touches `.noslop/` state must resolve through here:
+/// running noslop from a monorepo subdirectory has to read and write the
+/// same store as running it from the root, or acks silently land in a
+/// stray `.noslop/` the gate never reads.
+#[must_use]
+pub fn state_path(rel: &str) -> PathBuf {
+    repo_root_or_cwd().join(rel)
+}
+
 /// Get the repository name from git remote or directory name
 #[must_use]
 pub fn get_repo_name() -> String {

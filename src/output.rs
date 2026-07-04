@@ -26,12 +26,60 @@ pub struct CheckResult {
     pub actor: String,
     /// Whether blocking checks gate this actor (agents/CI yes, humans no)
     pub enforced: bool,
+    /// Gate-time staged-tree object id (`git write-tree`). Additive within
+    /// schema 1: joined against ledger record tree oids to distinguish
+    /// self-correction from rubber-stamping. Absent when git state is
+    /// unavailable.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tree_oid: Option<String>,
+    /// Version of the cloud check set in force for this run (additive
+    /// within schema 1; absent when the repo has no remote binding)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check_set_version: Option<String>,
+    /// Seconds since the cloud check set was fetched (0 = fetched this
+    /// run). The gate is fail-open, so runs may proceed on cached rules;
+    /// this lets the cloud flag runs that gated on a stale set. Additive
+    /// within schema 1; absent when the repo has no remote binding.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub check_set_age_seconds: Option<u64>,
     /// Checks that are blocking (need acknowledgment)
     pub blocking: Vec<CheckMatch>,
     /// Checks that are warnings
     pub warnings: Vec<CheckMatch>,
     /// Checks that were acknowledged
     pub acknowledged: Vec<CheckMatch>,
+    /// Monitor-state cloud checks that surfaced: recorded for promotion
+    /// decisions, never agent-visible, never gating (additive within
+    /// schema 1; omitted when empty)
+    #[serde(skip_serializing_if = "Vec::is_empty", default)]
+    pub monitor: Vec<CheckMatch>,
+}
+
+/// Version of the upload envelope format (see `docs/SCHEMA.md`)
+pub const ENVELOPE_SCHEMA: u32 = 1;
+
+/// Upload envelope: the hosted-ingestion contract.
+///
+/// Wraps the verbatim `noslop check --json` payload with run coordinates
+/// and the run's ledger records.
+#[derive(Debug, Serialize)]
+pub struct UploadEnvelope {
+    /// Envelope format version
+    pub schema: u32,
+    /// Repository slug (e.g. "noslop-sh/noslop")
+    pub repo: String,
+    /// Commit under test
+    pub sha: String,
+    /// Pull request number, empty for non-PR runs
+    pub pr: String,
+    /// Base ref the diff was computed against
+    pub base: String,
+    /// The `noslop check --json` payload, verbatim
+    pub check: serde_json::Value,
+    /// Ledger records for the checks this run touched: the acknowledgment
+    /// justification, actor, timestamp, and ack-time tree oid. Additive
+    /// within schema 1 — consumers must treat it as optional.
+    pub ledger: Vec<crate::adapters::ledger::LedgerRecord>,
 }
 
 /// A check matched to a file
@@ -126,19 +174,22 @@ impl CheckResult {
         if self.blocking.is_empty() {
             println!("All checks acknowledged. Commit may proceed.");
         } else if self.enforced {
-            println!("Blocking:");
+            println!("Needs answers:");
             for m in &self.blocking {
                 println!("  [{}] {}", m.id, m.file);
                 println!("          {}\n", m.message);
             }
-            println!("BLOCKED: {} unacknowledged check(s)\n", self.blocking.len());
-            println!("To acknowledge: noslop ack <check-id> -m \"your acknowledgment\"");
+            println!(
+                "PAUSED: {} check(s) need an answer before this commit proceeds\n",
+                self.blocking.len()
+            );
+            println!("To answer:      noslop ack <check-id> -m \"your acknowledgment\"");
             println!(
                 "Example:        noslop ack {} -m \"reviewed and verified\"",
                 self.blocking.first().map_or("CHK-1", |b| b.id.as_str())
             );
         } else {
-            println!("Guidance (would block an agent):");
+            println!("Guidance (an agent would pause here):");
             for m in &self.blocking {
                 println!("  [{}] {}", m.id, m.file);
                 println!("          {}\n", m.message);

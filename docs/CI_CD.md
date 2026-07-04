@@ -142,11 +142,14 @@ This triggers the release workflow automatically.
 Users can install noslop via:
 
 ```bash
-# Quick install (latest from GitHub releases)
-curl -fsSL https://raw.githubusercontent.com/noslop-sh/noslop/main/scripts/install.sh | bash
+# From crates.io (preferred: pinned by lockfile)
+cargo install noslop --locked
 
-# From crates.io (after first publish)
-cargo install noslop
+# From GitHub releases: download the script, review, run. It verifies the
+# release sha256 and refuses to install on any mismatch. Pin with
+# NOSLOP_VERSION=vX.Y.Z. Never pipe the script straight into a shell.
+curl -fsSLO https://raw.githubusercontent.com/noslop-sh/noslop/main/scripts/install.sh
+less install.sh && bash install.sh
 
 # From source
 git clone https://github.com/noslop-sh/noslop.git

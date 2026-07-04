@@ -16,6 +16,15 @@ pub use noslop::adapters::toml::{
     CheckEntry, NoslopFile, ProjectConfig, find_noslop_files, load_file,
 };
 
+/// Load the repo-root `[remote]` binding, defaulting to local-only
+pub fn load_remote_config() -> noslop::adapters::toml::RemoteConfig {
+    let path = std::path::Path::new(".noslop.toml");
+    if !path.exists() {
+        return noslop::adapters::toml::RemoteConfig::default();
+    }
+    load_file(path).map(|f| f.remote).unwrap_or_default()
+}
+
 /// Load all checks applicable to a set of files
 pub fn load_checks_for_files(files: &[String]) -> anyhow::Result<Vec<(Check, String)>> {
     let mut result = Vec::new();

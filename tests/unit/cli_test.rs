@@ -172,6 +172,57 @@ fn test_ack_stages_acknowledgment() {
 }
 
 #[test]
+fn test_ack_from_subdirectory_lands_in_repo_root_state() {
+    let temp = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Check it\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    let subdir = temp.path().join("apps/web");
+    std::fs::create_dir_all(&subdir).unwrap();
+    std::fs::write(subdir.join("lib.rs"), "fn main() {}\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    // Ack from deep inside the tree: state must land at the repo root, not
+    // grow a stray .noslop/ under the cwd
+    noslop()
+        .args(["ack", "TST-1", "-m", "verified from a subdirectory"])
+        .current_dir(&subdir)
+        .assert()
+        .success();
+
+    assert!(temp.path().join(".noslop/staged-acks.json").exists());
+    assert!(!subdir.join(".noslop").exists(), "stray .noslop/ created in subdirectory");
+
+    // The gate run from the root reads the same store
+    let out = noslop()
+        .args(["--json", "check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    let acked: Vec<&str> = result["acknowledged"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| a["id"].as_str().unwrap())
+        .collect();
+    assert!(acked.contains(&"TST-1"));
+}
+
+#[test]
 fn test_check_list_with_no_checks() {
     let temp = TempDir::new().unwrap();
 
@@ -659,4 +710,354 @@ fn test_check_diff_base_reconciles_ledger_not_local_state() {
         .current_dir(temp.path())
         .assert()
         .success();
+}
+
+#[test]
+fn test_envelope_wraps_check_with_touched_ledger_records() {
+    let temp = TempDir::new().unwrap();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(temp.path())
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap()
+    };
+    git(&["init", "-b", "main"]);
+
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Reviewed?\"\nseverity = \"block\"\n\n[[check]]\nid = \"TST-2\"\ntarget = \"*.md\"\nmessage = \"Docs current?\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    git(&["add", "-A"]);
+    git(&["commit", "-m", "base"]);
+
+    // Branch touches only the .rs check; ack both so the ledger holds a
+    // record the run touched (TST-1) and one it did not (TST-2)
+    git(&["checkout", "-b", "feature"]);
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "lib.rs"]);
+    for (id, msg) in [("TST-1", "verified the rust change"), ("TST-2", "unrelated ack")] {
+        noslop()
+            .args(["ack", id, "-m", msg])
+            .env("NOSLOP_ACTOR", "claude-code")
+            .current_dir(temp.path())
+            .assert()
+            .success();
+    }
+    git(&["add", "-A"]);
+    git(&["commit", "-m", "change with acks"]);
+
+    // The Action flow: check --json to a file, then envelope wraps it
+    let check_out = noslop()
+        .args(["--json", "check", "--ci", "--diff-base", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    std::fs::write(temp.path().join("noslop-check.json"), &check_out.stdout).unwrap();
+
+    let envelope_out = noslop()
+        .args([
+            "envelope",
+            "--check",
+            "noslop-check.json",
+            "--repo",
+            "acme/api",
+            "--sha",
+            "abc123",
+            "--base",
+            "main",
+        ])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    assert!(envelope_out.status.success());
+
+    let envelope: serde_json::Value = serde_json::from_slice(&envelope_out.stdout).unwrap();
+    assert_eq!(envelope["schema"], 1);
+    assert_eq!(envelope["repo"], "acme/api");
+    assert_eq!(envelope["pr"], ""); // defaulted: non-PR run
+
+    // check payload embedded verbatim, including the gate-time tree oid
+    assert_eq!(envelope["check"]["passed"], true);
+    assert!(envelope["check"]["tree_oid"].is_string());
+
+    // Ledger carries the touched record with its justification and ack
+    // tree oid; the untouched TST-2 record never leaves the repository
+    let ledger = envelope["ledger"].as_array().unwrap();
+    assert_eq!(ledger.len(), 1);
+    assert_eq!(ledger[0]["check_id"], "TST-1");
+    assert_eq!(ledger[0]["message"], "verified the rust change");
+    assert_eq!(ledger[0]["acknowledged_by"], "claude-code");
+    assert!(ledger[0]["tree_oid"].is_string());
+    assert!(ledger[0]["created_at"].is_string());
+}
+
+#[test]
+fn test_envelope_rejects_non_check_payload() {
+    let temp = TempDir::new().unwrap();
+    std::fs::write(temp.path().join("bogus.json"), "[1,2,3]").unwrap();
+
+    noslop()
+        .args(["envelope", "--check", "bogus.json", "--repo", "r", "--sha", "s", "--base", "m"])
+        .current_dir(temp.path())
+        .assert()
+        .failure();
+}
+
+#[test]
+fn test_ack_embeds_fire_evidence_from_local_events() {
+    let temp = TempDir::new().unwrap();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(temp.path())
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap()
+    };
+    git(&["init", "-b", "main"]);
+
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Reviewed?\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "-A"]);
+
+    // The gate fires TST-1 and logs a local fire event (agent actor, local mode)
+    noslop()
+        .args(["check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .assert()
+        .failure();
+    assert!(temp.path().join(".noslop/events.jsonl").exists());
+
+    // The ack copies the fire's tree oid + timestamp into the ledger record
+    noslop()
+        .args(["ack", "TST-1", "-m", "verified"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .assert()
+        .success();
+
+    let acks_dir = temp.path().join(".noslop/acks");
+    let record_path = std::fs::read_dir(&acks_dir).unwrap().next().unwrap().unwrap().path();
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(record_path).unwrap()).unwrap();
+    assert!(record["fire_tree_oid"].is_string());
+    assert!(record["fired_at"].is_string());
+    // Nothing changed between fire and ack: the trees match (a rubber stamp)
+    assert_eq!(record["fire_tree_oid"], record["tree_oid"]);
+}
+
+#[test]
+fn test_ack_without_prior_fire_omits_fire_fields() {
+    let temp = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"Reviewed?\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+
+    noslop()
+        .args(["ack", "TST-1", "-m", "acked before any check ran"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .current_dir(temp.path())
+        .assert()
+        .success();
+
+    let acks_dir = temp.path().join(".noslop/acks");
+    let record_path = std::fs::read_dir(&acks_dir).unwrap().next().unwrap().unwrap().path();
+    let record: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(record_path).unwrap()).unwrap();
+    // Additive optional fields: absent, not null, when no fire event exists
+    assert!(record.get("fire_tree_oid").is_none());
+    assert!(record.get("fired_at").is_none());
+}
+
+/// Minimal one-shot HTTP server: answers every request with the given JSON.
+fn serve_check_set(body: &'static str) -> String {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = listener.local_addr().unwrap();
+    std::thread::spawn(move || {
+        // Serve a handful of requests, then let the thread die with the test
+        for stream in listener.incoming().take(4) {
+            let Ok(mut stream) = stream else { break };
+            use std::io::{Read, Write};
+            let mut buf = [0u8; 2048];
+            let _ = stream.read(&mut buf);
+            let response = format!(
+                "HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                body.len(),
+                body
+            );
+            let _ = stream.write_all(response.as_bytes());
+        }
+    });
+    format!("http://{addr}")
+}
+
+#[test]
+fn test_remote_checks_gate_and_monitor_stays_silent() {
+    let url = serve_check_set(
+        r#"{"check_set_version":"v-test-1","checks":[
+            {"id":"ORG-1","target":"*.rs","message":"org: reviewed?","severity":"block","state":"enforce","owner":"saumil","bypasses":[]},
+            {"id":"ORG-2","target":"*.rs","message":"org: trial check","severity":"block","state":"monitor","owner":"saumil","bypasses":[]}
+        ]}"#,
+    );
+
+    let temp = TempDir::new().unwrap();
+    let git = |args: &[&str]| {
+        std::process::Command::new("git")
+            .args(args)
+            .current_dir(temp.path())
+            .env("GIT_AUTHOR_NAME", "t")
+            .env("GIT_AUTHOR_EMAIL", "t@t")
+            .env("GIT_COMMITTER_NAME", "t")
+            .env("GIT_COMMITTER_EMAIL", "t@t")
+            .output()
+            .unwrap()
+    };
+    git(&["init", "-b", "main"]);
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        format!("[project]\nprefix = \"TST\"\n\n[remote]\nurl = \"{url}\"\n"),
+    )
+    .unwrap();
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    git(&["add", "-A"]);
+
+    let out = noslop()
+        .args(["--json", "check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .env("NOSLOP_CLOUD_TOKEN", "nslp_test")
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    // The enforce-state org check blocks the agent
+    assert!(!out.status.success());
+
+    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["check_set_version"], "v-test-1");
+    // Fetched this run: the set is fresh
+    assert_eq!(result["check_set_age_seconds"], 0);
+    let blocking: Vec<&str> = result["blocking"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["id"].as_str().unwrap())
+        .collect();
+    assert!(blocking.contains(&"ORG-1"));
+    // The monitor-state check never blocks and never joins blocking output;
+    // it rides the monitor array for promotion telemetry
+    assert!(!blocking.contains(&"ORG-2"));
+    let monitor: Vec<&str> = result["monitor"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|b| b["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(monitor, ["ORG-2"]);
+}
+
+#[test]
+fn test_remote_fetch_failure_fails_open_to_local_checks() {
+    let temp = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    // Unroutable remote: the gate must degrade to local checks, not error
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[remote]\nurl = \"http://127.0.0.1:1\"\n\n[[check]]\nid = \"TST-1\"\ntarget = \"*.rs\"\nmessage = \"local ask\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    let out = noslop()
+        .args(["--json", "check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .env("NOSLOP_CLOUD_TOKEN", "nslp_test")
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    // Local check still gates; the remote outage is a stderr warning only
+    assert!(!out.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["blocking"][0]["id"], "TST-1");
+    assert!(result.get("check_set_version").is_none());
+    assert!(result.get("check_set_age_seconds").is_none());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("using local checks only"));
+}
+
+#[test]
+fn test_remote_fetch_failure_falls_back_to_stale_cache_with_age() {
+    let temp = TempDir::new().unwrap();
+    std::process::Command::new("git")
+        .args(["init", "-b", "main"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    std::fs::write(
+        temp.path().join(".noslop.toml"),
+        "[project]\nprefix = \"TST\"\n\n[remote]\nurl = \"http://127.0.0.1:1\"\n",
+    )
+    .unwrap();
+    // A cache from an hour ago: the unroutable fetch must degrade to it and
+    // report honestly how stale the rules were
+    let hour_ago = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+        - 3600;
+    std::fs::create_dir_all(temp.path().join(".noslop")).unwrap();
+    std::fs::write(
+        temp.path().join(".noslop/remote-checks.json"),
+        format!(
+            r#"{{"fetched_at":{hour_ago},"set":{{"check_set_version":"v-stale","checks":[{{"id":"ORG-1","target":"*.rs","message":"org: reviewed?","severity":"block","state":"enforce","owner":"saumil","bypasses":[]}}]}}}}"#
+        ),
+    )
+    .unwrap();
+    std::fs::write(temp.path().join("lib.rs"), "fn main() {}\n").unwrap();
+    std::process::Command::new("git")
+        .args(["add", "-A"])
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+
+    let out = noslop()
+        .args(["--json", "check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .env("NOSLOP_CLOUD_TOKEN", "nslp_test")
+        .current_dir(temp.path())
+        .output()
+        .unwrap();
+    // The cached enforce-state check still gates the agent
+    assert!(!out.status.success());
+    let result: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(result["check_set_version"], "v-stale");
+    assert!(result["check_set_age_seconds"].as_u64().unwrap() >= 3600);
+    assert!(String::from_utf8_lossy(&out.stderr).contains("using cached set"));
 }

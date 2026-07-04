@@ -11,7 +11,7 @@ use std::path::Path;
 /// Called by commit-msg hook with the commit message file path.
 /// Appends Noslop-Ack trailers from staged acknowledgments.
 pub fn add_trailers(commit_msg_file: &str) -> anyhow::Result<()> {
-    add_trailers_in(Path::new("."), commit_msg_file)
+    add_trailers_in(&noslop::adapters::git::repo_root_or_cwd(), commit_msg_file)
 }
 
 /// Add acknowledgment trailers in a specific directory (for testing)

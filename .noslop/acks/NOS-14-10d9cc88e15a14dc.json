@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-14",
+  "message": "the 7 integration tests asserting gate output updated in this commit: BLOCKED->PAUSED",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T00:22:52.049861685+00:00",
+  "tree_oid": "69ac565a150814c5784497e10dc9f82d27407d9f",
+  "fire_tree_oid": "d85aa8351e8d1cfb6f99df50873d33bd63a197b1",
+  "fired_at": "2026-07-04T00:22:52.039962762+00:00"
+}

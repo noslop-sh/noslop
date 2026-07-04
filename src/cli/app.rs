@@ -91,6 +91,29 @@ pub enum Command {
     /// Fold pending ack records into .noslop/history.jsonl (run at merge time)
     Compact,
 
+    /// Build the upload envelope for hosted ingestion (used by the Action)
+    Envelope {
+        /// Path to a `noslop check --json` payload
+        #[arg(long, value_name = "PATH")]
+        check: String,
+
+        /// Repository slug (e.g. "noslop-sh/noslop")
+        #[arg(long)]
+        repo: String,
+
+        /// Commit under test
+        #[arg(long)]
+        sha: String,
+
+        /// Pull request number (empty for non-PR runs)
+        #[arg(long, default_value = "")]
+        pr: String,
+
+        /// Base ref the diff was computed against
+        #[arg(long)]
+        base: String,
+    },
+
     /// Per-check metrics: fires, acks, self-correction vs rubber stamps, dead targets
     Stats {
         /// Render as a markdown table (for CI summaries)
@@ -175,6 +198,13 @@ pub fn run() -> anyhow::Result<()> {
         Some(Command::AddTrailers { commit_msg_file }) => commands::add_trailers(&commit_msg_file),
         Some(Command::ClearStaged) => commands::clear_staged(),
         Some(Command::Compact) => commands::compact(),
+        Some(Command::Envelope {
+            check,
+            repo,
+            sha,
+            pr,
+            base,
+        }) => commands::envelope(&check, &repo, &sha, &pr, &base),
         Some(Command::Stats { markdown }) => commands::stats(markdown, output_mode),
         Some(Command::Curate { markdown }) => commands::curate(markdown, output_mode),
         Some(Command::Version) => {
