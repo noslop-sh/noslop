@@ -74,6 +74,12 @@ pub struct UploadEnvelope {
     pub pr: String,
     /// Base ref the diff was computed against
     pub base: String,
+    /// Head branch name, empty when unknown (additive, schema 1)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub branch: String,
+    /// Pull request title, empty for non-PR runs (additive, schema 1)
+    #[serde(skip_serializing_if = "String::is_empty")]
+    pub pr_title: String,
     /// The `noslop check --json` payload, verbatim
     pub check: serde_json::Value,
     /// Ledger records for the checks this run touched: the acknowledgment

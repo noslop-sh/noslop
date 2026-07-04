@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-9",
+  "message": "envelope command remains a thin serializer: new args pass through to UploadEnvelope verbatim, no logic added to the CLI layer",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T16:04:05.675633513+00:00",
+  "tree_oid": "9d227c4013e5fa2e09f6ab3ee31780a7a4f4dba2",
+  "fire_tree_oid": "db3d61f84a1456f3ef3b6227c7de862ce420ddb9",
+  "fired_at": "2026-07-04T15:54:02.634687837+00:00"
+}

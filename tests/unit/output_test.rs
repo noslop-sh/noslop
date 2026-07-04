@@ -265,6 +265,8 @@ fn upload_envelope_serializes_stable_field_names() {
         sha: "abc123".to_string(),
         pr: String::new(),
         base: "origin/main".to_string(),
+        branch: "sp/no-2-matcher".to_string(),
+        pr_title: String::new(),
         check: serde_json::json!({"passed": false, "blocking": [{"id": "NOS-2"}]}),
         ledger: vec![noslop::adapters::ledger::LedgerRecord {
             schema: 1,
@@ -281,6 +283,9 @@ fn upload_envelope_serializes_stable_field_names() {
     assert!(json.contains("\"schema\":1"));
     assert!(json.contains("\"repo\":\"noslop-sh/noslop\""));
     assert!(json.contains("\"pr\":\"\""));
+    assert!(json.contains("\"branch\":\"sp/no-2-matcher\""));
+    // Additive empty fields stay off the wire entirely
+    assert!(!json.contains("pr_title"));
     // check payload embedded verbatim
     assert!(json.contains("\"blocking\":[{\"id\":\"NOS-2\"}]"));
     // ledger record carries the justification and actor

@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-8",
+  "message": "no format break: branch and pr_title are additive optional fields omitted when empty, schema stays 1; SCHEMA.md gains an additive-fields note, no migration needed",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T16:04:05.667487716+00:00",
+  "tree_oid": "db3d61f84a1456f3ef3b6227c7de862ce420ddb9",
+  "fire_tree_oid": "db3d61f84a1456f3ef3b6227c7de862ce420ddb9",
+  "fired_at": "2026-07-04T15:54:02.634682257+00:00"
+}

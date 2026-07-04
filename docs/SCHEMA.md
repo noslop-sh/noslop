@@ -146,6 +146,12 @@ serializer of this format).
 - Upload is telemetry, not truth: a failed upload never changes the gate
   verdict.
 
+### Additive fields (schema 1)
+
+- `branch` — head branch name of the run; omitted when unknown.
+- `pr_title` — pull request title; omitted for non-PR runs. Both exist so
+  dashboards can identify runs by name and branch instead of bare numbers.
+
 ## Commit trailer — `Noslop-Ack: <check-id> | <message> | <actor>`
 
 Cosmetic convenience for humans reading `git log`. Not durable across squash

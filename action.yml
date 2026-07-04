@@ -101,6 +101,8 @@ runs:
           --sha "${{ github.event.pull_request.head.sha || github.sha }}" \
           --pr "${{ github.event.pull_request.number || '' }}" \
           --base "${{ steps.base.outputs.ref }}" \
+          --branch "${{ github.head_ref || github.ref_name }}" \
+          --pr-title "${{ github.event.pull_request.title || '' }}" \
           > noslop-upload.json
         curl --fail-with-body --silent --show-error \
           -X POST \
