@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-6",
+  "message": "user-facing banner wording only: PAUSED becomes NEEDS ANSWERS; README and help text carry no PAUSED references; 7 integration assertions updated in the same commit",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T04:08:47.187473004+00:00",
+  "tree_oid": "848158e7d1728666bdafe9aec1d6b2ca04e2ec3e",
+  "fire_tree_oid": "ecc865e42b3667b18d42b14c700cc75c5f11f974",
+  "fired_at": "2026-07-04T03:44:10.511664331+00:00"
+}

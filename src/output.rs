@@ -179,10 +179,7 @@ impl CheckResult {
                 println!("  [{}] {}", m.id, m.file);
                 println!("          {}\n", m.message);
             }
-            println!(
-                "PAUSED: {} check(s) need an answer before this commit proceeds\n",
-                self.blocking.len()
-            );
+            println!("NEEDS ANSWERS: {} check(s) on this commit\n", self.blocking.len());
             println!("To answer:      noslop ack <check-id> -m \"your acknowledgment\"");
             println!(
                 "Example:        noslop ack {} -m \"reviewed and verified\"",
