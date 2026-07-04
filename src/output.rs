@@ -174,19 +174,22 @@ impl CheckResult {
         if self.blocking.is_empty() {
             println!("All checks acknowledged. Commit may proceed.");
         } else if self.enforced {
-            println!("Blocking:");
+            println!("Needs answers:");
             for m in &self.blocking {
                 println!("  [{}] {}", m.id, m.file);
                 println!("          {}\n", m.message);
             }
-            println!("BLOCKED: {} unacknowledged check(s)\n", self.blocking.len());
-            println!("To acknowledge: noslop ack <check-id> -m \"your acknowledgment\"");
+            println!(
+                "PAUSED: {} check(s) need an answer before this commit proceeds\n",
+                self.blocking.len()
+            );
+            println!("To answer:      noslop ack <check-id> -m \"your acknowledgment\"");
             println!(
                 "Example:        noslop ack {} -m \"reviewed and verified\"",
                 self.blocking.first().map_or("CHK-1", |b| b.id.as_str())
             );
         } else {
-            println!("Guidance (would block an agent):");
+            println!("Guidance (an agent would pause here):");
             for m in &self.blocking {
                 println!("  [{}] {}", m.id, m.file);
                 println!("          {}\n", m.message);
