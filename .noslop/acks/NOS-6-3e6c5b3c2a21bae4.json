@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-6",
+  "message": "input description example updated to the renamed /org route; no command surface change",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T03:09:02.512861747+00:00",
+  "tree_oid": "a3076c26270bccffbe4fceec2f4d49b35ac3b37b",
+  "fire_tree_oid": "ec774c5bdb9021b7b7c10c5d6f7d00041f14e84d",
+  "fired_at": "2026-07-03T23:18:01.411913603+00:00"
+}

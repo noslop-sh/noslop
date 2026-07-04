@@ -32,7 +32,7 @@ inputs:
   dashboard-url:
     description: >-
       Optional org dashboard base URL including the view token (e.g.
-      https://cloud.example.com/dash/<view-token>). When set, the job
+      https://cloud.example.com/org/<view-token>). When set, the job
       summary links to this run's page. Anyone who can read the job
       summary can follow the link; view tokens are read-only and rotatable
       from the dashboard.
