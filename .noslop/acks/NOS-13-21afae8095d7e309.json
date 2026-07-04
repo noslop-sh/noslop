@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-13",
+  "message": "no new logic: string literal changed in output.rs; the 7 existing integration assertions were updated to pin the new banner text",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T04:09:00.586735007+00:00",
+  "tree_oid": "1a9826691761c265b0b9be0bb4797f1a7ca387bd",
+  "fire_tree_oid": "1a9826691761c265b0b9be0bb4797f1a7ca387bd",
+  "fired_at": "2026-07-04T04:08:47.205708493+00:00"
+}

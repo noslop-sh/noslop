@@ -111,7 +111,7 @@ fn test_e2e_complete_workflow() {
         .current_dir(repo_path)
         .assert()
         .failure()
-        .stdout(predicate::str::contains("PAUSED"))
+        .stdout(predicate::str::contains("NEEDS ANSWERS"))
         .stdout(predicate::str::contains("Ensure all Rust code follows style guidelines"));
 
     // Step 8: Acknowledge the check by its exact ID (acking by message must fail)
@@ -185,7 +185,7 @@ severity = "block"
         .current_dir(repo_path)
         .assert()
         .failure()
-        .stdout(predicate::str::contains("PAUSED"))
+        .stdout(predicate::str::contains("NEEDS ANSWERS"))
         .stdout(predicate::str::contains("Python code must have type hints"));
 }
 
@@ -300,7 +300,7 @@ severity = "warn"
         .current_dir(repo_path)
         .assert()
         .failure()
-        .stdout(predicate::str::contains("PAUSED"))
+        .stdout(predicate::str::contains("NEEDS ANSWERS"))
         .stdout(predicate::str::contains("Rust code must be formatted with rustfmt"))
         .stdout(predicate::str::contains("TypeScript must use strict mode"));
 
@@ -376,7 +376,7 @@ severity = "block"
         .current_dir(repo_path)
         .assert()
         .failure()
-        .stdout(predicate::str::contains("PAUSED"));
+        .stdout(predicate::str::contains("NEEDS ANSWERS"));
 
     // Single acknowledgment should cover all files
     noslop()
@@ -745,7 +745,7 @@ severity = "block"
         .current_dir(repo_path)
         .assert()
         .failure()
-        .stdout(predicate::str::contains("PAUSED"));
+        .stdout(predicate::str::contains("NEEDS ANSWERS"));
 
     // --ci gates even a human actor
     noslop()
@@ -754,7 +754,7 @@ severity = "block"
         .current_dir(repo_path)
         .assert()
         .failure()
-        .stdout(predicate::str::contains("PAUSED"));
+        .stdout(predicate::str::contains("NEEDS ANSWERS"));
 }
 
 // =============================================================================
@@ -959,7 +959,7 @@ severity = "block"
         .current_dir(repo_path)
         .assert()
         .failure()
-        .stdout(predicate::str::contains("PAUSED"));
+        .stdout(predicate::str::contains("NEEDS ANSWERS"));
 }
 
 /// Test check succeeds in CI when no checks apply
