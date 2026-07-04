@@ -1,7 +1,7 @@
 //! Stats command - per-check metrics from local telemetry and the ledger
 //!
-//! Shows which checks fire, which get real self-correction, which get
-//! rubber-stamped, and which are dead (target matches nothing). This is
+//! Shows which checks fire, which get real action rate, which get
+//! no-action, and which are dead (target matches nothing). This is
 //! the evidence `noslop curate` acts on.
 
 use crate::{git, noslop_file};
@@ -47,7 +47,7 @@ fn render_human(rows: &[CheckStats]) {
         if r.dead_target {
             flags.push("DEAD-TARGET");
         }
-        if r.rubber_stamps > 0 && r.self_corrected == 0 && r.acks > 0 {
+        if r.no_action > 0 && r.acted == 0 && r.acks > 0 {
             flags.push("ALWAYS-STAMPED");
         }
         let target = if r.target.len() > 28 {
@@ -61,17 +61,14 @@ fn render_human(rows: &[CheckStats]) {
             target,
             r.fires,
             r.acks,
-            r.self_corrected,
-            r.rubber_stamps,
+            r.acted,
+            r.no_action,
             flags.join(", ")
         );
     }
 
     let dead = rows.iter().filter(|r| r.dead_target).count();
-    let stamped = rows
-        .iter()
-        .filter(|r| r.rubber_stamps > 0 && r.self_corrected == 0 && r.acks > 0)
-        .count();
+    let stamped = rows.iter().filter(|r| r.no_action > 0 && r.acted == 0 && r.acks > 0).count();
     println!("\n{} check(s); {dead} dead target(s), {stamped} always-stamped.", rows.len());
     if dead + stamped > 0 {
         println!("Consider pruning or rewording flagged checks (noslop curate, coming next).");
@@ -89,7 +86,7 @@ fn render_markdown(rows: &[CheckStats]) {
         if r.dead_target {
             flags.push("dead-target");
         }
-        if r.rubber_stamps > 0 && r.self_corrected == 0 && r.acks > 0 {
+        if r.no_action > 0 && r.acted == 0 && r.acks > 0 {
             flags.push("always-stamped");
         }
         println!(
@@ -98,8 +95,8 @@ fn render_markdown(rows: &[CheckStats]) {
             r.target,
             r.fires,
             r.acks,
-            r.self_corrected,
-            r.rubber_stamps,
+            r.acted,
+            r.no_action,
             flags.join(", ")
         );
     }

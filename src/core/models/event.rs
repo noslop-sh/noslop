@@ -3,7 +3,7 @@
 //! A fire event records that a check surfaced (blocked or warned) for a
 //! staged change. Events are the raw material for `noslop stats`: joined
 //! with acknowledgments by check id and staged-tree fingerprint, they
-//! distinguish self-correction from rubber-stamping.
+//! distinguish action rate from answers that change nothing.
 
 use serde::{Deserialize, Serialize};
 

@@ -57,7 +57,7 @@ pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> an
     let core_result = check_items(&applicable, &acks, staged.len());
 
     // Gate-time tree oid: joined against ledger tree oids downstream to
-    // distinguish self-correction from rubber-stamping (see docs/SCHEMA.md).
+    // distinguish action rate from answers that change nothing (see docs/SCHEMA.md).
     let tree_oid = git::staged::staged_tree_oid().ok();
 
     // Telemetry: record every surfaced (unacknowledged) check for stats.

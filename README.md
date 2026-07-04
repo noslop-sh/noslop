@@ -41,7 +41,7 @@ Three properties make it different from a linter or a rules file:
    so the audit trail survives squash merges and rebases.
 3. **The rulebook is measured, not static.** Every check firing and every
    ack is recorded. `noslop stats` shows which checks cause real
-   self-correction and which get rubber-stamped; `noslop curate` tells you
+   action rate and which get no-action; `noslop curate` tells you
    what to prune or reword, with evidence.
 
 ## Quick Start
@@ -133,12 +133,12 @@ jobs:
 ## Measuring the Rulebook
 
 ```bash
-noslop stats     # per check: fires, acks, self-corrections vs rubber stamps, dead targets
+noslop stats     # per check: fires, acks, action rates vs no-action answers, dead targets
 noslop curate    # what to prune or reword, with evidence
 ```
 
-An ack that changed nothing between block and acknowledgment is a rubber
-stamp; one where files changed means the guidance worked. Checks whose
+An acknowledgment that changed nothing between fire and answer took no
+action; one where files changed means the guidance worked. Checks whose
 targets no longer exist are flagged dead. Your `.noslop.toml` stays a
 living document instead of rotting like a rules file.
 

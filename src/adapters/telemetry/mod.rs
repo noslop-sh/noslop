@@ -2,7 +2,7 @@
 //!
 //! Appends fire events to `.noslop/events.jsonl` — per-clone, gitignored
 //! working state (like staged acks), NOT part of the tracked ledger. Stats
-//! reads it to compute fire rates and the rubber-stamp join locally; the
+//! reads it to compute fire rates and the no-action join locally; the
 //! future CI Action aggregates the team view from check-run payloads
 //! instead.
 

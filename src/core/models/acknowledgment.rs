@@ -22,8 +22,8 @@ pub struct Acknowledgment {
 
     /// Staged-tree object id (`git write-tree`) at ack time.
     ///
-    /// Joined against fire events to tell self-correction (tree changed
-    /// after the block) from rubber-stamping (acked with nothing changed).
+    /// Joined against fire events to tell action rate (tree changed
+    /// after the block) from answers that change nothing (acked with nothing changed).
     /// Optional: absent in schema-v1 records written before this field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tree_oid: Option<String>,
@@ -32,7 +32,7 @@ pub struct Acknowledgment {
     ///
     /// Copied from the local fire event at ack time so the record is
     /// self-contained evidence: `fire_tree_oid == tree_oid` means the ack
-    /// changed nothing (rubber stamp). Optional additive schema-1 field.
+    /// changed nothing (no-action answer). Optional additive schema-1 field.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fire_tree_oid: Option<String>,
 

@@ -1,6 +1,6 @@
 //! Stats service - per-check metrics from fire events and acknowledgments
 //!
-//! Pure join logic, no I/O. The rubber-stamp detector is the core idea:
+//! Pure join logic, no I/O. The no-action detector is the core idea:
 //! a fire event and an acknowledgment both carry the staged-tree oid
 //! (`git write-tree`), so an ack whose oid still matches a fire oid means
 //! the check was acknowledged without changing anything — theater, not
@@ -28,9 +28,9 @@ pub struct CheckStats {
     /// Total acknowledgments recorded
     pub acks: usize,
     /// Acks where the staged tree changed after the fire (guidance worked)
-    pub self_corrected: usize,
+    pub acted: usize,
     /// Acks where nothing changed between fire and ack (theater)
-    pub rubber_stamps: usize,
+    pub no_action: usize,
     /// Most recent fire timestamp (RFC 3339)
     pub last_fired: Option<String>,
     /// No tracked file matches the target glob anymore
@@ -76,8 +76,8 @@ pub fn compute(
                 .max()
                 .map(str::to_string);
 
-            let mut self_corrected = 0;
-            let mut rubber_stamps = 0;
+            let mut acted = 0;
+            let mut no_action = 0;
             for ack in check_acks.into_iter().flatten() {
                 // Only categorizable when both sides carry a fingerprint
                 if let Some(oid) = &ack.tree_oid {
@@ -85,9 +85,9 @@ pub fn compute(
                         continue; // ack without a recorded fire: no verdict
                     }
                     if fire_oids.contains(oid.as_str()) {
-                        rubber_stamps += 1;
+                        no_action += 1;
                     } else {
-                        self_corrected += 1;
+                        acted += 1;
                     }
                 }
             }
@@ -102,8 +102,8 @@ pub fn compute(
                 severity: check.severity.to_string(),
                 fires: fire_oids.len(),
                 acks: check_acks.map_or(0, Vec::len),
-                self_corrected,
-                rubber_stamps,
+                acted,
+                no_action,
                 last_fired,
                 dead_target,
             }
@@ -154,16 +154,16 @@ mod tests {
     }
 
     #[test]
-    fn rubber_stamp_vs_self_correction() {
+    fn no_action_vs_acted() {
         let checks = vec![check("C-1", "src/**/*.rs")];
         let events = vec![event("C-1", "oid-a", "2026-01-01T00:00:00Z")];
         // First ack with the SAME oid as the fire: nothing changed = stamp.
-        // Second ack with a DIFFERENT oid: files changed = self-corrected.
+        // Second ack with a DIFFERENT oid: files changed = acted on.
         let acks = vec![ack("C-1", Some("oid-a")), ack("C-1", Some("oid-b"))];
         let stats =
             compute(&checks, &events, &acks, &["src/main.rs".to_string()], Path::new("/repo"));
-        assert_eq!(stats[0].rubber_stamps, 1);
-        assert_eq!(stats[0].self_corrected, 1);
+        assert_eq!(stats[0].no_action, 1);
+        assert_eq!(stats[0].acted, 1);
         assert_eq!(stats[0].acks, 2);
     }
 
@@ -175,8 +175,8 @@ mod tests {
         let stats =
             compute(&checks, &events, &acks, &["src/main.rs".to_string()], Path::new("/repo"));
         assert_eq!(stats[0].acks, 1);
-        assert_eq!(stats[0].rubber_stamps, 0);
-        assert_eq!(stats[0].self_corrected, 0);
+        assert_eq!(stats[0].no_action, 0);
+        assert_eq!(stats[0].acted, 0);
     }
 
     #[test]

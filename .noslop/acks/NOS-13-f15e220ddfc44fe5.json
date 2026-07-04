@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-13",
+  "message": "no new logic; two comment lines reworded",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T03:44:52.611146080+00:00",
+  "tree_oid": "9646f48c7e8baac9f7e27f1910d74ac8997b7b26",
+  "fire_tree_oid": "8cee16ef24316e27fa49a8d93d8acc250a83ec77",
+  "fired_at": "2026-07-04T03:44:43.381216518+00:00"
+}
