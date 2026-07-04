@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-14",
+  "message": "display strings and identifiers renamed; every affected test updated in this commit (cargo suite green)",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T03:44:10.532614295+00:00",
+  "tree_oid": "d15d990a89ddfbb7aa4e0d412ce444b417ea0547",
+  "fire_tree_oid": "ecc865e42b3667b18d42b14c700cc75c5f11f974",
+  "fired_at": "2026-07-04T03:44:10.511663945+00:00"
+}

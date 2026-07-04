@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-15",
+  "message": "no schema change: ledger/envelope field names untouched; only computed-report strings and internal identifiers renamed",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T03:44:10.557388771+00:00",
+  "tree_oid": "6df92b1e54f20b496c5dd3b911973ea318823039",
+  "fire_tree_oid": "ecc865e42b3667b18d42b14c700cc75c5f11f974",
+  "fired_at": "2026-07-04T03:44:10.511649883+00:00"
+}

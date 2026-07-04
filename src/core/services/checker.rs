@@ -126,7 +126,7 @@ pub fn check_items(
 /// Check if a check has been acknowledged
 ///
 /// Only an exact ID match counts: fuzzy matching would let one ack
-/// rubber-stamp unrelated checks.
+/// no-action unrelated checks.
 fn is_check_acknowledged(check: &Check, acks: &[Acknowledgment]) -> bool {
     acks.iter().any(|a| a.check_id == check.id)
 }

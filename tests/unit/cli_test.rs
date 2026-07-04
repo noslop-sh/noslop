@@ -598,7 +598,7 @@ fn test_discover_mine_from_file_with_fake_runner() {
 }
 
 #[test]
-fn test_stats_tracks_fires_acks_and_rubber_stamps() {
+fn test_stats_tracks_fires_acks_and_no_action() {
     let temp = TempDir::new().unwrap();
 
     std::process::Command::new("git")
@@ -629,7 +629,7 @@ fn test_stats_tracks_fires_acks_and_rubber_stamps() {
         .failure();
     assert!(temp.path().join(".noslop/events.jsonl").exists());
 
-    // Ack WITHOUT changing anything: a rubber stamp
+    // Ack WITHOUT changing anything: a no-action answer
     noslop()
         .args(["ack", "TST-1", "-m", "looks fine"])
         .env("NOSLOP_ACTOR", "claude-code")
@@ -655,7 +655,7 @@ fn test_stats_tracks_fires_acks_and_rubber_stamps() {
         .current_dir(temp.path())
         .assert()
         .success()
-        .stdout(predicate::str::contains("\"rubber_stamps\":1"));
+        .stdout(predicate::str::contains("\"no_action\":1"));
 }
 
 #[test]
@@ -856,7 +856,7 @@ fn test_ack_embeds_fire_evidence_from_local_events() {
         serde_json::from_str(&std::fs::read_to_string(record_path).unwrap()).unwrap();
     assert!(record["fire_tree_oid"].is_string());
     assert!(record["fired_at"].is_string());
-    // Nothing changed between fire and ack: the trees match (a rubber stamp)
+    // Nothing changed between fire and ack: the trees match (a no-action answer)
     assert_eq!(record["fire_tree_oid"], record["tree_oid"]);
 }
 

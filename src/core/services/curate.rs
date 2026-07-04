@@ -1,17 +1,17 @@
 //! Curate service - evidence-based rulebook recommendations
 //!
 //! Pure logic over [`CheckStats`]: which checks to prune, which to reword.
-//! A rubber stamp can be legitimate verification ("checked, nothing to
+//! A no-action answer can be legitimate verification ("checked, nothing to
 //! fix"), so rewording is only suggested once stamps repeat with zero
-//! self-corrections — the signal is the rate, never a single ack.
+//! action rates — the signal is the rate, never a single ack.
 
 use serde::Serialize;
 
 use super::stats::CheckStats;
 
-/// Minimum repeated stamps (with zero self-corrections) before a check is
+/// Minimum repeated stamps (with zero action rates) before a check is
 /// flagged as reword-worthy.
-const STAMP_THRESHOLD: usize = 2;
+const NO_ACTION_THRESHOLD: usize = 2;
 
 /// What to do with a check
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -55,15 +55,15 @@ pub fn recommend(stats: &[CheckStats]) -> Vec<Recommendation> {
             continue;
         }
 
-        if s.self_corrected == 0 && s.rubber_stamps >= STAMP_THRESHOLD {
+        if s.acted == 0 && s.no_action >= NO_ACTION_THRESHOLD {
             recs.push(Recommendation {
                 check_id: s.id.clone(),
                 target: s.target.clone(),
                 action: CurateAction::Reword,
                 reason: format!(
-                    "{} ack(s), {} stamp(s), zero self-corrections — the guidance never \
+                    "{} ack(s), {} stamp(s), zero action rates — the guidance never \
                      changes behavior; reword it to be actionable, scope it tighter, or prune",
-                    s.acks, s.rubber_stamps
+                    s.acks, s.no_action
                 ),
             });
         }
@@ -80,8 +80,8 @@ mod tests {
         id: &str,
         fires: usize,
         acks: usize,
-        self_corrected: usize,
-        rubber_stamps: usize,
+        acted: usize,
+        no_action: usize,
         dead_target: bool,
     ) -> CheckStats {
         CheckStats {
@@ -90,8 +90,8 @@ mod tests {
             severity: "block".to_string(),
             fires,
             acks,
-            self_corrected,
-            rubber_stamps,
+            acted,
+            no_action,
             last_fired: None,
             dead_target,
         }
@@ -119,7 +119,7 @@ mod tests {
     }
 
     #[test]
-    fn self_correcting_checks_are_healthy() {
+    fn acting_checks_are_healthy() {
         let recs = recommend(&[stat("C-1", 5, 5, 3, 2, false)]);
         assert!(recs.is_empty());
     }

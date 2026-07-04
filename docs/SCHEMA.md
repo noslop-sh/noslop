@@ -25,13 +25,13 @@ change. File content survives squash merges and rebases (trailers do not).
   `unknown-agent`), or the explicit `NOSLOP_ACTOR` value.
 - `tree_oid` (optional, added within schema 1 as an additive field): the
   staged-tree object id (`git write-tree`) at ack time. Joined with fire
-  events to distinguish self-correction from rubber-stamping. Records
+  events to distinguish action rate from answers that change nothing. Records
   written before this field simply omit it.
 - `fire_tree_oid`, `fired_at` (optional, added within schema 1 as additive
   fields): the staged-tree oid and timestamp of the check's latest local
   fire event, copied into the record at ack time so it is self-contained
   evidence — `fire_tree_oid == tree_oid` means the ack changed nothing
-  (rubber stamp), and `fired_at → created_at` is the time-to-ack. Absent
+  (no-action answer), and `fired_at → created_at` is the time-to-ack. Absent
   when no local fire event preceded the ack (e.g. ack before first check
   run) and in records written before these fields.
 - File name digest is content-derived; records are immutable once committed.
@@ -71,7 +71,7 @@ deletes them. Union-merged across branches (`.gitattributes`:
   advisory (exit code 0). `--ci` forces `enforced: true` for any actor.
 - `tree_oid` (optional, added within schema 1 as an additive field): the
   gate-time staged-tree object id (`git write-tree`). Joined with ledger
-  record tree oids to distinguish self-correction from rubber-stamping.
+  record tree oids to distinguish action rate from answers that change nothing.
   Omitted when git state is unavailable; payloads from older versions
   simply lack it.
 - `check_set_version` (optional, added within schema 1 as an additive

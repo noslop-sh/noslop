@@ -10,7 +10,7 @@ use noslop::storage;
 /// Acknowledge a check by its exact ID
 pub fn ack(check_ref: &str, message: &str, _mode: OutputMode) -> anyhow::Result<()> {
     // The referenced check must exist: acks against unknown IDs would be
-    // silent rubber stamps that never match anything.
+    // silent no-action answers that never match anything.
     let Some(check) = noslop_file::find_check_by_id(check_ref)? else {
         let known: Vec<String> =
             noslop_file::load_all_checks()?.into_iter().map(|c| c.id).collect();

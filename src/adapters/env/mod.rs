@@ -3,7 +3,7 @@
 //! Detection order:
 //! 1. `NOSLOP_ACTOR` - explicit override (`human` or an agent name)
 //! 2. Known agent-harness environment fingerprints
-//! 3. CI environments (treated as agents: they must verify, never rubber-stamp)
+//! 3. CI environments (treated as agents: they must verify, never no-action)
 //! 4. TTY heuristic - an interactive terminal on stdin means a person
 
 use std::io::IsTerminal;

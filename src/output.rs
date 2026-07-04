@@ -28,7 +28,7 @@ pub struct CheckResult {
     pub enforced: bool,
     /// Gate-time staged-tree object id (`git write-tree`). Additive within
     /// schema 1: joined against ledger record tree oids to distinguish
-    /// self-correction from rubber-stamping. Absent when git state is
+    /// action rate from answers that change nothing. Absent when git state is
     /// unavailable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tree_oid: Option<String>,

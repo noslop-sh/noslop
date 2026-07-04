@@ -114,7 +114,7 @@ pub enum Command {
         base: String,
     },
 
-    /// Per-check metrics: fires, acks, self-correction vs rubber stamps, dead targets
+    /// Per-check metrics: fires, acks, action rate vs no-action answers, dead targets
     Stats {
         /// Render as a markdown table (for CI summaries)
         #[arg(long)]
