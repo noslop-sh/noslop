@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-2",
+  "message": "comment grammar fix only; matching logic and tests untouched",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T03:44:43.370628997+00:00",
+  "tree_oid": "0f5080778709426b5185285d3f8768b0099cde88",
+  "fire_tree_oid": "449319b7778def7481e25f5ce4c581bc7ee2858b",
+  "fired_at": "2026-07-04T03:44:10.601506383+00:00"
+}
