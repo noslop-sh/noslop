@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-3",
+  "message": "workflow change is a stale-test fix (assert/attest replaced by real subcommands ack/stats); CI_CD.md does not enumerate the smoke-tested subcommands so no doc change needed",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T02:32:58.877817173+00:00",
+  "tree_oid": "3a339e537871cbc83813177ce0cd1d64c7ab4dbe",
+  "fire_tree_oid": "c69991687fd94d53f8a97cf2af6e5358d4f3ee48",
+  "fired_at": "2026-07-03T23:12:19.022406105+00:00"
+}
