@@ -112,6 +112,14 @@ pub enum Command {
         /// Base ref the diff was computed against
         #[arg(long)]
         base: String,
+
+        /// Head branch name (optional; identifies the run in the dashboard)
+        #[arg(long, default_value = "")]
+        branch: String,
+
+        /// Pull request title (optional; identifies PR runs by name)
+        #[arg(long = "pr-title", default_value = "")]
+        pr_title: String,
     },
 
     /// Per-check metrics: fires, acks, action rate vs no-action answers, dead targets
@@ -204,7 +212,9 @@ pub fn run() -> anyhow::Result<()> {
             sha,
             pr,
             base,
-        }) => commands::envelope(&check, &repo, &sha, &pr, &base),
+            branch,
+            pr_title,
+        }) => commands::envelope(&check, &repo, &sha, &pr, &base, &branch, &pr_title),
         Some(Command::Stats { markdown }) => commands::stats(markdown, output_mode),
         Some(Command::Curate { markdown }) => commands::curate(markdown, output_mode),
         Some(Command::Version) => {

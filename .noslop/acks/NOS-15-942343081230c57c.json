@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "check_id": "NOS-15",
+  "message": "branch and pr_title are additive optional envelope fields serialized only when non-empty; schema stays 1; SCHEMA.md documents them; serialization test asserts presence and absence",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-04T15:54:02.585434069+00:00",
+  "tree_oid": "9cbd9417fed51bf61f946d8a3acd4adb4bf645a7",
+  "fire_tree_oid": "ecc865e42b3667b18d42b14c700cc75c5f11f974",
+  "fired_at": "2026-07-04T03:44:10.511649883+00:00"
+}

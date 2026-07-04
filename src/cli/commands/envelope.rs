@@ -21,12 +21,15 @@ use noslop::output::{ENVELOPE_SCHEMA, UploadEnvelope};
 ///
 /// Returns an error if the check payload cannot be read or is not the JSON
 /// object produced by `noslop check --json`.
+#[allow(clippy::too_many_arguments)]
 pub fn envelope(
     check_json: &str,
     repo: &str,
     sha: &str,
     pr: &str,
     base: &str,
+    branch: &str,
+    pr_title: &str,
 ) -> anyhow::Result<()> {
     let check: serde_json::Value = serde_json::from_str(&fs::read_to_string(check_json)?)?;
     if !check.is_object() {
@@ -45,6 +48,8 @@ pub fn envelope(
         sha: sha.to_string(),
         pr: pr.to_string(),
         base: base.to_string(),
+        branch: branch.to_string(),
+        pr_title: pr_title.to_string(),
         check,
         ledger,
     };
