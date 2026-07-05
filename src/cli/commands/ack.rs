@@ -31,11 +31,17 @@ pub fn ack(check_ref: &str, message: &str, _mode: OutputMode) -> anyhow::Result<
         .into_iter()
         .filter(|e| e.check_id == check.id)
         .max_by(|a, b| a.created_at.cmp(&b.created_at));
-    // Session spend: delta between the fire snapshot and now, guarded
-    // against counter resets (new session between fire and ack)
+    // Session spend: deltas between the fire snapshots and now, guarded
+    // against counter resets (new session between fire and ack). Fresh
+    // and cached stay separate: they differ ~10x in price.
     let spend = agent_spend::cumulative_spend(actor.name());
     let tokens_to_answer = match (&spend, last_fire.as_ref().and_then(|e| e.tokens_at_fire)) {
-        (Some(s), Some(at_fire)) if s.tokens >= at_fire => Some(s.tokens - at_fire),
+        (Some(s), Some(at_fire)) if s.fresh >= at_fire => Some(s.fresh - at_fire),
+        _ => None,
+    };
+    let cached_to_answer = match (&spend, last_fire.as_ref().and_then(|e| e.cached_tokens_at_fire))
+    {
+        (Some(s), Some(at_fire)) if s.cached >= at_fire => Some(s.cached - at_fire),
         _ => None,
     };
     let model = spend.and_then(|s| s.model);
@@ -43,7 +49,7 @@ pub fn ack(check_ref: &str, message: &str, _mode: OutputMode) -> anyhow::Result<
     let ack = Acknowledgment::by_actor(check.id.clone(), message.to_string(), &actor)
         .with_tree_oid(crate::git::staged::staged_tree_oid().ok())
         .with_fire(last_fire.as_ref().map(|e| e.tree_oid.clone()), last_fire.map(|e| e.created_at))
-        .with_spend(tokens_to_answer, model);
+        .with_spend(tokens_to_answer, cached_to_answer, model);
 
     // Stage via storage abstraction (drives the pre-commit gate and trailers)
     let store = storage::ack_store();

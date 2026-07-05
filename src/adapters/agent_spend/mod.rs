@@ -17,11 +17,16 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime};
 
 /// Cumulative spend of one agent session at a moment in time.
+///
+/// Fresh and cached are tracked separately because they differ ~10x in
+/// price: merging them made a mostly-cache-reads span read as 10-30x
+/// more expensive than it was.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionSpend {
-    /// Total tokens processed so far: input + output + cache creation +
-    /// cache reads. A count of work done, not a dollar figure.
-    pub tokens: u64,
+    /// Fresh work so far: input + output + cache creation tokens.
+    pub fresh: u64,
+    /// Context re-read from cache so far (cheap re-processing).
+    pub cached: u64,
     /// Model id of the most recent assistant message, when present.
     pub model: Option<String>,
 }
@@ -135,7 +140,8 @@ pub fn cumulative_spend_in(
 /// unparsable lines are skipped, exactly like `telemetry::load_events`.
 fn sum_transcript(path: &Path) -> Option<SessionSpend> {
     let content = std::fs::read_to_string(path).ok()?;
-    let mut tokens: u64 = 0;
+    let mut fresh: u64 = 0;
+    let mut cached: u64 = 0;
     let mut model: Option<String> = None;
     let mut saw_usage = false;
     for line in content.lines().filter(|l| !l.trim().is_empty()) {
@@ -155,16 +161,19 @@ fn sum_transcript(path: &Path) -> Option<SessionSpend> {
             continue;
         };
         saw_usage = true;
-        for key in [
-            "input_tokens",
-            "output_tokens",
-            "cache_creation_input_tokens",
-            "cache_read_input_tokens",
-        ] {
-            tokens += usage.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0);
+        for key in ["input_tokens", "output_tokens", "cache_creation_input_tokens"] {
+            fresh += usage.get(key).and_then(serde_json::Value::as_u64).unwrap_or(0);
         }
+        cached += usage
+            .get("cache_read_input_tokens")
+            .and_then(serde_json::Value::as_u64)
+            .unwrap_or(0);
     }
-    saw_usage.then_some(SessionSpend { tokens, model })
+    saw_usage.then_some(SessionSpend {
+        fresh,
+        cached,
+        model,
+    })
 }
 
 #[cfg(test)]
@@ -191,7 +200,8 @@ mod tests {
         let spend =
             cumulative_spend_in(tmp.path(), &[PathBuf::from("/repo.root")], SystemTime::now())
                 .unwrap();
-        assert_eq!(spend.tokens, 500);
+        assert_eq!(spend.fresh, 460);
+        assert_eq!(spend.cached, 40);
         assert_eq!(spend.model.as_deref(), Some("claude-opus-4-8"));
     }
 
@@ -209,7 +219,8 @@ mod tests {
             cumulative_spend_in(tmp.path(), &[PathBuf::from("/repo.root")], SystemTime::now())
                 .unwrap();
         // Only the live session counts; the stale one is another day's work
-        assert_eq!(spend.tokens, 200);
+        assert_eq!(spend.fresh, 160);
+        assert_eq!(spend.cached, 40);
     }
 
     #[test]
@@ -239,7 +250,7 @@ mod tests {
             SystemTime::now(),
         )
         .unwrap();
-        assert_eq!(spend.tokens, 200, "repo-specific session wins");
+        assert_eq!(spend.fresh, 160, "repo-specific session wins");
 
         // Without a repo-specific dir, the ancestor session is found
         let spend = cumulative_spend_in(
@@ -248,7 +259,7 @@ mod tests {
             SystemTime::now(),
         )
         .unwrap();
-        assert_eq!(spend.tokens, 300);
+        assert_eq!(spend.fresh, 300);
     }
 
     #[test]
