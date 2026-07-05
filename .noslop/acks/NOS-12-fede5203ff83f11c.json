@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "check_id": "NOS-12",
+  "message": "core models gained only pure additive fields (tokens_at_fire, tokens_to_answer, model) with const/builder methods; all I/O lives in the new adapters::agent_spend",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-05T16:49:11.371118183+00:00",
+  "tree_oid": "295e2660a42519d268f5eb93ed12825ef5d330f3",
+  "fire_tree_oid": "295e2660a42519d268f5eb93ed12825ef5d330f3",
+  "fired_at": "2026-07-05T16:48:57.349076700+00:00",
+  "tokens_to_answer": 1568907,
+  "model": "claude-fable-5"
+}

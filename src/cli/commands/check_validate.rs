@@ -2,7 +2,7 @@
 
 use crate::{git, noslop_file};
 use noslop::adapters::remote::{FetchedCheckSet, RemoteCheckSet, load_remote_checks};
-use noslop::adapters::{detect_actor, ledger, telemetry};
+use noslop::adapters::{agent_spend, detect_actor, ledger, telemetry};
 use noslop::core::models::{Actor, Check, CheckFireEvent, Severity};
 use noslop::core::services::{CheckItemResult, check_items, matches_target, merge_checks};
 use noslop::output::{CheckMatch, CheckResult, OutputMode};
@@ -66,6 +66,9 @@ pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> an
     if diff_base.is_none()
         && let Some(tree_oid) = tree_oid.clone()
     {
+        // One session-spend snapshot per gate run; None for agents that
+        // expose no records (fail-open, see adapters::agent_spend)
+        let tokens_at_fire = agent_spend::cumulative_spend(actor.name()).map(|s| s.tokens);
         let events: Vec<CheckFireEvent> = core_result
             .blocking
             .iter()
@@ -78,6 +81,7 @@ pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> an
                     actor.name().to_string(),
                     tree_oid.clone(),
                 )
+                .with_tokens_at_fire(tokens_at_fire)
             })
             .collect();
         let _ = telemetry::append_events(&events);

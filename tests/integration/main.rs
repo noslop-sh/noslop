@@ -997,3 +997,117 @@ severity = "block"
         .success()
         .stdout(predicate::str::contains("No checks apply"));
 }
+
+/// End-to-end token capture: fire snapshots the session counter, ack
+/// ships the delta and the answering model in the ledger record.
+#[test]
+fn ack_records_tokens_to_answer_from_agent_transcript() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+    let home = TempDir::new().unwrap();
+
+    init_git_repo(repo_path);
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        r#"[[check]]
+id = "spend-check"
+target = "*.rs"
+message = "Spend check"
+severity = "block"
+"#,
+    )
+    .unwrap();
+    fs::write(repo_path.join("code.rs"), "fn main() {}").unwrap();
+    Command::new("git")
+        .args(["add", "code.rs"])
+        .current_dir(repo_path)
+        .output()
+        .expect("git add");
+
+    // Claude Code transcript keyed under the munged repo path
+    let munged: String = repo_path
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .chars()
+        .map(|c| if c == '/' || c == '.' { '-' } else { c })
+        .collect();
+    let project = home.path().join(".claude/projects").join(munged);
+    fs::create_dir_all(&project).unwrap();
+    let transcript = project.join("session.jsonl");
+    fs::write(
+        &transcript,
+        r#"{"type":"assistant","message":{"model":"claude-fable-5","usage":{"input_tokens":1000,"output_tokens":500}}}"#,
+    )
+    .unwrap();
+
+    // Fire: snapshot is 1500 tokens
+    noslop()
+        .args(["check"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .env("HOME", home.path())
+        .current_dir(repo_path)
+        .assert()
+        .failure();
+
+    // The agent "works": 900 more tokens land in the transcript
+    let mut file = fs::OpenOptions::new().append(true).open(&transcript).unwrap();
+    use std::io::Write as _;
+    file.write_all(
+        b"\n{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fable-5\",\"usage\":{\"input_tokens\":600,\"output_tokens\":300}}}\n",
+    )
+    .unwrap();
+
+    noslop()
+        .args(["ack", "spend-check", "-m", "tightened the thing"])
+        .env("NOSLOP_ACTOR", "claude-code")
+        .env("HOME", home.path())
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let acks_dir = repo_path.join(".noslop/acks");
+    let record = fs::read_dir(&acks_dir)
+        .unwrap()
+        .filter_map(Result::ok)
+        .find(|e| e.file_name().to_string_lossy().starts_with("spend-check"))
+        .expect("ledger record written");
+    let content = fs::read_to_string(record.path()).unwrap();
+    assert!(content.contains("\"tokens_to_answer\": 900"), "delta recorded: {content}");
+    assert!(content.contains("\"model\": \"claude-fable-5\""), "model recorded: {content}");
+}
+
+/// Non-agent actors never get token fields — absent, not zero.
+#[test]
+fn ack_omits_tokens_for_unknown_actors() {
+    let temp = TempDir::new().unwrap();
+    let repo_path = temp.path();
+
+    init_git_repo(repo_path);
+    fs::create_dir_all(repo_path.join(".noslop")).unwrap();
+    fs::write(
+        repo_path.join(".noslop.toml"),
+        "[[check]]\nid = \"c1\"\ntarget = \"*.rs\"\nmessage = \"m\"\nseverity = \"block\"\n",
+    )
+    .unwrap();
+
+    noslop()
+        .args(["ack", "c1", "-m", "done"])
+        .env("NOSLOP_ACTOR", "human")
+        .current_dir(repo_path)
+        .assert()
+        .success();
+
+    let content = fs::read_to_string(
+        fs::read_dir(repo_path.join(".noslop/acks"))
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap()
+            .path(),
+    )
+    .unwrap();
+    assert!(!content.contains("tokens_to_answer"), "no fake spend: {content}");
+    assert!(!content.contains("\"model\""), "no fake model: {content}");
+}

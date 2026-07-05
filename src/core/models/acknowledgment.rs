@@ -42,6 +42,16 @@ pub struct Acknowledgment {
     /// schema-1 field; absent when no local fire event preceded the ack.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fired_at: Option<String>,
+
+    /// Tokens the agent spent between fire and this answer, from the
+    /// agent's own session records (additive, schema 1; counts only)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens_to_answer: Option<u64>,
+
+    /// Model that produced the answer, when the agent records one
+    /// (additive, schema 1)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
 }
 
 impl Acknowledgment {
@@ -56,6 +66,8 @@ impl Acknowledgment {
             tree_oid: None,
             fire_tree_oid: None,
             fired_at: None,
+            tokens_to_answer: None,
+            model: None,
         }
     }
 
@@ -77,6 +89,15 @@ impl Acknowledgment {
     pub fn with_fire(mut self, fire_tree_oid: Option<String>, fired_at: Option<String>) -> Self {
         self.fire_tree_oid = fire_tree_oid;
         self.fired_at = fired_at;
+        self
+    }
+
+    /// Attach session spend evidence: tokens burned answering, and the
+    /// model that answered
+    #[must_use]
+    pub fn with_spend(mut self, tokens_to_answer: Option<u64>, model: Option<String>) -> Self {
+        self.tokens_to_answer = tokens_to_answer;
+        self.model = model;
         self
     }
 }

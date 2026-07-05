@@ -14,6 +14,7 @@
 //! - [`mod@toml`] - `.noslop.toml` file parsing and writing
 //! - [`trailer`] - Commit trailer acknowledgment storage
 
+pub mod agent_spend;
 pub mod env;
 pub mod file;
 pub mod gh;

@@ -35,6 +35,11 @@ pub struct CheckFireEvent {
 
     /// When the check fired (RFC 3339)
     pub created_at: String,
+
+    /// Agent session's cumulative token count at fire time, when the
+    /// agent exposes one (additive, schema 1; see `adapters::agent_spend`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens_at_fire: Option<u64>,
 }
 
 impl CheckFireEvent {
@@ -55,6 +60,14 @@ impl CheckFireEvent {
             actor,
             tree_oid,
             created_at: chrono::Utc::now().to_rfc3339(),
+            tokens_at_fire: None,
         }
+    }
+
+    /// Attach the session's cumulative token count at fire time
+    #[must_use]
+    pub const fn with_tokens_at_fire(mut self, tokens: Option<u64>) -> Self {
+        self.tokens_at_fire = tokens;
+        self
     }
 }
