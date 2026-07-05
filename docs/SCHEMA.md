@@ -151,11 +151,14 @@ serializer of this format).
 - `branch` — head branch name of the run; omitted when unknown.
 - `pr_title` — pull request title; omitted for non-PR runs. Both exist so
   dashboards can identify runs by name and branch instead of bare numbers.
-- Ledger records may carry `tokens_to_answer` (LLM tokens the agent spent
-  between the check firing and the acknowledgment, read from the agent's
-  own session records — token counts only, never message content) and
-  `model` (the model that produced the answer). Both omitted whenever the
-  agent exposes no session records; consumers must treat absence as
+- Ledger records may carry `tokens_to_answer` (FRESH LLM tokens — input,
+  output, and cache writes — the agent spent between the check firing and
+  the acknowledgment, read from the agent's own session records; token
+  counts only, never message content), `cached_tokens_to_answer` (cache
+  reads over the same span — context re-processing, roughly a tenth the
+  price of fresh work, deliberately never merged into `tokens_to_answer`),
+  and `model` (the model that produced the answer). All omitted whenever
+  the agent exposes no session records; consumers must treat absence as
   unknown, never zero.
 
 ## Commit trailer — `Noslop-Ack: <check-id> | <message> | <actor>`

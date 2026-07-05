@@ -1055,7 +1055,7 @@ severity = "block"
     let mut file = fs::OpenOptions::new().append(true).open(&transcript).unwrap();
     use std::io::Write as _;
     file.write_all(
-        b"\n{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fable-5\",\"usage\":{\"input_tokens\":600,\"output_tokens\":300}}}\n",
+        b"\n{\"type\":\"assistant\",\"message\":{\"model\":\"claude-fable-5\",\"usage\":{\"input_tokens\":600,\"output_tokens\":300,\"cache_read_input_tokens\":50000}}}\n",
     )
     .unwrap();
 
@@ -1074,7 +1074,11 @@ severity = "block"
         .find(|e| e.file_name().to_string_lossy().starts_with("spend-check"))
         .expect("ledger record written");
     let content = fs::read_to_string(record.path()).unwrap();
-    assert!(content.contains("\"tokens_to_answer\": 900"), "delta recorded: {content}");
+    assert!(content.contains("\"tokens_to_answer\": 900"), "fresh delta recorded: {content}");
+    assert!(
+        content.contains("\"cached_tokens_to_answer\": 50000"),
+        "cached delta recorded separately: {content}"
+    );
     assert!(content.contains("\"model\": \"claude-fable-5\""), "model recorded: {content}");
 }
 

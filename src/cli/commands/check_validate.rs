@@ -68,7 +68,9 @@ pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> an
     {
         // One session-spend snapshot per gate run; None for agents that
         // expose no records (fail-open, see adapters::agent_spend)
-        let tokens_at_fire = agent_spend::cumulative_spend(actor.name()).map(|s| s.tokens);
+        let spend = agent_spend::cumulative_spend(actor.name());
+        let tokens_at_fire = spend.as_ref().map(|s| s.fresh);
+        let cached_at_fire = spend.map(|s| s.cached);
         let events: Vec<CheckFireEvent> = core_result
             .blocking
             .iter()
@@ -81,7 +83,7 @@ pub fn check_validate(ci: bool, diff_base: Option<&str>, mode: OutputMode) -> an
                     actor.name().to_string(),
                     tree_oid.clone(),
                 )
-                .with_tokens_at_fire(tokens_at_fire)
+                .with_tokens_at_fire(tokens_at_fire, cached_at_fire)
             })
             .collect();
         let _ = telemetry::append_events(&events);

@@ -43,10 +43,17 @@ pub struct Acknowledgment {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fired_at: Option<String>,
 
-    /// Tokens the agent spent between fire and this answer, from the
-    /// agent's own session records (additive, schema 1; counts only)
+    /// FRESH tokens (input + output + cache writes) the agent spent
+    /// between fire and this answer, from the agent's own session records
+    /// (additive, schema 1; counts only)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens_to_answer: Option<u64>,
+
+    /// Cache-read tokens over the same span: context re-reads, roughly a
+    /// tenth the price of fresh work, never merged into the headline
+    /// (additive, schema 1)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cached_tokens_to_answer: Option<u64>,
 
     /// Model that produced the answer, when the agent records one
     /// (additive, schema 1)
@@ -67,6 +74,7 @@ impl Acknowledgment {
             fire_tree_oid: None,
             fired_at: None,
             tokens_to_answer: None,
+            cached_tokens_to_answer: None,
             model: None,
         }
     }
@@ -92,11 +100,17 @@ impl Acknowledgment {
         self
     }
 
-    /// Attach session spend evidence: tokens burned answering, and the
-    /// model that answered
+    /// Attach session spend evidence: fresh and cached tokens burned
+    /// answering, and the model that answered
     #[must_use]
-    pub fn with_spend(mut self, tokens_to_answer: Option<u64>, model: Option<String>) -> Self {
+    pub fn with_spend(
+        mut self,
+        tokens_to_answer: Option<u64>,
+        cached_tokens_to_answer: Option<u64>,
+        model: Option<String>,
+    ) -> Self {
         self.tokens_to_answer = tokens_to_answer;
+        self.cached_tokens_to_answer = cached_tokens_to_answer;
         self.model = model;
         self
     }

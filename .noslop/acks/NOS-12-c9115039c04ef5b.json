@@ -1,0 +1,13 @@
+{
+  "schema": 1,
+  "check_id": "NOS-12",
+  "message": "SessionSpend split is pure model+adapter change; core models gain only additive Option fields with const builders",
+  "acknowledged_by": "claude-code",
+  "created_at": "2026-07-05T18:50:03.749542093+00:00",
+  "tree_oid": "877088b415d016bd649c17dde9734f02a3b87ac7",
+  "fire_tree_oid": "877088b415d016bd649c17dde9734f02a3b87ac7",
+  "fired_at": "2026-07-05T18:49:51.472517189+00:00",
+  "tokens_to_answer": 0,
+  "cached_tokens_to_answer": 0,
+  "model": "claude-fable-5"
+}
